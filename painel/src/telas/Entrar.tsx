@@ -122,9 +122,9 @@ const splitStyle = `
     display:flex;flex-direction:column;justify-content:space-between;padding:44px 48px;min-height:calc(100vh - 32px)}
   .lcsplit-esq>*{position:relative;z-index:1}
   .lcsplit-esq>.lcauth-bg,.lcsplit-esq>.lcauth-grid,.lcsplit-esq>.lcauth-orb{position:absolute;z-index:0}
-  .lcsplit-esq>.lcsplit-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+  .lcsplit-esq>.lcsplit-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;filter:blur(3px) brightness(.62) saturate(.9);transform:scale(1.04)}
   .lcsplit-esq>.lcsplit-veu{position:absolute;inset:0;z-index:0;
-    background:linear-gradient(180deg,rgba(2,12,7,0) 0%,rgba(2,12,7,.06) 22%,rgba(2,12,7,.42) 46%,rgba(2,12,7,.8) 66%,rgba(2,12,7,.95) 84%,#020c07 100%)}
+    background:linear-gradient(180deg,rgba(2,12,7,.25) 0%,rgba(2,12,7,.32) 22%,rgba(2,12,7,.6) 42%,rgba(2,12,7,.86) 62%,rgba(2,12,7,.96) 80%,#020c07 100%)}
   .lcsplit-baixo{margin-top:auto;display:flex;flex-direction:column}
   .lcsplit-texto{padding-top:32px}
   .lcsplit-marca{display:flex;align-items:center;gap:10px;font-family:var(--fs);font-weight:700;font-size:1.25rem;letter-spacing:-.01em}
@@ -142,6 +142,11 @@ const splitStyle = `
   .lcsplit-carrossel .carousel-description{font-size:.86rem}
   .lcsplit-carrossel .carousel-stage{-webkit-backdrop-filter:none;backdrop-filter:none}
   .lcsplit-carrossel .carousel-bar-fill{background:#34e06b}
+  .lcsplit-carrossel .carousel-card{background:#fff;color:#101828;box-shadow:0 18px 40px -18px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.6)}
+  .lcsplit-carrossel .carousel-card .carousel-title{color:#101828}
+  .lcsplit-carrossel .carousel-card .carousel-description{color:#475467}
+  .lcsplit-carrossel .carousel-card .carousel-icon{background:#e9f9ee;border-color:#c6efd3;color:#00a32c}
+  .lcsplit-titulo{filter:drop-shadow(0 2px 14px rgba(0,0,0,.6))}
   .lcsplit-brilho{width:100%;max-width:420px;animation:lcUp .5s cubic-bezier(.22,1,.36,1) both}
   .lcsplit-brilho .lcsplit-card{border-color:transparent;box-shadow:none;animation:none}
   .lcsplit-brilho>.rb-glow-inner{overflow:visible}
@@ -173,7 +178,7 @@ const splitStyle = `
     .lcsplit-titulo{font-size:1.75rem}
     .lcsplit-chat,.lcsplit-rodape{display:none}
     .lcsplit-texto{padding-top:120px}
-    .lcsplit-esq>.lcsplit-veu{background:linear-gradient(180deg,rgba(2,12,7,.1) 0%,rgba(2,12,7,.35) 28%,rgba(2,12,7,.78) 50%,rgba(2,12,7,.94) 70%,#020c07 100%)}
+    .lcsplit-esq>.lcsplit-veu{background:linear-gradient(180deg,rgba(2,12,7,.3) 0%,rgba(2,12,7,.5) 28%,rgba(2,12,7,.84) 50%,rgba(2,12,7,.96) 70%,#020c07 100%)}
     .lcsplit-lista{margin-top:18px;gap:10px}
     .lcsplit-lista li{font-size:.86rem}
     .lcsplit-carrossel{margin-top:18px}
