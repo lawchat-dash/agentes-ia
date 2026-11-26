@@ -107,7 +107,7 @@ export function TelaConversas() {
     escritorio ? `/conversas?busca=${encodeURIComponent(buscaAplicada)}${idAgente ? `&id_agente=${idAgente}` : ""}` : null, [escritorio]);
   const listaDeAgentes = useCarregar<{ id: string; nome: string }[]>(escritorio ? "/agentes" : null, [escritorio]);
   const id = idParam && ID_VALIDO.test(idParam) ? idParam : null;
-  const conversa = useCarregar<DetalheConversa>(id ? `/conversas/${id}` : null, [escritorio]);
+  const conversa = useCarregar<DetalheConversa>(id ? `/conversas/${id}` : null, [escritorio], { guardar: false }); // conversa aberta: sempre a do servidor
   // Ao trocar de conversa, a anterior não aparece enquanto a nova carrega.
   const detalhe = conversa.dados && conversa.dados.id === id ? conversa.dados : null;
   const naoEncontrada = Boolean(idParam) && (!id || (!detalhe && /não encontrada/i.test(conversa.erro ?? "")));

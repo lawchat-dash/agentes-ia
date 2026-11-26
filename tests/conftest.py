@@ -33,3 +33,12 @@ def opcoes_avaliacao(request):
     opcao = request.config.getoption
     return SimpleNamespace(real=opcao("--real"), rodadas=opcao("--rodadas"), teto_usd=opcao("teto_usd"),
                            regravar=opcao("--regravar"))
+
+
+@pytest.fixture(autouse=True)
+def _sem_cache_curto(monkeypatch):
+    """Os apps dos testes montam só os routers (sem o middleware que apaga o cache curto ao escrever): sem cache aqui.
+    tests/test_cache_curto.py liga de novo para testar o próprio cache."""
+    from app.gestao import cache_curto
+    monkeypatch.setattr(cache_curto, "LIGADO", False)
+    cache_curto.limpar_todos()

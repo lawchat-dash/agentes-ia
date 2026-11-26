@@ -1,4 +1,4 @@
-import { StrictMode, Suspense, lazy, useState } from "react";
+import { StrictMode, Suspense, lazy, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "./index.css";
@@ -57,6 +57,36 @@ const AdminProdutoEditor = lazy(() => import("@/pages/admin/AdminProdutoEditor")
 const Ativar = lazy(() => import("@/pages/Ativar"));
 const ProdutoEditor = lazy(() => import("@/pages/ProdutoEditor"));
 
+/**
+ * Depois que o painel abre, baixa em horário ocioso os arquivos das telas do menu (um por vez): a primeira ida a cada
+ * tela deixa de esperar o JS dela. Só as telas que o papel enxerga; falha de rede aqui é ignorada (a tela baixa de novo
+ * quando for aberta).
+ */
+function usePreCarregarTelas(ligado: boolean, podeGerir: boolean, admin: boolean) {
+  useEffect(() => {
+    if (!ligado) return;
+    const telas: (() => Promise<unknown>)[] = [
+      () => import("./telas/Inicio"), () => import("./telas/Conversas"), () => import("./telas/MinhaConta"),
+      ...(podeGerir ? [
+        () => import("@/pages/MeusProdutos"), () => import("./telas/Agente"), () => import("@/pages/Biblioteca"),
+        () => import("@/pages/BibliotecaDetalhes"), () => import("./telas/Ferramentas"), () => import("./telas/Carteira"),
+        () => import("@/pages/ProdutoEditor"), () => import("./telas/Integracoes"), () => import("./telas/Configuracoes"),
+        () => import("./telas/Roteiros"), () => import("./telas/Historico"), () => import("./telas/Erros"),
+      ] : []),
+      ...(admin ? [() => import("./telas/AdminEscritorios"), () => import("@/pages/admin/AdminProdutos")] : []),
+    ];
+    let cancelado = false;
+    const ocioso = (fn: () => void) => ("requestIdleCallback" in window
+      ? (window as any).requestIdleCallback(fn, { timeout: 3000 }) : (window as Window).setTimeout(fn, 300));
+    const proxima = (i: number) => {
+      if (cancelado || i >= telas.length) return;
+      ocioso(() => { telas[i]().catch(() => undefined).finally(() => proxima(i + 1)); });
+    };
+    const inicio = window.setTimeout(() => proxima(0), 1500);   // deixa a primeira tela terminar de carregar antes
+    return () => { cancelado = true; window.clearTimeout(inicio); };
+  }, [ligado, podeGerir, admin]);
+}
+
 const TITULOS: [RegExp, string][] = [
   [/^\/$/, "Início"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
   [/^\/erros/, "Erros"], [/^\/conversas/, "Conversas"], [/^\/atendimento/, "Central de Atendimento"],
@@ -95,6 +125,7 @@ function TrocarSenha() {
 
 function Rotas() {
   const { eu, carregando, admin, podeGerir, escritorio } = useSessao();
+  usePreCarregarTelas(Boolean(eu), podeGerir, admin);
   if (carregando) return <CarregandoEntrada />;
   if (!eu) return <Entrar />;
   const precisaEscritorio = (tela: JSX.Element) => escritorio ? tela : <Alerta tipo="info">Abra uma conta em Admin › Contas (botão Acessar).</Alerta>;
@@ -171,8 +202,15 @@ function ComEstrutura() {
   );
 }
 
-// Telas copiadas do agents-lawchat-main usam React Query (sem nova tentativa automática, como lá).
-const consultas = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000 } } });
+// Telas copiadas do agents-lawchat-main usam React Query (sem nova tentativa automática, como lá). Voltar a uma tela
+// mostra o dado guardado na hora: até staleTime nem pergunta ao servidor; depois mostra e atualiza por trás. gcTime
+// longo: o dado de uma tela fechada continua guardado por 30 min (o padrão de 5 min fazia a volta cair no esqueleto).
+const consultas = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000, gcTime: 30 * 60_000 } } });
+// Qualquer POST/PUT/DELETE do painel (inclusive das telas sem React Query) marca tudo como velho, sem buscar agora:
+// a próxima abertura de cada tela busca de novo (as mutações continuam invalidando o que é delas, como antes).
+window.addEventListener("agentesia:alterou", () => { consultas.invalidateQueries({ refetchType: "none" }); });
+// Saiu da conta: nada do usuário anterior fica guardado.
+window.addEventListener("agentesia:sair", () => { consultas.clear(); });
 
 createRoot(document.getElementById("raiz")!).render(
   <StrictMode>

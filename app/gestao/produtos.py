@@ -7,6 +7,7 @@ As linhas voltam com os nomes de coluna das tabelas de lá, mais created_at/upda
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -23,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import armazenamento
+from app.gestao.cache_curto import CacheCurto
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
 
 api = APIRouter(prefix="/api")
@@ -88,6 +90,14 @@ def slugificar(texto: str) -> str:
 @api.get("/biblioteca/produtos")
 async def listar_produtos(pedido: Request, todos: bool = False, ctx: Contexto = Depends(TODOS)) -> list[dict[str, Any]]:
     situacoes = ["publicado", "em_breve"] + (["rascunho"] if todos and ctx.admin else [])
+    # O catálogo é o mesmo para todos os escritórios e só muda pela LawChat: 60 s (escrita no painel apaga a cópia).
+    return await _CACHE_CATALOGO.obter((id(pedido.app), tuple(situacoes)), lambda: _listar_produtos(pedido, situacoes))
+
+
+_CACHE_CATALOGO = CacheCurto(60)
+
+
+async def _listar_produtos(pedido: Request, situacoes: list[str]) -> list[dict[str, Any]]:
     return _linhas(await _pool(pedido).fetch(
         # n_agentes: papéis do núcleo (o período de graça é ramo opcional e não entra na contagem, como no painel).
         """select p.*, (select count(*) from agentesia_biblioteca_agentes a where a.id_produto_biblioteca = p.id
@@ -458,18 +468,21 @@ async def ver_ativado(id_ativado: str, pedido: Request, ctx: Contexto = Depends(
     variables: dict[str, Any] = {}
     comportamento: dict[str, Any] | None = None
     if produto.get("id_agente"):
-        agente = await pool.fetchrow("select config, id_canal, minutos_pausa_humano from agentesia_agentes where id = $1::uuid", produto["id_agente"])
+        # O agente e as etapas em paralelo (uma espera pelo banco em vez de duas).
+        agente, linhas_etapas = await asyncio.gather(
+            pool.fetchrow("select config, id_canal, minutos_pausa_humano from agentesia_agentes where id = $1::uuid", produto["id_agente"]),
+            pool.fetch("""select id, codigo, ordem, instrucao, temperatura, modelo from agentesia_agente_etapas
+                          where id_agente = $1::uuid and tipo = 'conversa' order by ordem""", produto["id_agente"]))
         config = json.loads(agente["config"]) if agente and isinstance(agente["config"], str) else (agente["config"] if agente else {}) or {}
         if agente:
             comportamento = {"id": produto["id_agente"], "modelo": (config.get("modelos") or {}).get("etapa") or "gpt-4.1-mini",
                              "temperatura": config.get("temperatura", 0.7), "delay_s": config.get("espera_s", 10),
+                             "caracteres_msg": int(config.get("caracteres_por_mensagem") or 0),
                              "pausa_min": -1 if config.get("pausa_sem_volta") else agente["minutos_pausa_humano"],
                              "id_canal": str(agente["id_canal"]) if agente["id_canal"] else None}
         catalogo = config.get("catalogo") or {}
         variables = config.get("variables") or {}
-        for e in await pool.fetch(
-                """select id, codigo, ordem, instrucao, temperatura, modelo from agentesia_agente_etapas
-                   where id_agente = $1::uuid and tipo = 'conversa' order by ordem""", produto["id_agente"]):
+        for e in linhas_etapas:
             papel = catalogo.get("papeis", {}).get(e["codigo"], {})
             etapas.append({"id": str(e["id"]), "id_agente": produto["id_agente"], "etapa": e["codigo"], "ordem": e["ordem"],
                            "prompt": e["instrucao"] or "", "nome": papel.get("nome") or NOMES_PAPEL.get(e["codigo"], e["codigo"]),
@@ -626,6 +639,8 @@ class Ativar(BaseModel):
     id_canal: str | None = None
     delay_s: int = 10
     pausa_min: int = 30
+    # Tamanho das mensagens da IA (caracteres por balão): 0 = padrão (~320); 160 curtas, 600 longas, 2000 uma só.
+    caracteres_msg: int = 0
     temperatura: float = 0.7
     modelo: str = "gpt-4.1-mini"
     ativar_imediatamente: bool = True
@@ -681,6 +696,7 @@ def _config_do_agente(dados: Ativar, catalogo: dict[str, Any], produto: dict[str
     objecoes = dados.objecoes if dados.objecoes is not None else produto.get("objecoes") or []
     return {
         "espera_s": max(0, min(int(dados.delay_s), 120)),
+        "caracteres_por_mensagem": max(0, min(int(dados.caracteres_msg or 0), 2000)),
         "pausa_sem_volta": dados.pausa_min < 0,
         "temperatura": max(0.0, min(float(dados.temperatura), 2.0)),
         "modelos": {"etapa": dados.modelo, "extrator": "gpt-4.1-mini"},
@@ -1017,9 +1033,10 @@ async def _uso_midia(pool: asyncpg.Pool, id_escritorio: str) -> int:
 @api.get("/midia")
 async def listar_midia(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     pool = _pool(pedido)
-    itens = _linhas(await pool.fetch("select * from agentesia_biblioteca_midia where id_escritorio = $1::uuid order by criado_em desc",
-                                     ctx.escritorio()))
-    return {"itens": itens, "usado_bytes": await _uso_midia(pool, ctx.escritorio()), "limite_bytes": COTA_MIDIA}
+    linhas, usado = await asyncio.gather(
+        pool.fetch("select * from agentesia_biblioteca_midia where id_escritorio = $1::uuid order by criado_em desc", ctx.escritorio()),
+        _uso_midia(pool, ctx.escritorio()))
+    return {"itens": _linhas(linhas), "usado_bytes": usado, "limite_bytes": COTA_MIDIA}
 
 
 @api.post("/midia")

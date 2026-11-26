@@ -200,6 +200,14 @@ const BUILD_STEPS = [
   { label: "Finalizando o provisionamento", Icon: Rocket },
 ];
 
+/** Opções de "Tamanho das mensagens" (caracteres por balão). 0 = o padrão do sistema (~320). */
+const TAMANHOS_MSG = [
+  { valor: 160, rotulo: "Curtas", resumo: "até ~160 caracteres", baloes: 4, largura: 10 },
+  { valor: 0, rotulo: "Médias", resumo: "até ~320 (padrão)", baloes: 3, largura: 16 },
+  { valor: 600, rotulo: "Longas", resumo: "até ~600 caracteres", baloes: 2, largura: 26 },
+  { valor: 2000, rotulo: "Uma só", resumo: "não divide", baloes: 1, largura: 46 },
+];
+
 /** Dados de um produto JÁ ativado para abrir o configurador em modo edição. */
 export interface ProductConfiguratorEditData {
   /** Template-mãe (shape de useTemplate): id, name, version, category, recommended_model, slug. */
@@ -220,6 +228,8 @@ export interface ProductConfiguratorEditData {
   selectedModel?: string;
   temperature?: number;
   responseDelay?: number;
+  /** Tamanho das mensagens da IA (caracteres por balão; 0 = padrão). */
+  charsMsg?: number;
   humanPause?: number;
   schedule24?: boolean;
   /** config COMPLETO da etapa por papel (agente_etapas.config) — base p/ regravar no bot. */
@@ -276,6 +286,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [apiKey, setApiKey] = useState("");
   const [temperature, setTemperature] = useState([editData?.temperature ?? 0.7]);
   const [responseDelay, setResponseDelay] = useState<number>(editData?.responseDelay ?? 10); // segundos
+  const [charsMsg, setCharsMsg] = useState<number>(editData?.charsMsg ?? 0); // caracteres por mensagem (0 = padrão)
   const [humanPause, setHumanPause] = useState<number>(editData?.humanPause ?? 30); // minutos (-1 = nunca)
   const [activateNow, setActivateNow] = useState(true);
   // Etapa "Follow-up": vem LIGADO (opt-out, docs/FOLLOWUP.md); a cadência é a padrão do produto da biblioteca.
@@ -1075,6 +1086,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       numero_ia: numero || null,
       id_canal: idCanal,
       delay_s: responseDelay,
+      caracteres_msg: charsMsg,
       pausa_min: humanPause,
       temperatura: temperature[0],
       modelo: selectedModel,
@@ -1632,6 +1644,38 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                       </div>
                     </div>
                   </div>
+                </Card>
+
+                {/* Tamanho das mensagens: em quantos caracteres a IA divide a resposta */}
+                <Card className="p-6 lc-card">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <Label className="text-sm font-semibold text-[#101828]">Tamanho das mensagens</Label>
+                      <p className="text-xs text-[#667085] mt-1">Em quantos caracteres a IA divide a resposta antes de enviar. Mensagens curtas parecem conversa; longas explicam mais de uma vez.</p>
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ color: catC1, backgroundColor: `${catC1}14` }}>
+                      {TAMANHOS_MSG.find((t) => t.valor === charsMsg)?.resumo ?? `até ${charsMsg} caracteres`}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {TAMANHOS_MSG.map((t) => {
+                      const on = charsMsg === t.valor;
+                      return (
+                        <button key={t.valor} type="button" onClick={() => setCharsMsg(t.valor)}
+                          style={on ? { borderColor: catC1, boxShadow: `0 0 0 3px ${catC1}22`, backgroundColor: `${catC1}0d` } : undefined}
+                          className={`rounded-xl border px-3 py-2.5 text-left transition-all ${on ? "" : "border-[#E2E8F0] hover:border-[var(--cat)]"}`}>
+                          <div className="text-[13px] font-semibold text-[#101828]">{t.rotulo}</div>
+                          <div className="text-[11px] text-[#667085] mt-0.5">{t.resumo}</div>
+                          <div className="mt-2 flex gap-0.5" aria-hidden>
+                            {Array.from({ length: t.baloes }).map((_, i) => (
+                              <span key={i} className="h-1.5 rounded-full" style={{ width: t.largura, backgroundColor: on ? catC1 : "#d0d5dd" }} />
+                            ))}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-[11px] text-[#98A2B3]">A divisão respeita frases e parágrafos (nunca corta uma palavra). Links e mídias vão sempre sozinhos.</p>
                 </Card>
 
                 {/* Pausa por intervenção humana */}

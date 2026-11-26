@@ -122,8 +122,9 @@ async def _ciclo_painel(app: FastAPI):
         from app.banco.postgres import RepositorioPostgres
         from app.gestao.repositorio import RepositorioGestao
 
-        # Pool menor que o da IA (padrão 5): o painel só atende telas.
-        repo = await RepositorioPostgres.conectar(cfg.banco_url, int(os.environ.get("AGENTESIA_BANCO_CONEXOES", "5")),
+        # Padrão 10: o Início abre ~8 pedidos de uma vez e várias rotas leem em paralelo (asyncio.gather); com 5 os
+        # pedidos esperavam conexão livre, e cada ida ao banco (us-west-2) custa ~200 ms.
+        repo = await RepositorioPostgres.conectar(cfg.banco_url, int(os.environ.get("AGENTESIA_BANCO_CONEXOES", "10")),
                                                   conferir=True)
         app.state.gestao = RepositorioGestao(repo._pool)
         log.info("painel ligado ao banco (sem laços de fundo)")
@@ -175,6 +176,12 @@ def criar_app(papel: Papel = "tudo") -> FastAPI:
         app.add_api_route("/saude", _saude_do_painel, methods=["GET"])
     app.state = principal.app.state                      # as rotas do main.py leem este objeto (ver o topo)
     _montar_rotas(app, papel)
+    if papel == "painel":
+        # Os middlewares do app.main não vêm junto com as rotas: sem isto o painel em produção mandava o JS e o JSON
+        # sem compressão e nunca apagava os caches curtos ao salvar.
+        from app.gestao.cache_curto import LimparAoEscrever
+        app.add_middleware(principal._GzipDoPainel)
+        app.add_middleware(LimparAoEscrever)
     return app
 
 

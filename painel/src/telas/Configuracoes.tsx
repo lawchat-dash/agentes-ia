@@ -40,7 +40,7 @@ export function CampoDominioHelena({ valor, aoMudar }: { valor: string; aoMudar:
 
 export function TelaConfiguracoes() {
   const { escritorio, admin } = useSessao();
-  const { dados, erro, recarregar } = useCarregar<Escritorio>("/escritorio", [escritorio]);
+  const { dados, erro, recarregar } = useCarregar<Escritorio>("/escritorio", [escritorio], { guardar: false }); // formulário: sempre o dado do servidor
   const { ocupado, executar } = useAcao();
   const [form, setForm] = useState({ nome: "", honorarios: "", horario_inicio: 8, horario_fim: 18, horario_dias: [0, 1, 2, 3, 4], modo_ia_horario: "sempre", etiquetas_por_produto: {} as Record<string, string>, dominio_helena: "" });
   const [novo, setNovo] = useState<{ email: string; nome: string; papel: string } | null>(null);

@@ -66,22 +66,40 @@ async def _saldo(pool: Any, id_escritorio: str) -> tuple[str, str]:
     return "pendente", "sem saldo: a IA para de responder até entrar uma recarga"
 
 
+_SQL_PASSOS = """
+select exists(select 1 from agentesia_escritorios where id = $1::uuid) as existe,
+       (select e.config from agentesia_escritorios e where e.id = $1::uuid) as config,
+       (select i.situacao from agentesia_integracoes i where i.id_escritorio = $1::uuid and i.tipo = 'helena') as helena,
+       (select coalesce(json_agg(json_build_object('tipo', i.tipo, 'situacao', i.situacao, 'config', i.config)), '[]'::json)
+          from agentesia_integracoes i where i.id_escritorio = $1::uuid) as integracoes,
+       (select coalesce(json_agg(json_build_object('id', a.id::text, 'nome', a.nome, 'situacao', a.situacao, 'config', a.config,
+                                                   'tem_numero', a.id_canal is not null) order by a.criado_em), '[]'::json)
+          from agentesia_agentes a where a.id_escritorio = $1::uuid) as agentes,
+       (select count(*) from agentesia_canais where id_escritorio = $1::uuid and ativo) as numeros,
+       (select min(m.enviada_em) from agentesia_mensagens m where m.id_escritorio = $1::uuid and m.autor = 'lead') as primeira
+"""
+
+
+def _lista(valor: Any) -> list[dict[str, Any]]:
+    if isinstance(valor, str):
+        valor = json.loads(valor)
+    return valor if isinstance(valor, list) else []
+
+
 async def calcular(pool: Any, id_escritorio: str) -> dict[str, Any]:
     """Os 7 passos do escritório, com o próximo a fazer e o total."""
-    escritorio = await pool.fetchrow(
-        """select e.config, (select situacao from agentesia_integracoes i where i.id_escritorio = e.id and i.tipo = 'helena') as helena
-           from agentesia_escritorios e where e.id = $1::uuid""", id_escritorio)
-    config_escritorio = _obj(escritorio["config"]) if escritorio else {}
-    integracoes = {r["tipo"]: {"situacao": r["situacao"], "config": _obj(r["config"])} for r in await pool.fetch(
-        "select tipo, situacao, config from agentesia_integracoes where id_escritorio = $1::uuid", id_escritorio)}
-    agentes = [dict(r) | {"config": _obj(r["config"])} for r in await pool.fetch(
-        """select a.id::text as id, a.nome, a.situacao, a.config, a.id_canal is not null as tem_numero
-           from agentesia_agentes a where a.id_escritorio = $1::uuid order by a.criado_em""", id_escritorio)]
-    numeros = await pool.fetchval(
-        "select count(*) from agentesia_canais where id_escritorio = $1::uuid and ativo", id_escritorio) or 0
-    primeira = await pool.fetchval(
-        """select min(m.enviada_em) from agentesia_mensagens m
-           where m.id_escritorio = $1::uuid and m.autor = 'lead'""", id_escritorio)
+    import asyncio
+    # Uma consulta só (escritório, integrações, agentes, números e primeira mensagem) em paralelo com a do saldo: antes
+    # eram 6 a 7 idas ao banco em sequência (~200 ms cada com o banco em us-west-2).
+    linha, (situacao_saldo, detalhe_saldo) = await asyncio.gather(pool.fetchrow(_SQL_PASSOS, id_escritorio),
+                                                                  _saldo(pool, id_escritorio))
+    escritorio = {"helena": linha["helena"]} if linha["existe"] else None
+    config_escritorio = _obj(linha["config"]) if escritorio else {}
+    integracoes = {r["tipo"]: {"situacao": r["situacao"], "config": _obj(r["config"])}
+                   for r in _lista(linha["integracoes"])}
+    agentes = [dict(r) | {"config": _obj(r["config"])} for r in _lista(linha["agentes"])]
+    numeros = linha["numeros"] or 0
+    primeira = linha["primeira"]
 
     passos: dict[str, dict[str, Any]] = {}
 
@@ -142,8 +160,7 @@ async def calcular(pool: Any, id_escritorio: str) -> dict[str, Any]:
           "/atendimento", "Abrir a Central")
 
     # 7. Saldo
-    situacao, detalhe = await _saldo(pool, id_escritorio)
-    passo("saldo", situacao, detalhe, "/consumo", "Ver créditos")
+    passo("saldo", situacao_saldo, detalhe_saldo, "/consumo", "Ver créditos")
 
     lista = [passos[c] for c, _ in PASSOS]
     feitos = sum(1 for p in lista if p["situacao"] in FEITOS)
@@ -152,15 +169,23 @@ async def calcular(pool: Any, id_escritorio: str) -> dict[str, Any]:
 
 
 async def de_todos(pool: Any) -> dict[str, dict[str, Any]]:
-    """Progresso de cada escritório (coluna "Progresso" das Contas): feitos, total e os títulos que faltam."""
+    """Progresso de cada escritório (coluna "Progresso" das Contas): feitos, total e os títulos que faltam.
+    Até 2 escritórios ao mesmo tempo (cada um usa 2 conexões; o pool do painel é pequeno) (antes um depois do outro: N contas x idas ao banco em sequência)."""
+    import asyncio
+    import logging
     saida: dict[str, dict[str, Any]] = {}
-    for linha in await pool.fetch("select id::text as id from agentesia_escritorios"):
-        try:
-            r = await calcular(pool, linha["id"])
-        except Exception:                               # uma conta com dado estranho não derruba a tabela
-            import logging
-            logging.getLogger("agentesia").exception("falha nos primeiros passos de %s", linha["id"])
-            continue
-        saida[linha["id"]] = {"feitos": r["feitos"], "total": r["total"], "completo": r["completo"],
-                              "faltam": [f"{p['titulo']}: {p['detalhe']}" for p in r["passos"] if p["situacao"] not in FEITOS]}
-    return saida
+    vagas = asyncio.Semaphore(2)
+
+    async def um(id_escritorio: str) -> None:
+        async with vagas:
+            try:
+                r = await calcular(pool, id_escritorio)
+            except Exception:                           # uma conta com dado estranho não derruba a tabela
+                logging.getLogger("agentesia").exception("falha nos primeiros passos de %s", id_escritorio)
+                return
+        saida[id_escritorio] = {"feitos": r["feitos"], "total": r["total"], "completo": r["completo"],
+                                "faltam": [f"{p['titulo']}: {p['detalhe']}" for p in r["passos"] if p["situacao"] not in FEITOS]}
+
+    ids = [linha["id"] for linha in await pool.fetch("select id::text as id from agentesia_escritorios order by criado_em")]
+    await asyncio.gather(*(um(i) for i in ids))
+    return {i: saida[i] for i in ids if i in saida}

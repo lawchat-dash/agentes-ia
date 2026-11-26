@@ -7,7 +7,27 @@ import re
 LIMITE_POR_MENSAGEM = 320
 
 
+# Chips internos do prompt (nunca chegam ao lead): "@Comercial", "@Agente Closer", "@Transferência: X",
+# "→ @Análise da equipe", "acionar tool `x`". Se a IA copiar um deles na resposta, ele sai aqui, antes do envio.
+_PAPEIS_CHIP = (r"SDR|Comercial|Closer|Coleta de Dados|Acompanhamento Assinatura|Assinatura|Desqualificado|"
+                r"Per[ií]odo de Gra[cç]a|An[aá]lise da equipe|Buscar CEP|ZapSign")
+_CHIP_INTERNO = re.compile(
+    r"(?:→\s*)?@(?:Transfer[eê]ncia:\s*[\wÀ-ÿ ]+?(?=[.,;!?\n]|$)|(?:Agente\s+)?(?:" + _PAPEIS_CHIP + r")(?![\wÀ-ÿ]))"
+    r"|acionar\s+(?:a\s+)?tool\s+`[^`]*`", re.IGNORECASE)
+
+
+def tirar_chips(texto: str) -> str:
+    """Tira os chips internos do prompt de um texto que vai para o lead (e-mail com @ não é chip: fica)."""
+    if "@" not in texto and "tool" not in texto.lower():
+        return texto
+    limpo = _CHIP_INTERNO.sub("", texto)
+    limpo = re.sub(r"[ \t]+([,.;!?])", r"\1", limpo)
+    limpo = re.sub(r"(?:\s*\b(?:para|pro|pra|com|o|a|ao)\b)+\s*([.!?])", r"\1", limpo)  # "para o ." que sobrou
+    return re.sub(r"[ \t]{2,}", " ", limpo).strip()
+
+
 def limpar(texto: str) -> str:
+    texto = tirar_chips(texto)
     texto = re.sub(r"\*\*(.+?)\*\*", r"\1", texto)            # negrito de Markdown
     texto = re.sub(r"^#{1,6}\s*", "", texto, flags=re.MULTILINE)  # títulos
     texto = re.sub(r"^\s*[-•]\s+", "", texto, flags=re.MULTILINE)  # marcadores de lista
@@ -85,6 +105,32 @@ def juntar_excedente(partes: list[dict[str, object]], teto: int = TETO_DE_BALOES
         i = melhor[1]
         texto = f"{saida[i]['texto']}\n\n{saida[i + 1]['texto']}"
         saida[i:i + 2] = [{**saida[i], "texto": texto, "espera_s": tempo_de_digitacao(texto)}]
+    return saida
+
+
+def redividir(partes: list[dict[str, object]], limite: int) -> list[dict[str, object]]:
+    """Tamanho das mensagens escolhido no agente (config["caracteres_por_mensagem"]): junta os textos vizinhos e quebra
+    de novo em mensagens de até `limite` caracteres, por parágrafo e frase (sem cortar palavra). Mídia e link ficam
+    sozinhos, como sempre. limite <= 0: deixa como está."""
+    if limite <= 0:
+        return partes
+    saida: list[dict[str, object]] = []
+    bloco: list[str] = []
+
+    def fechar() -> None:
+        if bloco:
+            for parte in dividir("\n\n".join(bloco), limite):
+                saida.append({"tipo": "texto", "texto": parte, "espera_s": tempo_de_digitacao(parte)})
+            bloco.clear()
+
+    for parte in partes:
+        texto = str(parte.get("texto") or "")
+        if parte.get("tipo") != "texto" or _LINK.search(texto):
+            fechar()
+            saida.append(parte)
+        else:
+            bloco.append(texto)
+    fechar()
     return saida
 
 

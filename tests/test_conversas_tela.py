@@ -58,7 +58,7 @@ def test_rota_e_menu_da_tela():
     assert main.index('path="/conversas/:id?"') < main.index("{podeGerir && <>\n          <Route path=\"/agentes\"")
     # A pedido do dono, Conversas saiu do menu (a Central de Atendimento ocupa esse lugar); a tela segue pela rota.
     assert '{ para: "/conversas", rotulo: "Conversas"' not in estrutura
-    assert '{ para: "/atendimento", rotulo: "Central de Atendimento"' in estrutura
+    assert '{ para: "/atendimento", rotulo: "Atendimento"' in estrutura
 
 
 @pytest.fixture

@@ -57,6 +57,51 @@ export function escolherVisao(v: Visao): void {
 const REAPROVEITAR_MS = 2000;
 const recentes = new Map<string, Promise<{ status: number; ok: boolean; texto: string }>>();
 
+function cabecalhosDoEscritorio(caminho: string): Record<string, string> {
+  const cabecalhos: Record<string, string> = {};
+  const escritorio = escritorioEscolhido();
+  if (escritorio) cabecalhos["X-Escritorio"] = escritorio;
+  const visao = visaoEscolhida();
+  // A visão do cliente vale para as telas do escritório; as rotas da LawChat (/admin) seguem como LawChat.
+  if (escritorio && visao !== "lawchat" && !caminho.startsWith("/admin")) cabecalhos["X-Visao"] = visao;
+  return cabecalhos;
+}
+
+/** Chave de um GET: caminho + escritório + visão (o mesmo caminho em outro escritório é outro dado). */
+export function chaveDoPedido(caminho: string): string {
+  const c = cabecalhosDoEscritorio(caminho);
+  return `${caminho}|${c["X-Escritorio"] ?? ""}|${c["X-Visao"] ?? ""}`;
+}
+
+/**
+ * Última resposta de cada GET das telas (useCarregar): ao voltar a uma tela ela aparece na hora com o dado anterior
+ * e atualiza por trás (stale-while-revalidate). Qualquer POST/PUT/PATCH/DELETE apaga tudo (e avisa o React Query),
+ * e uma resposta que chegou depois de uma escrita começada antes dela não é guardada (`geracao`).
+ */
+const ULTIMAS_MAX = 150;
+const ultimas = new Map<string, unknown>();
+let geracao = 0;
+
+export function geracaoAtual(): number { return geracao; }
+export function ultimaResposta<T>(caminho: string): T | undefined { return ultimas.get(chaveDoPedido(caminho)) as T | undefined; }
+export function guardarResposta(caminho: string, dados: unknown, geracaoDoInicio: number): void {
+  if (geracaoDoInicio !== geracao) return;
+  const chave = chaveDoPedido(caminho);
+  ultimas.delete(chave);                                   // reinsere no fim: o Map vira uma fila "mais recente por último"
+  ultimas.set(chave, dados);
+  if (ultimas.size > ULTIMAS_MAX) ultimas.delete(ultimas.keys().next().value as string);
+}
+export function esquecerRespostas(): void {
+  geracao += 1;
+  ultimas.clear();
+  recentes.clear();
+}
+
+// POSTs que não mudam dado nenhum das telas: não apagam o que está guardado. /atendimento/entrar só gera o link de
+// entrada na LawChat e a camada de telas da LawChat chama vários ao abrir o painel (mesma lista em
+// app/gestao/cache_curto.py).
+const NAO_ALTERAM = ["/atendimento/entrar"];
+
 function pedirUmaVez(caminho: string, metodo: string, cabecalhos: Record<string, string>, corpo: unknown) {
   const fazer = () => fetch(`/api${caminho}`, {
     method: metodo,
@@ -64,9 +109,14 @@ function pedirUmaVez(caminho: string, metodo: string, cabecalhos: Record<string,
     credentials: "same-origin",
     body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
   }).then(async (r) => ({ status: r.status, ok: r.ok, texto: await r.text() }));
+  if (metodo !== "GET" && NAO_ALTERAM.includes(caminho)) return fazer();
   if (metodo !== "GET") {
-    recentes.clear();
-    return fazer();
+    esquecerRespostas();
+    // Avisa quem guarda dado (React Query, em main.tsx) quando a escrita termina (antes dela o servidor ainda não mudou).
+    const avisar = () => { esquecerRespostas(); window.dispatchEvent(new Event("agentesia:alterou")); };
+    const promessa = fazer();
+    promessa.then(avisar, avisar);
+    return promessa;
   }
   const chave = `${caminho}|${cabecalhos["X-Escritorio"] ?? ""}|${cabecalhos["X-Visao"] ?? ""}`;
   const existente = recentes.get(chave);
@@ -79,16 +129,12 @@ function pedirUmaVez(caminho: string, metodo: string, cabecalhos: Record<string,
 }
 
 export async function api<T = any>(caminho: string, opcoes: { metodo?: string; corpo?: unknown } = {}): Promise<T> {
-  const cabecalhos: Record<string, string> = { Accept: "application/json" };
+  const cabecalhos: Record<string, string> = { Accept: "application/json", ...cabecalhosDoEscritorio(caminho) };
   if (opcoes.corpo !== undefined) cabecalhos["Content-Type"] = "application/json";
-  const escritorio = escritorioEscolhido();
-  if (escritorio) cabecalhos["X-Escritorio"] = escritorio;
-  const visao = visaoEscolhida();
-  // A visão do cliente vale para as telas do escritório; as rotas da LawChat (/admin) seguem como LawChat.
-  if (escritorio && visao !== "lawchat" && !caminho.startsWith("/admin")) cabecalhos["X-Visao"] = visao;
   const metodo = opcoes.metodo ?? (opcoes.corpo !== undefined ? "POST" : "GET");
   const { status, ok, texto } = await pedirUmaVez(caminho, metodo, cabecalhos, opcoes.corpo);
   if (status === 401 && !caminho.startsWith("/entrar")) {
+    esquecerRespostas();                                   // sessão caiu: nada de dado guardado para o próximo login
     window.dispatchEvent(new Event("agentesia:sair"));
   }
   const dados = texto ? (() => { try { return JSON.parse(texto); } catch { return texto; } })() : null;

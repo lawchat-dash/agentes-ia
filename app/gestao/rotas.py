@@ -13,6 +13,7 @@ continua com o nome de quem fez a alteração.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -33,6 +34,7 @@ from app.cerebro import auxilio_acidente, sinais
 from app.cerebro import produto as produtos
 from app.cerebro.produto_livre import Definicao
 from app.gestao import ativacao, seguranca
+from app.gestao.cache_curto import CacheCurto
 from app.gestao.repositorio import RepositorioGestao, _linhas
 
 COOKIE = "agentesia_sessao"
@@ -468,8 +470,8 @@ async def eu(pedido: Request, ctx: Contexto = Depends(contexto)) -> dict[str, An
             id_esc = await repo.pool.fetchval(
                 "select id from agentesia_escritorios where id_conta_helena = $1::uuid order by criado_em limit 1", conta)
             resposta["escritorio_lawchat"] = str(id_esc) if id_esc else None
-            if id_esc:
-                repo._escritorio_lawchat = (conta, time.monotonic(), resposta["escritorio_lawchat"])
+            # Guarda também o "não tem" (antes cada /eu ia ao banco enquanto a conta LawChat não existia).
+            repo._escritorio_lawchat = (conta, time.monotonic(), resposta["escritorio_lawchat"])
     return resposta
 
 
@@ -707,14 +709,18 @@ async def _agente_do_escritorio(repo: Any, ctx: Contexto, id_agente: str) -> dic
 @api.get("/agentes/{id_agente}/documentos")
 async def listar_documentos(id_agente: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
     repo = _repo(pedido)
-    await _agente_do_escritorio(repo, ctx, id_agente)
+
+    async def ler_papeis() -> dict[str, list[str]]:
+        try:
+            return {str(l["id"]): list(l["papeis"] or []) for l in await repo.pool.fetch(
+                "select id, papeis from agentesia_documentos where id_agente = $1::uuid", id_agente)}
+        except Exception:                              # noqa: BLE001 - banco sem a migração 003
+            return {}
+
+    # A conferência do agente e as duas leituras em paralelo (o resultado só sai se o agente for deste escritório).
+    _, todos, papeis = await asyncio.gather(_agente_do_escritorio(repo, ctx, id_agente), repo.documentos(id_agente), ler_papeis())
     # FAQ e objeções (documentos virtuais) são editados na aba Conhecimento: não aparecem na lista de documentos.
-    documentos = [d for d in await repo.documentos(id_agente) if d.get("tipo") in ("arquivo", "texto", None)]
-    try:
-        papeis = {str(l["id"]): list(l["papeis"] or []) for l in await repo.pool.fetch(
-            "select id, papeis from agentesia_documentos where id_agente = $1::uuid", id_agente)}
-    except Exception:                                  # noqa: BLE001 - banco sem a migração 003
-        papeis = {}
+    documentos = [d for d in todos if d.get("tipo") in ("arquivo", "texto", None)]
     return [{**d, "papeis": papeis.get(str(d["id"]), [])} for d in documentos]
 
 
@@ -807,14 +813,14 @@ async def listar_lacunas(id_agente: str, pedido: Request, situacao: str = "abert
                          ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
     """Perguntas que a IA não achou na base nem no prompt (a mais repetida primeiro)."""
     repo = _repo(pedido)
-    await _agente_do_escritorio(repo, ctx, id_agente)
     if situacao not in ("aberta", "respondida", "ignorada"):
         raise HTTPException(400, "Situação inválida.")
-    return _linhas(await repo.pool.fetch(
+    _, linhas = await asyncio.gather(_agente_do_escritorio(repo, ctx, id_agente), repo.pool.fetch(
         """select id, papel, pergunta, vezes, situacao, resposta, ultimo_lead, criado_em, ultima_em
            from agentesia_conhecimento_lacunas
            where id_agente = $1::uuid and id_escritorio = $2::uuid and situacao = $3
            order by vezes desc, ultima_em desc limit 200""", id_agente, ctx.escritorio(), situacao))
+    return _linhas(linhas)
 
 
 class RespostaDaLacuna(BaseModel):
@@ -1015,10 +1021,10 @@ class AlterarEscritorio(BaseModel):
 @api.get("/escritorio")
 async def ver_escritorio(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
     repo = _repo(pedido)
-    escritorio = await repo.escritorio(ctx.escritorio())
+    escritorio, usuarios = await asyncio.gather(repo.escritorio(ctx.escritorio()), repo.usuarios_do_escritorio(ctx.escritorio()))
     if not escritorio:
         raise HTTPException(404, "Escritório não encontrado.")
-    escritorio["usuarios"] = await repo.usuarios_do_escritorio(escritorio["id"])
+    escritorio["usuarios"] = usuarios
     return escritorio
 
 
@@ -1122,8 +1128,8 @@ async def _salvar_token_helena(pedido: Request, repo: RepositorioGestao, id_escr
 @api.get("/integracoes")
 async def ver_integracoes(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     repo = _repo(pedido)
-    integracoes = await repo.integracoes(ctx.escritorio())
-    return {"integracoes": integracoes, "canais": await repo.canais(ctx.escritorio()),
+    integracoes, canais = await asyncio.gather(repo.integracoes(ctx.escritorio()), repo.canais(ctx.escritorio()))
+    return {"integracoes": integracoes, "canais": canais,
             "url_webhook_configurada": bool(_url_webhook(pedido, ctx.escritorio())),
             "url_webhook_zapsign": url_do_escritorio(ctx.escritorio(), "zapsign"),
             "url_botao_ia": url_do_botao_ia(ctx.escritorio())}
@@ -1925,18 +1931,19 @@ def _followup_para_tela(bruto: dict[str, Any] | None) -> dict[str, Any]:
 async def ver_followup(id_agente: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     from app.followup import regras
     repo = _repo(pedido)
-    agente = await repo.agente(ctx.escritorio(), id_agente)
-    if not agente:
-        raise HTTPException(404, "Agente não encontrado.")
-    produto = _produto_do(agente)
-    proximos = _linhas(await repo.pool.fetch(
+    # O agente e as duas listas em paralelo (as listas só saem se o agente for deste escritório).
+    agente, proximos, recentes = await asyncio.gather(repo.agente(ctx.escritorio(), id_agente), repo.pool.fetch(
         """select f.passo, f.agendado_para, f.situacao, f.motivo, ct.nome, right(ct.telefone_normalizado, 4) as final
            from agentesia_followups f join agentesia_leads l on l.id = f.id_lead join agentesia_contatos ct on ct.id = l.id_contato
-           where f.id_agente = $1::uuid and f.situacao in ('pendente', 'reservado') order by f.agendado_para limit 30""", id_agente))
-    recentes = _linhas(await repo.pool.fetch(
+           where f.id_agente = $1::uuid and f.situacao in ('pendente', 'reservado') order by f.agendado_para limit 30""", id_agente),
+        repo.pool.fetch(
         """select f.passo, f.enviado_em, f.atualizado_em, f.situacao, f.motivo, f.mensagens, ct.nome
            from agentesia_followups f join agentesia_leads l on l.id = f.id_lead join agentesia_contatos ct on ct.id = l.id_contato
            where f.id_agente = $1::uuid and f.situacao in ('enviado', 'falhou', 'cancelado') order by f.atualizado_em desc limit 30""", id_agente))
+    if not agente:
+        raise HTTPException(404, "Agente não encontrado.")
+    produto = _produto_do(agente)
+    proximos, recentes = _linhas(proximos), _linhas(recentes)
     return {"config": _followup_para_tela((agente.get("config") or {}).get("followup")),
             "padrao": {"prompt": regras.PROMPT_PADRAO, "cadencia": list(regras.CADENCIA_PADRAO),
                        "instrucoes": {str(k): v for k, v in regras.INSTRUCAO_PASSO_PADRAO.items()}},
@@ -2192,8 +2199,9 @@ def _eventos_do_escritorio(agentes: list[dict[str, Any]]) -> dict[str, str]:
 @api.get("/notificacoes")
 async def listar_avisos(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     repo = _repo(pedido)
-    return {"eventos": _eventos_do_escritorio(await repo.agentes(ctx.escritorio())),
-            "avisos": await repo.notificacoes(ctx.escritorio()),
+    agentes, avisos = await asyncio.gather(repo.agentes(ctx.escritorio()), repo.notificacoes(ctx.escritorio()))
+    return {"eventos": _eventos_do_escritorio(agentes),
+            "avisos": avisos,
             "modelo_padrao": notificacoes.MODELO_PADRAO, "marcadores": list(notificacoes.MARCADORES)}
 
 
@@ -2271,8 +2279,20 @@ class AcaoLead(BaseModel):
     minutos: int | None = Field(default=None, ge=0, le=10080)   # desativar: 30, 120, 1440... (vazio/0 = até religar)
 
 
+# Leituras do Início e do menu guardadas por poucos segundos por escritório (app/gestao/cache_curto.py: qualquer escrita
+# no painel apaga). Com o banco em us-west-2 cada ida custa ~200 ms e o painel pede estas a cada troca de tela.
+_CACHE_INICIO = CacheCurto(15)
+_CACHE_CONTADORES = CacheCurto(15)
+_CACHE_PASSOS = CacheCurto(30)
+_CACHE_SAUDE = CacheCurto(30)
+
+
 @api.get("/inicio")
 async def inicio(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
+    return await _CACHE_INICIO.obter((id(pedido.app), ctx.escritorio()), lambda: _calcular_inicio(pedido, ctx))
+
+
+async def _calcular_inicio(pedido: Request, ctx: Contexto) -> dict[str, Any]:
     import asyncio
     repo = _repo(pedido)
     # As cinco leituras são independentes: em paralelo, o tempo é o da mais lenta e não a soma das idas ao banco.
@@ -2287,17 +2307,19 @@ async def inicio(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, A
 @api.get("/inicio/contadores")
 async def contadores(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
     """Contador do menu (erros abertos): uma consulta só. Antes o menu pedia o /inicio inteiro em toda tela."""
-    erros = await _repo(pedido).pool.fetchval(
-        """select count(*)::int from agentesia_eventos where id_escritorio = $1::uuid and resolvido_em is null
-           and gravidade in ('erro', 'critico')""", ctx.escritorio())
-    return {"erros_abertos": erros or 0}
+    async def calcular() -> dict[str, Any]:
+        erros = await _repo(pedido).pool.fetchval(
+            """select count(*)::int from agentesia_eventos where id_escritorio = $1::uuid and resolvido_em is null
+               and gravidade in ('erro', 'critico')""", ctx.escritorio())
+        return {"erros_abertos": erros or 0}
+    return await _CACHE_CONTADORES.obter((id(pedido.app), ctx.escritorio()), calcular)
 
 
 @api.get("/inicio/primeiros-passos")
 async def primeiros_passos(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Cartão "Primeiros passos" do Início: 7 passos que se marcam sozinhos (app/gestao/primeiros_passos.py)."""
     from app.gestao import primeiros_passos as pp
-    return await pp.calcular(_repo(pedido).pool, ctx.escritorio())
+    return await _CACHE_PASSOS.obter((id(pedido.app), ctx.escritorio()), lambda: pp.calcular(_repo(pedido).pool, ctx.escritorio()))
 
 
 @api.get("/admin/escritorios/primeiros-passos")
@@ -2311,7 +2333,7 @@ async def progresso_das_contas(pedido: Request, _: Contexto = Depends(ADMIN)) ->
 async def saude_dos_numeros(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Selo de cada número e agente: recebendo mensagens, sem mensagens há X dias ou sem número; e o tipo do número."""
     from app.gestao import saude_numero
-    return await saude_numero.numeros(_repo(pedido).pool, ctx.escritorio())
+    return await _CACHE_SAUDE.obter((id(pedido.app), ctx.escritorio()), lambda: saude_numero.numeros(_repo(pedido).pool, ctx.escritorio()))
 
 
 @api.post("/saude/numeros/{id_canal}/testar")

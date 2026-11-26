@@ -162,7 +162,7 @@ mídia pelo painel responde com o aviso do que falta (o resto do sistema funcion
 | `AGENTESIA_HELENA_HANDOFF_SEGREDO` | recomendada | Exige que o link `/entrar/helena` venha assinado (válido por 5 min). |
 | `AGENTESIA_HELENA_CONTA_LAWCHAT` | não | Id da conta Helena da LawChat: quem entra por ela vira equipe LawChat no painel. |
 | `AGENTESIA_HELENA_TOKEN_LAWCHAT` | não | Token da conta Helena da LawChat (entrada da equipe LawChat pelo link da Helena). |
-| `AGENTESIA_BANCO_CONEXOES` | não (padrão **5** no painel) | Pool menor: o painel só atende telas. |
+| `AGENTESIA_BANCO_CONEXOES` | não (padrão 10 no painel) | O Início abre vários pedidos ao mesmo tempo e as rotas leem em paralelo. |
 | `AGENTESIA_PAINEL_CRM_LIGADO` e `AGENTESIA_HELENA_INTERNA_URL`, `AGENTESIA_HELENA_PARCEIRO_EMAIL`, `AGENTESIA_HELENA_PARCEIRO_ID`, `AGENTESIA_HELENA_DEVICE_ID`, `AGENTESIA_HELENA_PARCEIRO_ORIGEM`, `AGENTESIA_HELENA_ADMIN_EMAIL` | não (desligado) | Painel padrão do CRM pela API interna da Helena. Só preencha se for usar. |
 | `AGENTESIA_LAB_SENHA` | não | Se preenchida, liga o Laboratório antigo (`/lab`) protegido por essa senha. Vazia = `/lab` não existe no painel. |
 | `AGENTESIA_MIDIA_ARMAZENAMENTO` | sim (`supabase`) | Mídia no bucket do Storage (seção 0.1). |

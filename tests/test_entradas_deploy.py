@@ -156,7 +156,7 @@ def test_painel_com_banco_nao_liga_lacos_de_fundo(monkeypatch, falhar, status):
     app = servidor.criar_app("painel")
 
     with TestClient(app) as cliente:
-        assert criados == [(5, True)]                          # pool menor e migrações conferidas na subida
+        assert criados == [(10, True)]                         # pool do painel (padrão 10) e migrações conferidas na subida
         assert app.state.gestao is not None and app.state.gestao.pool is repo._pool
         assert app.state.atendimento is None and app.state.tarefas == {}
         assert getattr(app.state, "indexar_agora", None) is None

@@ -181,6 +181,7 @@ const ProdutoEditor = () => {
       // Delay de resposta / pausa: nível AGENTE. Sem isso o wizard caía no default (10s / 30min)
       // e sobrescrevia o valor real ao salvar.
       responseDelay: num(ag.delay_s, pcfg.delay_s, principal.intervalo_entre_mensagens, rasc.responseDelay),
+      charsMsg: typeof ag.caracteres_msg === "number" ? ag.caracteres_msg : (typeof rasc.charsMsg === "number" ? rasc.charsMsg : 0),
       humanPause: num(ag.pausa_min, pcfg.pausa_min, pcfg.pausa_humano_min, rasc.humanPause),
       schedule24: pcfg.schedule ? pcfg.schedule.mode === "always" : (typeof rasc.schedule24 === "boolean" ? rasc.schedule24 : undefined),
       configByRole,

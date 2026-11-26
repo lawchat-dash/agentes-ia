@@ -73,7 +73,8 @@ def test_menu_um_caminho_so():
     main = (RAIZ / "painel" / "src" / "main.tsx").read_text(encoding="utf-8")
     estrutura = (RAIZ / "painel" / "src" / "componentes" / "Estrutura.tsx").read_text(encoding="utf-8")
     inicio = (RAIZ / "painel" / "src" / "telas" / "Inicio.tsx").read_text(encoding="utf-8")
-    assert '{ para: "/meus-produtos", rotulo: "Meus agentes"' in estrutura
+    # Menu no topo: os agentes ficam dentro de Apps (Agentes Inteligentes).
+    assert '{ para: "/meus-produtos", rotulo: "Apps"' in estrutura and 'rotulo: "Agentes Inteligentes"' in estrutura
     assert 'rotulo: "Agentes"' not in estrutura and 'rotulo: "Meus Produtos"' not in estrutura
     assert '<Route path="/agentes" element={<Navigate to="/meus-produtos" replace />} />' in main
     assert 'path="/agentes/:id/:secao"' in main

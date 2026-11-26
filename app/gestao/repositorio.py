@@ -37,7 +37,7 @@ def _j(valor: Any) -> str:
 # Quem fez o pedido é lido a cada requisição do painel (rotas.contexto). Uma tela abre 5 a 10 pedidos de uma vez:
 # guardar o usuário por alguns segundos poupa uma ida ao banco por pedido. Toda alteração de usuário feita por este
 # repositório apaga a cópia na hora; o que mudar por fora (SQL manual) vale em até USUARIO_TTL_S.
-USUARIO_TTL_S = 10.0
+USUARIO_TTL_S = 30.0
 
 
 class RepositorioGestao:
@@ -208,16 +208,18 @@ class RepositorioGestao:
             id_documento, id_agente)
 
     async def consumo_do_mes(self, id_escritorio: str, desde: Any) -> dict[str, Any]:
-        por_dia = _linhas(await self.pool.fetch(
+        import asyncio
+        # As duas leituras são independentes: em paralelo (uma ida ao banco de espera em vez de duas).
+        dia, papel = await asyncio.gather(self.pool.fetch(
             """select to_char(criado_em at time zone 'America/Sao_Paulo', 'YYYY-MM-DD') as dia, sum(custo_usd)::float8 as custo_usd,
                       count(*) as chamadas
                from agentesia_chamadas_ia where id_escritorio = $1::uuid and criado_em >= $2 group by 1 order by 1""",
-            id_escritorio, desde))
-        por_papel = _linhas(await self.pool.fetch(
+            id_escritorio, desde), self.pool.fetch(
             """select papel, sum(custo_usd)::float8 as custo_usd, count(*) as chamadas,
                       sum(tokens_entrada)::bigint as tokens_entrada, sum(tokens_saida)::bigint as tokens_saida
                from agentesia_chamadas_ia where id_escritorio = $1::uuid and criado_em >= $2 group by 1 order by 2 desc""",
             id_escritorio, desde))
+        por_dia, por_papel = _linhas(dia), _linhas(papel)
         return {"por_dia": por_dia, "por_papel": por_papel, "gasto_usd": sum(d["custo_usd"] or 0 for d in por_dia)}
 
     async def salvar_limite_consumo(self, id_escritorio: str, limite: dict[str, Any]) -> None:
@@ -338,12 +340,17 @@ class RepositorioGestao:
             self._AGENTE + """ where a.id_escritorio = $1::uuid order by a.criado_em""", id_escritorio))
 
     async def agente(self, id_escritorio: str, id_agente: str) -> dict[str, Any] | None:
-        agente = _linha(await self.pool.fetchrow(
-            self._AGENTE + " where a.id = $1::uuid and a.id_escritorio = $2::uuid", id_agente, id_escritorio))
-        if agente:
-            agente["etapas"] = _linhas(await self.pool.fetch(
+        import asyncio
+        # O agente e as etapas em paralelo (uma espera pelo banco em vez de duas); as etapas só valem se o agente for
+        # deste escritório.
+        linha, etapas = await asyncio.gather(
+            self.pool.fetchrow(self._AGENTE + " where a.id = $1::uuid and a.id_escritorio = $2::uuid", id_agente, id_escritorio),
+            self.pool.fetch(
                 """select id, codigo, ordem, tipo, principal, instrucao, instrucao_travada, modelo, temperatura
                    from agentesia_agente_etapas where id_agente = $1::uuid order by ordem""", id_agente))
+        agente = _linha(linha)
+        if agente:
+            agente["etapas"] = _linhas(etapas)
         return agente
 
     async def criar_agente(self, *, id_escritorio: str, id_canal: str, nome: str, produto: str,
@@ -438,7 +445,9 @@ class RepositorioGestao:
 
     # ------------------------------------------------------------------ acompanhamento
     async def resumo(self, id_escritorio: str) -> dict[str, Any]:
-        linha = await self.pool.fetchrow(
+        import asyncio
+        # Os totais e a contagem por etapa são independentes: em paralelo (uma espera pelo banco em vez de duas).
+        linha, por_etapa = await asyncio.gather(self.pool.fetchrow(
             """select
                  (select count(*) from agentesia_leads where id_escritorio = $1::uuid) as leads,
                  (select count(*) from agentesia_leads where id_escritorio = $1::uuid
@@ -452,13 +461,13 @@ class RepositorioGestao:
                  (select coalesce(sum(custo_usd), 0) from agentesia_chamadas_ia where id_escritorio = $1::uuid
                     and criado_em > now() - interval '24 hours') as custo_24h_usd,
                  (select max(recebido_em) from agentesia_eventos_recebidos where id_escritorio = $1::uuid) as ultimo_webhook""",
-            id_escritorio)
-        resumo = _linha(linha) or {}
-        resumo["custo_24h_usd"] = float(resumo.get("custo_24h_usd") or 0)
-        resumo["por_etapa"] = _linhas(await self.pool.fetch(
+            id_escritorio), self.pool.fetch(
             """select coalesce(e.codigo, '-') as etapa, l.estado, count(*) as leads
                from agentesia_leads l left join agentesia_agente_etapas e on e.id = l.id_etapa
                where l.id_escritorio = $1::uuid group by 1, 2 order by 1""", id_escritorio))
+        resumo = _linha(linha) or {}
+        resumo["custo_24h_usd"] = float(resumo.get("custo_24h_usd") or 0)
+        resumo["por_etapa"] = _linhas(por_etapa)
         return resumo
 
     DESVIOS = ("desqualificado", "analise_manual")      # etapas fora do caminho principal do funil
@@ -467,7 +476,9 @@ class RepositorioGestao:
         """Leads que chegaram ao agente no período e até onde cada um já foi (a etapa mais adiante que alcançou)."""
         from datetime import timedelta
         desde = timedelta(days=int(dias))
-        etapas = _linhas(await self.pool.fetch(
+        import asyncio
+        # As três leituras (etapas, totais e origens) são independentes: em paralelo.
+        etapas, totais, origens = await asyncio.gather(self.pool.fetch(
             """with et as (select id, codigo, ordem from agentesia_agente_etapas where id_agente = $1::uuid and not (codigo = any($3::text[]))),
                     ld as (select id, id_etapa from agentesia_leads where id_agente = $1::uuid and criado_em >= now() - $2::interval),
                     alcance as (
@@ -477,16 +488,14 @@ class RepositorioGestao:
                                    where t.id_lead = ld.id), -1)) as maxima
                       from ld)
                select et.codigo, et.ordem, (select count(*)::int from alcance a where a.maxima >= et.ordem) as leads
-               from et order by et.ordem""", id_agente, desde, list(self.DESVIOS)))
-        totais = _linha(await self.pool.fetchrow(
+               from et order by et.ordem""", id_agente, desde, list(self.DESVIOS)), self.pool.fetchrow(
             """select count(*)::int as leads,
                       count(*) filter (where e.codigo = 'desqualificado')::int as desqualificados,
                       count(*) filter (where e.codigo = 'analise_manual')::int as analise_manual,
                       count(*) filter (where l.estado = 'pausado')::int as pausados,
                       count(*) filter (where exists (select 1 from agentesia_contratos k where k.id_lead = l.id and k.situacao = 'assinado'))::int as assinados
                from agentesia_leads l left join agentesia_agente_etapas e on e.id = l.id_etapa
-               where l.id_agente = $1::uuid and l.criado_em >= now() - $2::interval""", id_agente, desde)) or {}
-        origens = _linhas(await self.pool.fetch(
+               where l.id_agente = $1::uuid and l.criado_em >= now() - $2::interval""", id_agente, desde), self.pool.fetch(
             """select coalesce(nullif(l.origem->>'campanha', ''),
                                case when l.origem->>'origem' = 'anuncio' then 'Anúncio (sem campanha)'
                                     when l.origem->>'origem' = 'utm' then 'UTM (sem campanha)' else 'Direto' end) as origem,
@@ -494,7 +503,7 @@ class RepositorioGestao:
                       count(*) filter (where exists (select 1 from agentesia_contratos k where k.id_lead = l.id and k.situacao = 'assinado'))::int as assinados
                from agentesia_leads l where l.id_agente = $1::uuid and l.criado_em >= now() - $2::interval
                group by 1 order by 2 desc limit 12""", id_agente, desde))
-        return {"etapas": etapas, "totais": totais, "origens": origens}
+        return {"etapas": _linhas(etapas), "totais": _linha(totais) or {}, "origens": _linhas(origens)}
 
     async def eventos(self, id_escritorio: str | None, *, abertos: bool, limite: int = 200) -> list[dict[str, Any]]:
         return _linhas(await self.pool.fetch(

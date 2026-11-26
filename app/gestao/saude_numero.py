@@ -42,25 +42,28 @@ def selo(tem_numero: bool, ultima: datetime | None, agora: datetime | None = Non
 
 async def numeros(pool: Any, id_escritorio: str) -> dict[str, Any]:
     """Cada número da conta (com o agente que usa) e cada agente (também os sem número), com selo e tipo."""
-    ultimas = {r["id_canal"]: r["ultima"] for r in await pool.fetch(
+    import asyncio
+    # As três leituras são independentes: em paralelo (uma espera pelo banco em vez de três).
+    linhas_ultimas, linhas_canais, linhas_agentes = await asyncio.gather(pool.fetch(
         """select l.id_canal::text as id_canal, max(m.enviada_em) as ultima
            from agentesia_mensagens m join agentesia_leads l on l.id = m.id_lead
-           where m.id_escritorio = $1::uuid and m.autor = 'lead' group by l.id_canal""", id_escritorio)}
+           where m.id_escritorio = $1::uuid and m.autor = 'lead' group by l.id_canal""", id_escritorio), pool.fetch(
+        """select c.id::text as id, c.id_canal_helena, c.numero_normalizado, c.tipo, c.ativo,
+                  a.id::text as id_agente, a.nome as nome_agente
+           from agentesia_canais c left join agentesia_agentes a on a.id_canal = c.id
+           where c.id_escritorio = $1::uuid order by c.ativo desc, c.numero_normalizado""", id_escritorio), pool.fetch(
+        """select a.id::text as id, a.nome, a.situacao, a.id_canal::text as id_canal, c.numero_normalizado, c.tipo
+           from agentesia_agentes a left join agentesia_canais c on c.id = a.id_canal
+           where a.id_escritorio = $1::uuid order by a.criado_em""", id_escritorio))
+    ultimas = {r["id_canal"]: r["ultima"] for r in linhas_ultimas}
     agora = datetime.now(timezone.utc)
     canais = []
-    for c in await pool.fetch(
-            """select c.id::text as id, c.id_canal_helena, c.numero_normalizado, c.tipo, c.ativo,
-                      a.id::text as id_agente, a.nome as nome_agente
-               from agentesia_canais c left join agentesia_agentes a on a.id_canal = c.id
-               where c.id_escritorio = $1::uuid order by c.ativo desc, c.numero_normalizado""", id_escritorio):
+    for c in linhas_canais:
         ultima = ultimas.get(c["id"])
         canais.append({**dict(c), "ultima_recebida": ultima.isoformat() if ultima else None,
                        "selo": selo(True, ultima, agora), "aviso_tipo": AVISO_OFICIAL if c["tipo"] == "oficial" else None})
     agentes = []
-    for a in await pool.fetch(
-            """select a.id::text as id, a.nome, a.situacao, a.id_canal::text as id_canal, c.numero_normalizado, c.tipo
-               from agentesia_agentes a left join agentesia_canais c on c.id = a.id_canal
-               where a.id_escritorio = $1::uuid order by a.criado_em""", id_escritorio):
+    for a in linhas_agentes:
         ultima = ultimas.get(a["id_canal"]) if a["id_canal"] else None
         agentes.append({**dict(a), "ultima_recebida": ultima.isoformat() if ultima else None,
                         "selo": selo(a["id_canal"] is not None, ultima, agora),

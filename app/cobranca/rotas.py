@@ -17,6 +17,8 @@ Webhook do gateway: POST /api/pagamentos/asaas/webhook (desligado sem AGENTESIA_
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 from typing import Any
 
@@ -25,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from app import cobranca
 from app.cobranca import gateways
+from app.gestao.cache_curto import CacheCurto
 from app.gestao.repositorio import _linha, _linhas
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
 
@@ -88,17 +91,26 @@ def _para_cliente(carteira: dict[str, Any]) -> dict[str, Any]:
 async def ver_carteira(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     pool = _pool(pedido)
     await _exigir_007(pool)
-    carteira = await _carteira(pool, ctx.escritorio())
-    pendentes = _linhas(await pool.fetch(
+    # A carteira e as recargas pendentes são independentes: em paralelo (uma espera pelo banco em vez de duas).
+    carteira, pendentes = await asyncio.gather(_carteira(pool, ctx.escritorio()), pool.fetch(
         """select id, valor_brl::float8 as valor_brl, situacao, metodo, url_pagamento, pix_copia_cola, vencimento, criado_em
            from agentesia_recargas where id_escritorio = $1::uuid and situacao = 'pendente' order by criado_em desc""",
         ctx.escritorio()))
+    pendentes = _linhas(pendentes)
     return {**_para_cliente(carteira), "recargas_pendentes": pendentes}
 
 
 @api.get("/carteira/estado")
 async def estado_da_carteira(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
-    """Para o aviso no topo do painel: todos os papéis veem se a IA está pausada; valores só quem gere."""
+    """Para o aviso no topo do painel: todos os papéis veem se a IA está pausada; valores só quem gere.
+    Guardado por 15 s por escritório e papel (o topo pede em toda abertura; escrita no painel apaga a cópia)."""
+    return await _CACHE_ESTADO.obter((id(pedido.app), ctx.escritorio(), ctx.papel), lambda: _estado_da_carteira(pedido, ctx))
+
+
+_CACHE_ESTADO = CacheCurto(15)
+
+
+async def _estado_da_carteira(pedido: Request, ctx: Contexto) -> dict[str, Any]:
     pool = _pool(pedido)
     if not await cobranca.tem_cobranca(pool):
         return {"bloqueado": False, "motivo": None}
@@ -118,20 +130,18 @@ async def consumo_da_carteira(pedido: Request, dias: int = 30, detalhe: bool = F
     await _exigir_007(pool)
     dias = max(1, min(int(dias), 366))
     filtro = "c.id_escritorio = $1::uuid and c.cobranca <> 'isenta' and c.criado_em >= now() - make_interval(days => $2)"
-    por_dia = _linhas(await pool.fetch(
+    # As quatro somas são independentes: em paralelo.
+    por_dia, por_agente, por_etapa, por_funcao = map(_linhas, await asyncio.gather(pool.fetch(
         f"""select (c.criado_em at time zone '{FUSO}')::date::text as dia, sum(c.custo_brl)::float8 as valor_brl
-            from agentesia_chamadas_ia c where {filtro} group by 1 order by 1""", ctx.escritorio(), dias))
-    por_agente = _linhas(await pool.fetch(
+            from agentesia_chamadas_ia c where {filtro} group by 1 order by 1""", ctx.escritorio(), dias), pool.fetch(
         f"""select coalesce(a.nome, 'Sem agente') as agente, sum(c.custo_brl)::float8 as valor_brl
             from agentesia_chamadas_ia c left join agentesia_agentes a on a.id = c.id_agente
-            where {filtro} group by 1 order by 2 desc""", ctx.escritorio(), dias))
-    por_etapa = _linhas(await pool.fetch(
+            where {filtro} group by 1 order by 2 desc""", ctx.escritorio(), dias), pool.fetch(
         f"""select coalesce(c.codigo_etapa, 'fora da conversa') as etapa, sum(c.custo_brl)::float8 as valor_brl
-            from agentesia_chamadas_ia c where {filtro} group by 1 order by 2 desc""", ctx.escritorio(), dias))
-    por_funcao = _linhas(await pool.fetch(
+            from agentesia_chamadas_ia c where {filtro} group by 1 order by 2 desc""", ctx.escritorio(), dias), pool.fetch(
         f"""select c.papel, sum(c.custo_brl)::float8 as valor_brl, count(*)::int as chamadas,
                    sum(c.tokens_entrada + c.tokens_saida)::bigint as tokens
-            from agentesia_chamadas_ia c where {filtro} group by 1 order by 2 desc""", ctx.escritorio(), dias))
+            from agentesia_chamadas_ia c where {filtro} group by 1 order by 2 desc""", ctx.escritorio(), dias)))
     for f in por_funcao:
         f["nome"] = NOMES_PAPEL.get(f["papel"], f["papel"])
         if not detalhe:

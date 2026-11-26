@@ -224,6 +224,8 @@ class _GzipDoPainel:
 
 
 app.add_middleware(_GzipDoPainel)
+from app.gestao.cache_curto import LimparAoEscrever  # noqa: E402
+app.add_middleware(LimparAoEscrever)                  # escrita em /api/ apaga os caches curtos (app/gestao/cache_curto.py)
 app.include_router(api_gestao)
 from app.gestao.produtos import api as api_produtos, pasta_midia  # noqa: E402
 app.include_router(api_produtos)
@@ -539,14 +541,16 @@ if (_PAINEL / "assets").is_dir():
     app.mount("/assets", _AssetsImutaveis(directory=_PAINEL / "assets"), name="assets")
 
 
-@app.get("/{caminho:path}", include_in_schema=False)
+# HEAD também: `curl -I` (e alguns monitores) recebiam 405 sem o Cache-Control do index.html.
+@app.api_route("/{caminho:path}", methods=["GET", "HEAD"], include_in_schema=False)
 async def painel(caminho: str) -> Any:
     """Entrega o painel; rotas do painel (/agentes, /erros...) caem no index.html."""
     if caminho.startswith(("api/", "webhook/", "lab")):
         raise HTTPException(404)
     arquivo = (_PAINEL / caminho).resolve()
     if caminho and arquivo.is_file() and _PAINEL in arquivo.parents:
-        return FileResponse(arquivo)
+        # Ícones e imagens da raiz do dist (sem hash no nome): 1 hora, para não perguntar de novo a cada tela.
+        return FileResponse(arquivo, headers={"Cache-Control": "public, max-age=3600"})
     indice = _PAINEL / "index.html"
     if not indice.is_file():
         raise HTTPException(404, "Painel ainda não compilado (cd painel && npm run build).")
