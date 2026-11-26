@@ -127,7 +127,7 @@ const splitStyle = `
     background:linear-gradient(180deg,rgba(2,12,7,.25) 0%,rgba(2,12,7,.32) 22%,rgba(2,12,7,.6) 42%,rgba(2,12,7,.86) 62%,rgba(2,12,7,.96) 80%,#020c07 100%)}
   .lcsplit-baixo{margin-top:auto;display:flex;flex-direction:column}
   .lcsplit-texto{padding-top:32px}
-  .lcsplit-marca{display:flex;align-items:center;gap:10px;font-family:var(--fs);font-weight:700;font-size:1.25rem;letter-spacing:-.01em}
+  .lcsplit-marca{display:flex;align-items:center;gap:10px;margin-bottom:22px;font-family:var(--fs);font-weight:700;font-size:1.25rem;letter-spacing:-.01em}
   .lcsplit-marca img{height:30px;width:auto}
   .lcsplit-marca .le-logo{filter:drop-shadow(0 4px 14px rgba(0,0,0,.35))}
   .lcsplit-titulo{font-family:var(--fs);font-weight:700;font-size:clamp(2rem,3.4vw,3rem);line-height:1.08;letter-spacing:-.03em;max-width:15ch;margin:0}
@@ -291,11 +291,11 @@ function TelaEntrada({ comSenha }: { comSenha: boolean }) {
           {/* Fundo em vídeo (mudo, em loop), com um véu escuro por cima para o texto ficar legível. */}
           <video className="lcsplit-video" src={videoFundo} autoPlay muted loop playsInline preload="auto" aria-hidden />
           <div className="lcsplit-veu" aria-hidden />
-          {/* Logo que se escreve (contorno das letras e depois o preenchimento). */}
-          <div className="lcsplit-marca"><LogoEscrita altura={30} /></div>
           {/* Texto embaixo, sobre o degradê escuro; a linha do rodapé fecha o painel. */}
           <div className="lcsplit-baixo">
             <div className="lcsplit-texto">
+              {/* Logo que se escreve, logo acima do título: fica na parte escura do degradê (de baixo para cima). */}
+              <div className="lcsplit-marca"><LogoEscrita altura={34} /></div>
               <h1 className="lcsplit-titulo">Atendimento com IA para o{" "}
                 {/* Final da frase que se digita sozinho (React Bits TextType), devagar e com pausa longa para ler. */}
                 {/* A cópia invisível do final mais longo guarda o lugar: o título não muda de altura enquanto digita. */}
