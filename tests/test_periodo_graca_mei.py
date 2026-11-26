@@ -26,3 +26,18 @@ def test_seguro_incerto_orienta_a_perguntar_de_outro_jeito_e_seguir():
     fatos = {"acidente_ano": 2016, "acidente_mes": 5, "demissao_ano": 2015, "demissao_mes": 3}
     resultado, texto = contexto.cobertura_na_data_do_acidente(fatos)
     assert resultado == "falta_seguro" and "parcelas do governo" in texto and "siga para o Closer" in texto
+
+
+def test_boas_chances_so_passa_no_closer():
+    from app.cerebro import catalogo
+    msg = [{"tipo": "texto", "texto": "Pelo que você contou, o caso é bom e há boas chances. Quer seguir?"}]
+    assert catalogo.conferir(msg, "closer") == []
+    assert catalogo.conferir(msg, "sdr")
+    assert catalogo.conferir([{"tipo": "texto", "texto": "Seu caso vai ganhar, é garantido."}], "closer")
+
+
+def test_chips_do_bpc_da_karina():
+    from app.cerebro import catalogo
+    assert catalogo.ferramentas_do_prompt("Pergunte o CEP. Depois @Buscar o CEP.")[1] == ["buscar_cep"]
+    assert catalogo.ferramentas_do_prompt("Após o sim, @ZapSign Documento.")[1] == ["zapsign"]
+    assert catalogo.ferramentas_do_prompt("👉 @Agente Coleta de Dados")[0] == ["contratos"]

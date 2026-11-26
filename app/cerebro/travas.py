@@ -23,6 +23,9 @@ PROMESSAS = (
     # aviso honesto e passa (exceção abaixo).
     "boas chances", "garanto",
 )
+# Estratégia de vendas decidida pelo dono (26/11): no Closer o roteiro diz "o caso é bom e há boas chances". Só lá passa;
+# "vai ganhar", "garantido" e "100% garantido" continuam barrados em qualquer etapa.
+PERMITIDAS_NO_CLOSER = ("boas chances",)
 # "Você vai receber" é promessa, menos quando o que chega é uma ENTREGA do atendimento (aviso de envio, não resultado):
 # "Em alguns segundos você vai receber o link para assinatura!" é a mensagem obrigatória do Agente Contrato do Sousa e
 # Costa e era barrada (refeita e, repetida, pausa por trava_persistente). "Você vai receber o benefício / os atrasados /
@@ -142,7 +145,7 @@ _ITENS_COM_EXCECAO: dict[str, re.Pattern[str]] = {
 _DIREITO_CONDICIONAL = re.compile(r"\bse\s+$")
 
 
-def _promessa_da_lista(texto: str) -> str | None:
+def _promessa_da_lista(texto: str, permitidas: tuple[str, ...] = ()) -> str | None:
     """Item de PROMESSAS achado numa frase do texto. Frase a frase, divididas no texto ORIGINAL: normalizar() tira a
     pontuação e "Claro, com certeza! Vai ser um prazer" virava "com certeza vai"."""
     for achado in re.finditer(r"[^.!?\n]+[.!?\n]*", texto or ""):
@@ -152,6 +155,8 @@ def _promessa_da_lista(texto: str) -> str | None:
             continue
         pergunta = "?" in bruta
         for item in PROMESSAS:
+            if item in permitidas:
+                continue
             alvo = normalizar(item)
             if item in _ITENS_COM_EXCECAO:
                 if _ITENS_COM_EXCECAO[item].search(frase):
@@ -174,7 +179,7 @@ class Reprovacao:
     orientacao: str
 
 
-def trecho_de_promessa(texto: str) -> str | None:
+def trecho_de_promessa(texto: str, permitidas: tuple[str, ...] = ()) -> str | None:
     """O trecho exato que soa como promessa de resultado, para a orientação dizer o que reescrever. None = nenhum."""
     if achado := CEM_POR_CENTO.search(texto):
         # Cita o "100%" com a palavra seguinte ("100% garantido"; "100% de chance" se ela for curta): a IA vê o que
@@ -182,7 +187,7 @@ def trecho_de_promessa(texto: str) -> str | None:
         seguinte = re.match(r"\s*[\w-]{4,}|\s*[\w-]{1,3}(?:\s+[\w-]+)?", texto[achado.end():])
         return (achado.group(0) + (seguinte.group(0) if seguinte else "")).strip().lower()
     normal = normalizar(texto)
-    if expressao := _promessa_da_lista(texto):
+    if expressao := _promessa_da_lista(texto, permitidas):
         return expressao
     if _VOCE_VAI_RECEBER.search(normal):
         return "voce vai receber"

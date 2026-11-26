@@ -503,7 +503,7 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             destino = catalogo.transferencia_pela_frase_exata(
                 [m.get("texto", "") for m in mensagens if m["tipo"] == "texto"], destinos, papeis) or ""
             pela_frase = bool(destino)
-        erros = catalogo.conferir(mensagens)
+        erros = catalogo.conferir(mensagens, etapa)
         # Travas do motor sobre a resposta (CPF já conferido, laço, endereço inventado, troca de papel): ver _guardas_do_catalogo.
         guardas = _guardas_do_catalogo(entrada, produto, saida, etapa=etapa, destino=destino,
                                        textos=[m["texto"] for m in mensagens if m["tipo"] == "texto"], papeis=papeis,
