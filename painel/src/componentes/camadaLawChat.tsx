@@ -107,7 +107,18 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
       setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], url } } : q));
       return;
     }
-    linkDaHelena(undefined, codigo === "atendimento" ? undefined : codigo)
+    // Erro 5xx (servidor reiniciando no deploy, instabilidade): tenta de novo sozinho 2 vezes antes de mostrar o erro.
+    const pedirLink = async (): Promise<string> => {
+      for (let tentativa = 0; ; tentativa++) {
+        try {
+          return await linkDaHelena(undefined, codigo === "atendimento" ? undefined : codigo);
+        } catch (e) {
+          if (tentativa >= 2 || !/\b5\d\d\b/.test((e as Error).message || "")) throw e;
+          await new Promise((r) => window.setTimeout(r, 2000 * (tentativa + 1)));
+        }
+      }
+    };
+    pedirLink()
       .then((url) => { try { origemLawChat = new URL(url).origin; } catch { /* fica sem */ } return url; })
       .then((url) => setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], url } } : q)))
       .catch((e) => setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], erro: (e as Error).message, pronto: true } } : q)));
@@ -172,7 +183,7 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
             )}
             {/* Central: a faixa verde "Ative as notificações na web" fica no topo da lista de conversas (400px); dentro do
                 painel o navegador não deixa ativar notificação, então ela nunca sairia. Fica coberta. */}
-            {q.codigo === "atendimento" && (
+            {q.codigo === "atendimento" && q.pronto && !q.erro && (
               <div aria-hidden className="lc-central-cobre" style={{ width: 400, height: 38 }} />
             )}
             {!q.pronto && <TelaEntrando titulo={`Abrindo ${q.titulo}`} />}
