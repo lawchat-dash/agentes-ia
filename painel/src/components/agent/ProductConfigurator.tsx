@@ -1394,7 +1394,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           </Aviso>
         )}
         {isEdit && aba === "versoes" && groupId ? (
-          <VersoesProduto idProduto={groupId} mudancasNaoSalvas={editChanges?.total ?? 0} onRestaurar={aplicarVersao} c1={catC1} />
+          <VersoesProduto idProduto={groupId} mudancasNaoSalvas={editChanges?.total ?? 0} onRestaurar={aplicarVersao} c1={catC1}
+            onIrParaRevisao={() => { setAba("editar"); setStep(STEP_COUNT); }} />
         ) : (
         <div className={step === 3 ? "" : "grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 lg:gap-8 items-start"}>
         <div className="min-w-0">
