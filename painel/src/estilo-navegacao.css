@@ -500,7 +500,8 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
   .lc-topo .lc-crumb { display: none; }
   .lc-topo-marca { display: inline-flex; align-items: center; gap: 8px; flex: none; margin-right: 10px; color: #101828; font-size: 15px; letter-spacing: -.01em; }
   .lc-topo-marca img { width: 30px; height: 31px; }
-  .lc-menu-topo { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; overflow: visible; }
+  .lc-menu-topo { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1 1 auto; overflow: visible; }
+  .lc-mt-seta { margin-left: -2px; }
   .lc-mt-item { position: relative; }
   .lc-menu-topo > .lc-mt-item, .lc-mt-grupo > button {
     display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 12px; border: 0; border-radius: 10px;
