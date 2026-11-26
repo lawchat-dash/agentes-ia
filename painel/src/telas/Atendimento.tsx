@@ -104,7 +104,8 @@ export function TelaAtendimento({ acoes }: { acoes?: ReactNode }) {
  *  Apps/Relatórios/Ajustes; o menu do painel faz esse papel) e a barra de chat interno da equipe (64px) na direita. */
 export const CORTE_DIREITA = 64;
 const quadro = (topo: number) => ({ width: `calc(100% + ${CORTE_DIREITA}px)`, height: `calc(100% + ${topo}px)`, marginTop: -topo });
-export const estiloDaCentral = quadro(64);
+// Na Central o cabeçalho da LawChat é um pouco mais baixo: 64px cortava o topo da conversa aberta.
+export const estiloDaCentral = quadro(58);
 export const estiloDoQuadro = quadro(64);
 /** Telas de "Configurações" da conta (Conta, Horário, Canais, Consumo): a LawChat põe um menu próprio de ~384px na
  *  esquerda. Aqui ele sai (as abas do painel fazem esse papel). */

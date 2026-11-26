@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
-import { RefreshCw, ExternalLink } from "lucide-react";
+import { RefreshCw, ExternalLink, MessagesSquare } from "lucide-react";
 import { Alerta } from "./ui";
 import { TelaEntrando, linkDaHelena } from "../telas/Atendimento";
 
@@ -124,7 +124,11 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
             )}
             {/* Central: a faixa verde "Ative as notificações na web" fica no topo da lista de conversas (400px); dentro do
                 painel o navegador não deixa ativar notificação, então ela nunca sairia. Fica coberta. */}
-            {q.codigo === "atendimento" && <div aria-hidden className="absolute left-0 top-0 z-[5] bg-white" style={{ width: 400, height: 34 }} />}
+            {q.codigo === "atendimento" && (
+              <div aria-hidden className="lc-central-titulo" style={{ width: 400, height: 38 }}>
+                <MessagesSquare size={16} /> Conversas
+              </div>
+            )}
             {!q.pronto && <TelaEntrando titulo={`Abrindo ${q.titulo}`} />}
             {q.erro && (
               <div className="absolute inset-0 grid place-items-center p-6 bg-[var(--lc-fundo-lawchat)]">

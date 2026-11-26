@@ -109,7 +109,7 @@ function ContaTelaCheia({ atual }: { atual: PaginaConta }) {
           {ehConfig ? (
             // Entrou em "Conta": o menu vira o de Conta (como entrar numa pasta), com o Voltar para as Configurações.
             <div key="conta" className="lc-conta-menu-entra">
-              <Link to="/minha-conta/usuarios" className="lc-conta-voltar"><ArrowLeft size={15} /> Configurações</Link>
+              <Link to="/minha-conta/usuarios" className="lc-conta-voltar"><ArrowLeft size={16} /> Voltar para Configurações</Link>
               <div className="lc-conta-menu-tit">Conta</div>
               {PAGINAS_CONFIG.map((c) => item(c, c.codigo === atual.codigo))}
             </div>

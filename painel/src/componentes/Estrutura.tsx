@@ -166,7 +166,6 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
       // Apps (selo NOVO): Meus agentes, Biblioteca e Ferramentas numa lista só (os agentes de IA ficam aqui dentro).
       if (podeGerir) itens.push(
         { para: "/meus-produtos", rotulo: "Apps", icone: <LayoutGrid className="i" />, selo: "NOVO" },
-        { para: "/consumo", rotulo: "Créditos", icone: <Wallet className="i" /> },
         { para: "/minha-conta/usuarios", rotulo: "Ajustes", icone: <Settings className="i" /> },
       );
     }
@@ -357,7 +356,7 @@ function MenuDoTopo({ itens }: { itens: Item[] }) {
   useEffect(() => { setAberto(null); }, [local.pathname, local.search]);
   useEffect(() => {
     if (!aberto) return;
-    const fechar = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest?.(".lc-mt-item")) setAberto(null); };
+    const fechar = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest?.(".lc-mt-grupo")) setAberto(null); };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setAberto(null); };
     document.addEventListener("mousedown", fechar);
     document.addEventListener("keydown", esc);
@@ -384,7 +383,7 @@ function MenuDoTopo({ itens }: { itens: Item[] }) {
         }
         const dentro = dentroDo(grupo, caminho);
         return (
-          <div key={i.para} className="lc-mt-item lc-mt-grupo">
+          <div key={i.para} className="lc-mt-grupo">
             <button type="button" className={`lc-mt-item${dentro ? " on" : ""}${aberto === i.para ? " aberto" : ""}`}
               onClick={() => setAberto(aberto === i.para ? null : i.para)} aria-expanded={aberto === i.para} aria-haspopup="menu">
               {i.icone}<span>{i.rotulo}</span>{i.selo && <b className="lc-mt-selo">{i.selo}</b>}<ChevronDown size={14} className="lc-mt-seta" aria-hidden />
@@ -420,8 +419,11 @@ const GRUPOS_DO_MENU: Record<string, GrupoDoMenu> = {
   },
   "/crm/paineis": { prefixo: "/crm", filhos: PAGINAS_CRM.map((p) => ({ para: `/crm/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })) },
   "/minha-conta/usuarios": {
-    prefixo: "/minha-conta",
-    filhos: PAGINAS_CONTA.map((p) => ({ para: `/minha-conta/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })),
+    prefixo: ["/minha-conta", "/consumo"],
+    filhos: [
+      ...PAGINAS_CONTA.map((p) => ({ para: `/minha-conta/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })),
+      { para: "/consumo", rotulo: "Créditos da IA", icone: <Wallet size={15} /> },
+    ],
   },
 };
 

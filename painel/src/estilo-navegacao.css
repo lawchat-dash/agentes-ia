@@ -38,9 +38,7 @@
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   height: 100dvh;
-  background:
-    radial-gradient(1200px 520px at 0% 0%, rgba(0, 188, 51, .05), transparent 60%),
-    var(--bg, #F1F5F9);
+  background: var(--bg, #F1F5F9);
   transition: grid-template-columns .22s var(--nav-suave);
 }
 .lc-casca.recolhido { --nav-w: var(--nav-largura-recolhido); }
@@ -472,8 +470,11 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 /* Menu de Configurações: "entrar" em Conta troca o menu (com Voltar), deslizando. */
 .lc-conta-menu-entra { animation: lc-conta-entra .22s ease-out both; }
 @keyframes lc-conta-entra { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
-.lc-conta-voltar { display: inline-flex; align-items: center; gap: 6px; margin: 18px 24px 0; padding: 6px 12px 6px 10px; border-radius: 9px; background: #111827; color: #fff; font-size: 12.5px; font-weight: 600; }
-.lc-conta-voltar:hover { background: #1f2937; }
+.lc-conta-voltar { display: flex; align-items: center; gap: 10px; margin: 16px 16px 0; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid #eef1f5; background: #f8fafc; color: #344054; font-size: 13px; font-weight: 600; transition: background .15s, border-color .15s, color .15s; }
+.lc-conta-voltar svg { flex: none; display: grid; width: 26px; height: 26px; padding: 5px; border-radius: 8px; background: #fff; color: #00a32c; box-shadow: 0 1px 2px rgba(16,24,40,.08); transition: transform .15s; }
+.lc-conta-voltar:hover { background: #ecfdf3; border-color: #c6f0d2; color: #067a2b; }
+.lc-conta-voltar:hover svg { transform: translateX(-2px); }
 .lc-conta-voltar + .lc-conta-menu-tit { padding-top: 14px; }
 
 /* Grupos do menu (CRM, Minha Conta): o item abre a lista ali mesmo. */
@@ -511,7 +512,7 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
   .lc-menu-topo > .lc-mt-item.on, .lc-mt-grupo > button.on { background: #e3f7e8; color: #067a2b; font-weight: 600; }
   .lc-menu-topo > .lc-mt-item.on svg, .lc-mt-grupo > button.on svg { color: #00a32c; }
   .lc-menu-topo em { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: #ef4444; color: #fff; }
-  .lc-mt-grupo { display: inline-flex; padding: 0; height: auto; }
+  .lc-mt-grupo { position: relative; display: inline-flex; padding: 0; height: auto; background: none; }
   .lc-mt-seta { color: #98a2b3; transition: transform .2s; }
   .lc-mt-grupo > button.aberto .lc-mt-seta { transform: rotate(180deg); }
   .lc-mt-lista {
@@ -549,7 +550,19 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 .lc-mt-selo { margin-left: 2px; padding: 2px 7px; border-radius: 99px; background: #00a32c; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: .03em; line-height: 1.2; }
 
 /* Telas da LawChat embaixo do menu do topo: sem o recuo da página, ocupando a altura que sobra. */
-.page.page-lawchat { max-width: none; padding: 10px 16px 12px; animation: none; }
-.lc-tela-lawchat-cheia { position: relative; height: calc(100dvh - 92px); min-height: 460px; overflow: hidden;
-  border: 1px solid var(--nav-borda); border-radius: 16px; background: var(--lc-fundo-lawchat); }
-.lc-quadro-lawchat { border-radius: 16px; }
+.page.page-lawchat { max-width: none; padding: 0; animation: none; }
+/* De ponta a ponta, sem moldura, no branco da plataforma; o menu do topo flutua por cima com sombra. */
+.lc-tela-lawchat-cheia { position: relative; height: calc(100dvh - 66px); min-height: 460px; overflow: hidden; background: #fff; }
+.lc-quadro-lawchat { border-radius: 0; background: #fff; box-shadow: none !important; }
+.lc-casca:has(.page-lawchat) { background: #fff; }
+.lc-casca:has(.page-lawchat) .lc-topo { position: relative; z-index: 30; box-shadow: 0 10px 30px -12px rgba(16, 24, 40, .28), 0 1px 0 rgba(16, 24, 40, .04); background: #fff; }
+.lc-casca:has(.page-lawchat) .lc-conteudo > .scroll { overflow: hidden; }
+
+/* Central: no lugar do aviso "Ative as notificações na web" (que não sai dentro do painel), o título da lista. */
+.lc-central-titulo { position: absolute; left: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 0 18px;
+  background: #fff; border-bottom: 1px solid #eef1f5; border-right: 1px solid #e5e7eb; color: #101828; font-size: 14px; font-weight: 600; }
+.lc-central-titulo svg { color: #00a32c; }
+
+/* Menu de Configurações: rola sem mostrar barra (ela aparecia entre o menu e a tela). */
+.lc-conta-menu { scrollbar-width: none; }
+.lc-conta-menu::-webkit-scrollbar { display: none; }
