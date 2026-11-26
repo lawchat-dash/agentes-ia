@@ -239,6 +239,7 @@ from app.gestao.rotas_contrato import api as api_contrato  # noqa: E402
 app.include_router(api_contrato)                      # contratos do lead e prompt do resumo do contrato assinado
 from app.gestao.rotas_rascunho import api as api_rascunho; app.include_router(api_rascunho)  # noqa: E402,E702  testar o rascunho e versões
 from app.gestao.rotas_roteiros import api as api_roteiros; app.include_router(api_roteiros)  # noqa: E402,E702  Ferramentas > Roteiros (áudios)
+from app.gestao.rotas_filtro import api as api_filtro; app.include_router(api_filtro)  # noqa: E402,E702  filtro de número por agente (teste)
 if os.environ.get("AGENTESIA_PAINEL_CRM_LIGADO", "").strip() == "1":
     # Painel padrão do CRM pela API interna da Helena (impersonate): desligado por padrão. Se um dia o recebimento de
     # webhooks virar um app separado, este router NÃO entra nele.

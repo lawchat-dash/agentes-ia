@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, PhoneOff, Radio, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
 import { api, formatarTelefone } from "../api";
@@ -25,7 +25,18 @@ interface PassoTeste { codigo: string; titulo: string; situacao: string; detalhe
 interface ResultadoTeste { ok: boolean; avisos?: number; passos: PassoTeste[]; tipo: string; aviso_tipo: string | null; conferido_em: string }
 
 export function useSaudeNumeros(escritorio: string | null) {
-  return useCarregar<Saude>(escritorio ? "/saude/numeros" : null, [escritorio]);
+  const r = useCarregar<Saude>(escritorio ? "/saude/numeros" : null, [escritorio]);
+  // Atualiza sozinha (a cada 45 s e ao voltar para a aba): antes ficava "ainda sem mensagens" até recarregar a página.
+  const { recarregar } = r;
+  useEffect(() => {
+    if (!escritorio) return;
+    const t = window.setInterval(() => { if (document.visibilityState === "visible") void recarregar(); }, 45_000);
+    const aoVoltar = () => { if (document.visibilityState === "visible") void recarregar(); };
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("focus", aoVoltar);
+    return () => { window.clearInterval(t); document.removeEventListener("visibilitychange", aoVoltar); window.removeEventListener("focus", aoVoltar); };
+  }, [escritorio, recarregar]);
+  return r;
 }
 
 /** "há 3 min", "há 2 h", "há 4 dias". */

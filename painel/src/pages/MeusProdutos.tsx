@@ -24,6 +24,7 @@ import { StatusToggle } from "@/components/ui/status-toggle";
 import { ButtonHoldAndRelease } from "@/components/ui/hold-and-release-button";
 import { AvisoFollowupDesligado } from "@/components/followup/AvisoFollowupDesligado";
 import { SeloSaude, TestarConexao, TipoNumero, useSaudeNumeros, type SaudeAgente } from "@/componentes/SaudeNumero";
+import { FiltroNumero } from "@/componentes/FiltroNumero";
 import { useSessao } from "@/sessao";
 
 /** As abas do agente, direto do cartão (as mesmas rotas do submenu /agentes/:id/:secao). */
@@ -628,23 +629,24 @@ const MeusProdutos = () => {
                     const semNumero = p.precisa_ativar || !p.weaver_agent_id || s?.selo.tipo === "sem_numero";
                     if (!s && !semNumero) return null;
                     return (
-                      <div className="px-4 py-2 border-t border-border/60 flex items-center gap-1.5 flex-wrap">
+                      <div className="px-4 pt-3 pb-2 border-t border-border/60 flex items-center gap-1.5 flex-wrap">
                         <SeloSaude selo={semNumero ? { tipo: "sem_numero", minutos: null } : s!.selo} />
                         {!semNumero && <TipoNumero tipo={s!.tipo} aviso={s!.aviso_tipo} />}
-                        {!semNumero && s!.id_canal && <TestarConexao compacto idCanal={s!.id_canal} numero={p.numero_ia ?? undefined} className="ml-auto" />}
+                        {!semNumero && s!.id_canal && <span className="ml-auto"><TestarConexao compacto idCanal={s!.id_canal} numero={p.numero_ia ?? undefined} /></span>}
                       </div>
                     );
                   })()}
 
                   {/* Abas do agente (as mesmas do submenu): Prompt, Follow-up, Conhecimento, Laboratório */}
                   {!trashed && !building && p.weaver_agent_id && (
-                    <nav aria-label={`Abrir ${p.name}`} className="px-3 pb-2.5 pt-1 flex flex-wrap gap-1">
+                    <nav aria-label={`Abrir ${p.name}`} className="px-3 pb-3 pt-1 grid grid-cols-3 gap-1.5 [&>*]:w-full [&>*]:justify-center [&>*]:py-1.5">
                       {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
                         <Link key={chave} to={`/agentes/${p.weaver_agent_id}/${chave}`}
-                          className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors">
-                          <Icone className="size-3 shrink-0" aria-hidden />{rotulo}
+                          className="inline-flex items-center gap-1 rounded-lg border border-border/70 bg-muted/20 px-2 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors min-w-0">
+                          <Icone className="size-3 shrink-0" aria-hidden /><span className="truncate">{rotulo}</span>
                         </Link>
                       ))}
+                      <FiltroNumero idAgente={p.weaver_agent_id} />
                     </nav>
                   )}
 
@@ -721,11 +723,11 @@ const MeusProdutos = () => {
                       />
                     </div>
                   ) : (
-                    <div className="p-3 pt-2 border-t border-border/60 flex items-center gap-2">
+                    <div className="p-3 pt-2.5 border-t border-border/60 flex items-center gap-2 [&>*:not(:first-child)]:shrink-0">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1"
+                        className="flex-1 min-w-0"
                         onClick={() => navigate(`/meus-produtos/${p.id}`)}
                       >
                         <Settings2 className="size-3.5 mr-1.5" />Editar
