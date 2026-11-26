@@ -20,7 +20,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { secoesDo } from "../telas/agenteSecoes";
 import { useSessao } from "../sessao";
 import { Modal, useCarregar } from "./ui";
-import { DockAtalhos } from "./DockAtalhos";
 import { AvisoSaldo } from "./AvisoSaldo";
 import { SaldoTopo } from "./SaldoTopo";
 import { CentralNotificacoes } from "./CentralNotificacoes";
@@ -342,7 +341,6 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
           {escritorio && <AvisoSaldo escritorio={escritorio} podeGerir={podeGerir} />}
           <div className="scroll"><main className={`page${telaLawChat ? " page-lawchat" : ""}`} key={`${escritorio}-${visao}`}>{children}</main></div>
           {/* Atalhos num Dock (React Bits) no rodapé da área de conteúdo; aparece com o mouse perto da borda de baixo. */}
-          {!modoAdmin && <DockAtalhos errosAbertos={resumo.dados?.erros_abertos ?? 0} impersonando={impersonando} />}
         </div>
 
       </div>
