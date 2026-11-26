@@ -31,10 +31,13 @@ DO_EXTRATOR = ("quer_videochamada", "quer_audio", "nao_sabe_ler", "cliente_antig
 # Só fazem sentido onde há contrato em andamento (papéis com a ação zapsign): fora dali o turno descarta.
 SO_NO_CONTRATO = ("foto_contrato", "endereco_sem_falar", "contrato_manual")
 # Avisam a equipe sem tirar a IA da conversa: ela segue, com a orientação abaixo (e sem áudio, no caso da surdez).
-SEM_PAUSA = ("deficiencia_auditiva",)
+SEM_PAUSA = ("deficiencia_auditiva", "muitas_objecoes")
 ORIENTACAO_SEM_PAUSA = {
     "deficiencia_auditiva": ("O lead tem deficiência auditiva: converse só por texto, com frases claras; nunca mande "
                              "áudio nem peça para ele ouvir algo."),
+    # Objeção insistente: a equipe é avisada e acompanha, mas a IA não sai da conversa (o lead segue sendo atendido).
+    "muitas_objecoes": ("O lead está resistente: responda a dúvida com calma, em 1 ou 2 frases, sem pressionar e sem "
+                        "prometer retorno da equipe, e siga o roteiro da etapa."),
 }
 # Marcados pelo agente do papel (dependem do roteiro).
 DO_AGENTE = ("analise_humana",)

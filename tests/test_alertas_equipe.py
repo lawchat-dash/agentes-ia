@@ -71,12 +71,15 @@ def test_janela_mesmo_fato_e_numero_de_envio():
     assert "não oficial em Avisos no WhatsApp" in notificacoes.TEXTO_NUMERO_OFICIAL
 
 
+from app.cerebro.sinais import SEM_PAUSA
+
+
 # ----------------------------------------------------------------------------- 2. turno: válido pausa e avisa
 AUDITOR_OK = {"valido": True, "motivo": "pediu", "mensagem": "Combinado! A equipe vai te ajudar por aqui."}
 AUDITOR_NAO = {"valido": False, "motivo": "não pediu", "mensagem": "x"}
 
 
-@pytest.mark.parametrize("sinal", auxilio_acidente.SINAIS)
+@pytest.mark.parametrize("sinal", [s for s in auxilio_acidente.SINAIS if s not in SEM_PAUSA])
 async def test_auditor_confere_cada_sinal_e_a_chamada_entra_no_custo(sinal):
     from app.cerebro import turno
     from app.modelo import ModeloFalso
@@ -94,7 +97,7 @@ async def test_auditor_confere_cada_sinal_e_a_chamada_entra_no_custo(sinal):
     assert saida.estado_lead is None and saida.sinais == [] and saida.mensagens[0]["texto"] == "Certo, e quando foi?"
 
 
-@pytest.mark.parametrize("sinal", auxilio_acidente.SINAIS)
+@pytest.mark.parametrize("sinal", [s for s in auxilio_acidente.SINAIS if s not in SEM_PAUSA])
 async def test_sinal_confirmado_no_atendimento_pausa_anota_e_pede_o_aviso(sinal):
     atendimento, repo, helena = montar({"extrator": extrai(sinais=[sinal]), "etapa": fala("Certo!")})
     repo.agentes["canal-1"].config.update({"funcoes": {"avisos": True}})
@@ -235,3 +238,17 @@ async def test_dificuldade_na_assinatura_pelo_contrato_anota_e_avisa():
                                    lead) == 1
     finally:
         await repo.fechar()
+
+
+async def test_muitas_objecoes_avisa_a_equipe_sem_tirar_a_ia():
+    # Objeção insistente: a equipe é avisada, mas a IA segue respondendo (o objetivo é escalar o mínimo possível).
+    atendimento, repo, helena = montar({"extrator": extrai(sinais=["muitas_objecoes"]), "auditor": AUDITOR_OK,
+                                        "etapa": fala("Entendo a dúvida. Você só paga se o benefício sair.")})
+    repo.agentes["canal-1"].config.update({"funcoes": {"avisos": True}})
+    repo.avisos = {"esc-1": {"sinal:muitas_objecoes"}}
+    await atendimento.receber(webhook("isso é golpe? e se eu perder? vou pensar"))
+    await atendimento.aguardar_esperas()
+    lead = next(iter(repo.leads.values()))
+    assert lead.estado != "pausado"
+    assert any(e["tipo"] == "sinal_muitas_objecoes" for e in repo.eventos)
+    assert any("Você só paga" in str(m) for m in helena.enviadas)

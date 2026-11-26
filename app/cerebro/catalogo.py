@@ -484,7 +484,8 @@ REGRAS_NAO_INVENTAR = """O que você nunca inventa
   mandar, diga só que o escritório pode cuidar do caso.
 - Não dê opinião jurídica. Valores, porcentagens, prazos, datas, documentos, endereço e regras do benefício só podem
   vir do roteiro, dos DADOS DO ESCRITÓRIO, dos HONORÁRIOS, dos FATOS DO SISTEMA ou da BASE DE CONHECIMENTO. Fora disso,
-  diga em 1 frase que vai confirmar com a equipe e volte à pergunta da etapa.
+  diga em 1 frase que esse detalhe o escritório explica certinho quando cuidar do caso e volte à pergunta da etapa.
+  Não diga que vai confirmar, perguntar ou pedir para a equipe, nem prometa retorno: ninguém é avisado por essa frase.
 - Não escreva link, telefone, e-mail ou endereço que não esteja nessas fontes, nem invente estatística, credencial ou
   nome de pessoa.
 - Sobre o caso, só afirme o que o lead disse ou o que o sistema informou. Em resumos com vagas ("[Acidente ocorrido
@@ -653,8 +654,9 @@ FORMATO_FERRAMENTAS = {
 }
 
 # Aviso à equipe: o roteiro escreve "→ @Análise da equipe"; a ferramenta é do motor.
-FORMATO_NOTIFICACAO = """- "notificacao": preencha "analise_humana" quando o roteiro disser "Análise da equipe" ou quando um dado necessário
-  continuar sem resposta depois de 2 tentativas. Escreva ao lead só a frase do roteiro para isso (sem ela: "Vou pedir
+FORMATO_NOTIFICACAO = """- "notificacao": preencha "analise_humana" só quando o roteiro disser "Análise da equipe" para a situação do lead.
+  Falta de informação nunca é análise: se o lead não lembra ou não sabe (data, auxílio-doença, documento, seguro),
+  aceite a resposta aproximada ou o "não sei" e siga para a próxima pergunta. Escreva ao lead só a frase do roteiro para isso (sem ela: "Vou pedir
   para a nossa equipe olhar o seu caso com atenção, e retornamos por aqui."), sem pergunta e sem prazo de retorno.
   Deixe "transferir_para" vazio. A IA sai da conversa. Deixe vazio no resto do tempo. Pedidos de videochamada, áudio
   e os outros avisos o sistema percebe sozinho.
@@ -801,7 +803,7 @@ def montar_sistema(*, prompt: str, nome_agente: str, escritorio: str, conhecimen
                    ferramentas: dict[str, Any] | None = None, papeis: dict[str, Any] | None = None,
                    honorarios: str | None = None, variaveis: dict[str, str] | None = None) -> str:
     """Sistema do agente do papel: o roteiro (variáveis já trocadas), as regras do escritório, os honorários, a base,
-    os fatos do sistema, as REGRAS DO ATENDIMENTO do motor e o FORMATO. A data de hoje (o 'A data de hoje é' dos agentes
+    as REGRAS DO ATENDIMENTO do motor, o FORMATO e, por último, os fatos do sistema (o que muda por lead). A data de hoje (o 'A data de hoje é' dos agentes
     do n8n) vai no conteúdo do turno: com a hora no começo do sistema, nenhum turno reaproveitaria o cache do provedor."""
     valores = variaveis if variaveis is not None else valores_das_variaveis(nome_agente, escritorio, honorarios)
     # Marcador de mídia que ficou sem arquivo ([[audio:Nome]] que o painel não trocou pela URL) sai: a IA o copiava
@@ -817,12 +819,15 @@ def montar_sistema(*, prompt: str, nome_agente: str, escritorio: str, conhecimen
         partes.append("# USO DA BASE DE CONHECIMENTO\nO roteiro manda mais que a base. Use a base só para o que o roteiro não responde, "
                       "com suas palavras, em 1 ou 2 frases, e volte para a etapa. Se não estiver na base, diga que vai confirmar "
                       "com a equipe; nunca invente.\n\n" + preencher_variaveis(conhecimento_texto, valores)[0])
-    if fatos_sistema:
-        partes.append("# FATOS DO SISTEMA (do cadastro e das contas do sistema; não contrarie)\n"
-                      + "\n".join(f"- {k}: {v}" for k, v in fatos_sistema.items() if v))
     partes.append(regras_do_motor(papel, ferramentas, destinos, papeis,
                                   com_midia=bool(urls_de_midia(prompt, regras, conhecimento_texto))))
     partes.append(formato(destinos, acoes, notificacoes, papeis))
+    # Os FATOS DO SISTEMA mudam por lead (nome, telefone, contrato) e por turno (contas da calculadora): vão no fim, para
+    # tudo o que é fixo do agente e do papel (roteiro, regras, base, regras do motor, formato) ser o mesmo prefixo em toda
+    # chamada e entrar no cache do provedor, inclusive entre leads diferentes.
+    if fatos_sistema:
+        partes.append("# FATOS DO SISTEMA (do cadastro e das contas do sistema; não contrarie)\n"
+                      + "\n".join(f"- {k}: {v}" for k, v in fatos_sistema.items() if v))
     return "\n\n".join(partes)
 
 

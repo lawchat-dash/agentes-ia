@@ -158,6 +158,24 @@ async def processar(modelo: Modelo, entrada: Entrada) -> Saida:
         raise
 
 
+# Pedido de pessoa de verdade: atendente, humano, "não é robô", "pessoa real". "Especialista", "advogado" e "pessoalmente"
+# sozinhos não contam: são a abertura do anúncio da Meta e quem quer conhecer o escritório (a IA segue atendendo).
+_PESSOA_CLARA = re.compile(r"\b(atendentes?|humanos?|humanas?|pessoa\s+(de\s+verdade|real|f[ií]sica)|uma\s+pessoa|"
+                           r"de\s+verdade|rob[oô]s?|bot|m[aá]quina|intelig[eê]ncia\s+artificial|"
+                           r"me\s+liga|ligar\s+pra\s+mim|ligar\s+para\s+mim)\b", re.I)
+_SO_ANUNCIO = re.compile(r"\b(especialista|advogad[oa]s?|doutor[a]?|pessoalmente|presencial|conhecer\s+os?\s+"
+                         r"(profissionais|advogados|escrit[oó]rio)|mais\s+informa[cç][oõ]es|saber\s+mais)\b", re.I)
+
+
+def pedido_de_pessoa_claro(novas: list[str]) -> bool:
+    """O lead pediu uma pessoa no lugar da IA. Falso quando o texto só fala de especialista, advogado, informações ou
+    atendimento presencial (a mensagem pronta do anúncio). Sem nenhuma das duas pistas, vale o que o extrator marcou."""
+    texto = " ".join(novas or [])
+    if _PESSOA_CLARA.search(texto):
+        return True
+    return not _SO_ANUNCIO.search(texto)
+
+
 async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
     produto = entrada.produto or AuxilioAcidente(entrada.regras)
     terminais = {e.codigo for e in produto.etapas if e.tipo == "terminal"}
@@ -206,6 +224,13 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
         ))
 
     # 2. Pedidos do lead que encerram ou passam a conversa, sem chamar o agente.
+    if extracao.intencoes.get("pediu_humano") and not pedido_de_pessoa_claro(entrada.novas):
+        # A mensagem pronta do anúncio ("Quero falar com um especialista em Auxílio-Acidente") e "quero conhecer
+        # pessoalmente" não são pedido de humano: a IA atende normalmente.
+        extracao.intencoes["pediu_humano"] = False
+        saida.eventos.append(_evento("pediu_humano_ignorado", "info", "lawchat",
+                                     "Pedido de humano ignorado: abertura do anúncio ou pedido de atendimento presencial.",
+                                     texto=" ".join(entrada.novas)[:200]))
     for intencao, estado in (("pediu_para_parar", "encerrado"), ("engano", "encerrado"), ("pediu_humano", "pausado")):
         if extracao.intencoes.get(intencao):
             saida.estado_lead, saida.motivo_estado, saida.motivo = estado, intencao, intencao
@@ -228,6 +253,9 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
                                              pausa=False))
             if "deficiencia_auditiva" in validos:
                 _gravar_controle(saida, MARCA_SO_TEXTO, True)
+            from app.cerebro.sinais import ORIENTACAO_SEM_PAUSA
+            saida.contexto["orientacoes_sinal"] = [ORIENTACAO_SEM_PAUSA[s] for s in validos
+                                                   if s != "deficiencia_auditiva" and s in ORIENTACAO_SEM_PAUSA]
             validos = []
         if validos:
             saida.estado_lead, saida.motivo_estado = "pausado", "sinal:" + ",".join(validos)
@@ -384,8 +412,11 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     if assumiu:
         _gravar_controle(saida, MARCA_BOAS_VINDAS, "")
     # A data com a hora vai no conteúdo, não no sistema: o sistema fica igual entre turnos e entra no cache do provedor.
-    linhas = [contexto.linha_de_hoje(agora), "", "CONVERSA ATÉ AQUI (mais antiga primeiro):"]
+    # E vai DEPOIS da conversa: de um turno para o outro a conversa só cresce no fim, então ela também entra no cache
+    # (prefixo idêntico); a hora no começo do conteúdo quebrava o prefixo logo depois do sistema.
+    linhas = ["CONVERSA ATÉ AQUI (mais antiga primeiro):"]
     linhas += [f"{m['autor']}: {m['texto']}" for m in entrada.historico[-60:]] or ["(nenhuma)"]
+    linhas += ["", contexto.linha_de_hoje(agora)]
     if bloco_base := base_conhecimento.bloco(await _esperar_base(entrada)):   # busca rodou junto do extrator
         linhas.append("\n" + bloco_base)
     # Mídias que este turno pode mandar: só as do roteiro (sistema do papel, regras, objeções, base) e de config.midias.
@@ -404,11 +435,13 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     so_texto = bool(saida.fatos_depois.get(MARCA_SO_TEXTO))
     if so_texto:
         linhas.append("\n(sistema) " + sinais_catalogo.ORIENTACAO_SEM_PAUSA["deficiencia_auditiva"])
+    for orientacao in saida.contexto.get("orientacoes_sinal") or []:
+        linhas.append("\n(sistema) " + orientacao)
     confirmou = _lead_confirmou_dados(entrada, saida) if "zapsign" in acoes and exigir_confirmacao_contrato(
         produto.config) else True
     if (produto.fatos_do_periodo and "zapsign" not in acoes and saida.fatos_depois.get("acidente_ano") in (None, "")
             and not saida.fatos_depois.get("acidente_quando_incerto")):
-        # A vaga "[ocorrido em…]" do resumo saía com o ano de hoje (o "Hoje é" do começo do conteúdo).
+        # A vaga "[ocorrido em…]" do resumo saía com o ano de hoje (o "Hoje é" do conteúdo).
         linhas.append("\nData do acidente: o lead ainda não informou (nunca use a data de hoje no lugar dela).")
     if boas_vindas:
         # Só a boas-vindas perdia um turno e deixava sem resposta o "tenho direito?" do lead. O texto dela vem logo depois

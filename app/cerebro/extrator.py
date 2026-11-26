@@ -36,7 +36,7 @@ O trecho precisa existir, letra por letra, numa mensagem do lead.
 5. Não repita fato que já consta igual nos fatos conhecidos.
 6. Cuidado com o tempo do verbo: o que vale hoje é diferente do que valia na época do fato.
 7. Se nada novo foi dito, devolva a lista de fatos vazia e todas as intenções como false.
-8. Data dita de forma relativa: converta usando a data de hoje que vem no começo do conteúdo, só até onde a expressão \
+8. Data dita de forma relativa: converta usando a data de hoje que vem no conteúdo (linha "Hoje é"), só até onde a expressão \
 permite saber. "Há 3 meses" ou "mês passado" dão mês e ano. "Ano passado" ou "faz uns 2 anos" dão só o ano: nunca \
 preencha o mês (nem chute um). "Faz anos", sem número, não dá data nenhuma. "Hoje", "até hoje" e "hj" falando de \
 dor, sequela ou benefício atual ("até hoje dói", "hoje anda de bengala", "recebo até hoje") NÃO são data de nada: \
@@ -81,13 +81,13 @@ Sinais (marque só se o lead disse com as próprias palavras):
 - outro_beneficio: pede outro benefício (BPC, aposentadoria, pensão...) e não o do acidente.
 - dificuldade_assinatura: não consegue assinar o contrato (link não abre, erro, travou na selfie ou no código).
 - foto_contrato: mandou foto, print ou arquivo do contrato.
-- muitas_objecoes: duas ou mais objeções diferentes (golpe, honorários, família, 'vou pensar') e segue resistente. \
+- muitas_objecoes: três ou mais objeções (golpe, honorários, família, 'vou pensar') e segue resistente. \
 Reclamar que a atendente repetiu a pergunta ('já te falei', 'já respondi') NÃO é objeção.
 - endereco_sem_falar: recusa passar o endereço ou desvia quando pedido.
 - contrato_manual: pede contrato impresso, quem assina é representante/curador, ou não consegue assinatura digital.
 
 Intenções (true só quando estiver claro nas mensagens novas):
-- pediu_humano: pede para falar com uma pessoa, atendente ou advogado.
+- pediu_humano: pede uma pessoa no lugar da IA (atendente, humano, 'não quero falar com robô'). NÃO é: a mensagem pronta do anúncio ('Quero falar com um especialista em ...', 'quero mais informações'), querer conhecer o escritório pessoalmente, nem perguntar se são advogados.
 - pediu_para_parar: pede para não receber mais mensagens.
 - engano: diz que foi engano ou que não procurou o escritório.
 - aceitou_honorarios: concorda de forma clara com os honorários apresentados.
@@ -139,15 +139,19 @@ class Extracao:
 
 def montar_conteudo(fatos_conhecidos: dict[str, Any], historico: list[dict[str, str]], novas: list[str],
                     agora: datetime | None = None) -> str:
-    """Conteúdo do extrator. A data de hoje vai no começo para ele converter "há 3 meses" em mês e ano."""
+    """Conteúdo do extrator. A data de hoje vai junto para ele converter "há 3 meses" em mês e ano.
+
+    Ordem pensada para o cache do provedor (só vale prefixo idêntico): a conversa anterior só cresce no fim de um turno
+    para o outro, então vem primeiro; o que muda a cada turno (a hora, os fatos conhecidos, as novas) vem depois."""
     from app.cerebro.contexto import linha_de_hoje
 
-    partes = [linha_de_hoje(agora), "", "FATOS CONHECIDOS:", json.dumps(fatos_conhecidos, ensure_ascii=False, sort_keys=True)]
-    partes.append("\nCONVERSA ANTERIOR (mais antiga primeiro):")
+    partes = ["CONVERSA ANTERIOR (mais antiga primeiro):"]
     if historico:
         partes.extend(f"[{m['autor']}] {m['texto']}" for m in historico)
     else:
         partes.append("(nenhuma)")
+    partes += ["", linha_de_hoje(agora), "", "FATOS CONHECIDOS:",
+               json.dumps(fatos_conhecidos, ensure_ascii=False, sort_keys=True)]
     partes.append("\nMENSAGENS NOVAS DO LEAD:")
     partes.extend(f"[lead] {texto}" for texto in novas)
     return "\n".join(partes)
