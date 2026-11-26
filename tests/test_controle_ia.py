@@ -155,3 +155,120 @@ async def test_achar_desativar_reativar_e_buscar(ambiente):  # noqa: F811
                                                         headers=h)).json()] == [id_lead]
     assert (await cliente.get("/api/controle-ia/buscar", params={"q": f"Controle {marca}"}, headers=h2)).json() == []
     assert (await cliente.get("/api/controle-ia/buscar", params={"q": "%"}, headers=h)).json() == []
+
+
+# ------------------------------------------------------------------ link da conversa (sem login)
+def test_limpo_ignora_variavel_nao_preenchida():
+    assert ci._limpo("{{id_do_card}}") == "" and ci._limpo("  ") == "" and ci._limpo(" abc ") == "abc"
+
+
+def test_rotas_publicas_e_cartao_do_link():
+    from app.servidor import criar_app, rotas_montadas
+    caminhos = rotas_montadas(criar_app("painel"))
+    assert {"/api/controle-ia/publico/lead", "/api/controle-ia/publico/desativar",
+            "/api/controle-ia/publico/reativar"} <= caminhos
+    cartao = (RAIZ / "painel" / "src" / "componentes" / "LinkControleIA.tsx").read_text(encoding="utf-8")
+    assert ("/controle-ia/ponte?" in cartao and "id_da_conta={{id_da_conta}}" in cartao
+            and "telefone_do_contato={{telefone_do_contato}}" in cartao and "id_do_usuario={{id_do_usuario}}" in cartao)
+    assert "Helena" not in cartao
+    assert "LinkControleIA" in (RAIZ / "painel" / "src" / "telas" / "Integracoes.tsx").read_text(encoding="utf-8")
+    ponte = (RAIZ / "painel" / "src" / "componentes" / "PonteControleIA.tsx").read_text(encoding="utf-8")
+    assert "/api/controle-ia/publico" in ponte and "Não achamos este contato na IA" in ponte
+
+
+@pg
+async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
+    cliente, _simulada, email_admin, banco = ambiente
+    cliente._transport.app.include_router(ci.api)
+    pool = banco._pool
+    ci._pedidos.clear()
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    marca = uuid.uuid4().hex[:6]
+    esc, _h, canal, agente, conta = await _semear(cliente, pool, f"Link IA {marca}")
+    _esc2, _h2, _c2, _a2, conta2 = await _semear(cliente, pool, f"Link IA outro {marca}")
+    fone = "55439" + str(uuid.uuid4().int)[:8]
+    sessao, contato_ext = f"sess-l-{marca}", f"cont-l-{marca}"
+    id_lead = await _lead(pool, esc, canal, agente, f"Ana Link {marca}", fone, sessao, contato_ext)
+    usuario_plataforma = str(uuid.uuid4())
+    await pool.execute(
+        """insert into agentesia_usuarios (email, nome, senha_hash, papel, id_escritorio, id_usuario_helena)
+           values ($1, 'Bruna Atendente', 'x', 'atendente', $2::uuid, $3)""",
+        f"bruna-{marca}@exemplo.com", esc, usuario_plataforma)
+    cliente.cookies.clear()                                    # o link funciona sem sessão do painel
+
+    def q(**extra):
+        return {"id_da_conta": conta, "id_do_atendimento": sessao, "id_do_contato": "{{id_do_contato}}",
+                "telefone_do_contato": fone, **extra}
+
+    # Conta certa: acha pelo atendimento, sem devolver o id do lead nem o telefone inteiro.
+    r = await cliente.get("/api/controle-ia/publico/lead", params=q())
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["por"] == "sessao" and d["ia_ligada"] is True and "id_lead" not in d and fone not in r.text
+    # Sem atendimento: pelo telefone.
+    assert (await cliente.get("/api/controle-ia/publico/lead",
+                              params=q(id_do_atendimento=""))).json()["por"] == "telefone"
+    # Conta de outro escritório: o lead não existe lá.
+    r = await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=conta2))
+    assert r.status_code == 404 and "não tem lead" in r.json()["detail"]
+    # Conta desconhecida, inválida ou ausente.
+    r = await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=str(uuid.uuid4())))
+    assert r.status_code == 404 and "não está ligada" in r.json()["detail"]
+    assert (await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta="abc"))).status_code == 404
+    r = await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta="{{id_da_conta}}"))
+    assert r.status_code == 400 and "id_da_conta" in r.json()["detail"]
+    # Sem dados da conversa.
+    assert (await cliente.get("/api/controle-ia/publico/lead", params={"id_da_conta": conta})).status_code == 400
+    # id_lead vindo do navegador é ignorado: sem os dados da conversa nada muda.
+    r = await cliente.post("/api/controle-ia/publico/desativar", json={"id_da_conta": conta, "id_lead": id_lead})
+    assert r.status_code == 400
+    assert await _notas(pool, id_lead) == 0
+
+    # Desativar pelo link (2 h) com o atendente da plataforma: nota e histórico dizem "pelo link da conversa".
+    corpo = {"id_da_conta": conta, "id_do_atendimento": sessao, "id_do_contato": contato_ext,
+             "telefone_do_contato": fone, "id_do_usuario": usuario_plataforma}
+    r = await cliente.post("/api/controle-ia/publico/desativar", json={**corpo, "minutos": 120})
+    assert r.status_code == 200, r.text
+    assert r.json()["mudou"] is True and r.json()["lead"]["ia_ligada"] is False and "id_lead" not in r.json()["lead"]
+    nota = await pool.fetchval(
+        "select dados->>'texto' from agentesia_acoes where id_lead = $1::uuid and tipo = 'nota'", id_lead)
+    assert "pelo link da conversa (Bruna Atendente)" in nota and "120 min" in nota
+    alteracao = await pool.fetchrow(
+        """select id_usuario, resumo, depois from agentesia_alteracoes
+           where id_registro = $1::uuid and acao = 'desligou_ia'""", id_lead)
+    assert "pelo link da conversa" in alteracao["resumo"] and alteracao["id_usuario"] is not None
+    assert usuario_plataforma in str(alteracao["depois"]) and '"link"' in str(alteracao["depois"])
+    # Repetido logo em seguida: sem nota nova.
+    r = await cliente.post("/api/controle-ia/publico/desativar", json={**corpo, "minutos": 120})
+    assert r.json()["mudou"] is False and await _notas(pool, id_lead) == 1
+    # Pela conta de outro escritório não mexe.
+    r = await cliente.post("/api/controle-ia/publico/reativar", json={**corpo, "id_da_conta": conta2})
+    assert r.status_code == 404 and await _notas(pool, id_lead) == 1
+
+    # Reativar sem id_do_usuario preenchido: nota "pelo link da conversa", sem nome.
+    r = await cliente.post("/api/controle-ia/publico/reativar", json={**corpo, "id_do_usuario": "{{id_do_usuario}}"})
+    assert r.status_code == 200 and r.json()["mudou"] is True and r.json()["lead"]["ia_ligada"] is True
+    notas = [x["t"] for x in await pool.fetch(
+        "select dados->>'texto' as t from agentesia_acoes where id_lead = $1::uuid and tipo = 'nota' order by criado_em",
+        id_lead)]
+    assert len(notas) == 2 and "religada" in notas[1] and "pelo link da conversa." in notas[1]
+
+    # Conversa encerrada: mensagem clara.
+    fone2 = "55439" + str(uuid.uuid4().int)[:8]
+    await _lead(pool, esc, canal, agente, f"Encerrado Link {marca}", fone2, estado="encerrado")
+    r = await cliente.post("/api/controle-ia/publico/desativar", json={"id_da_conta": conta, "telefone_do_contato": fone2})
+    assert r.status_code == 409 and "encerrada" in r.json()["detail"]
+
+    # Limite de taxa por conta (a outra conta segue livre).
+    ci._pedidos.clear()
+    monkeypatch.setattr(ci, "LIMITE_POR_CONTA", 3)
+    codigos = [(await cliente.get("/api/controle-ia/publico/lead", params=q())).status_code for _ in range(4)]
+    assert codigos == [200, 200, 200, 429]
+    assert (await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=conta2))).status_code == 404
+    # Limite por IP (contas inventadas não escapam).
+    ci._pedidos.clear()
+    monkeypatch.setattr(ci, "LIMITE_POR_IP", 2)
+    codigos = [(await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=str(uuid.uuid4())))).status_code
+               for _ in range(3)]
+    assert codigos == [404, 404, 429]
+    ci._pedidos.clear()

@@ -29,7 +29,7 @@ ETIQUETA = "🤖 IA Desativada"
 MOTIVO = "desativada_pela_equipe"
 ECO_MINUTOS = 3                      # etiqueta mexida pela LawChat há menos que isto: o evento é o eco dela
 ORIGENS = {"etiqueta": "pela etiqueta na Helena", "botao": "pelo botão da Helena", "painel": "pelo painel",
-           "prazo": "porque o prazo acabou"}
+           "link": "pelo link da conversa", "prazo": "porque o prazo acabou"}
 
 
 def _tem_etiqueta(tags: Any) -> bool:
@@ -75,15 +75,18 @@ async def _responder_o_que_esperava(conexao: Any, id_lead: Any) -> bool:
 
 async def mudar_ia(pool: asyncpg.Pool, id_escritorio: str, *, ligar: bool, origem: str,
                    id_sessao: str | None = None, telefone: str | None = None, minutos: int = 0,
-                   id_lead: str | None = None, id_usuario: str | None = None) -> dict[str, Any]:
+                   id_lead: str | None = None, id_usuario: str | None = None, de_quem: str | None = None,
+                   extra: dict[str, Any] | None = None) -> dict[str, Any]:
     """Liga ou desliga a IA dos leads da conversa (pelo atendimento, pelo telefone ou, no painel, pelo id do lead).
-    `minutos` > 0 ao desligar = desativação com prazo: depois dele a IA volta sozinha (religar_vencidas)."""
+    `minutos` > 0 ao desligar = desativação com prazo: depois dele a IA volta sozinha (religar_vencidas).
+    `de_quem` troca o "pelo painel" da nota e do histórico (ex.: "pelo link da conversa (Ana)"); `extra` vai junto no
+    registro do histórico (ex.: o id do usuário da plataforma que clicou)."""
     telefone = normalizar_telefone(telefone) if telefone else None
     if not id_sessao and not telefone and not id_lead:
         return {"encontrados": 0, "alterados": 0, "motivo": "sem_sessao_nem_telefone"}
     minutos = max(0, min(int(minutos or 0), 10080)) if not ligar else 0
     codigo = ("ATV-" if ligar else "DES-") + secrets.token_hex(3).upper()
-    de_quem = ORIGENS.get(origem, origem)
+    de_quem = de_quem or ORIGENS.get(origem, origem)
     async with pool.acquire() as conexao, conexao.transaction():
         leads = await conexao.fetch(
             """select l.id, l.id_contato, l.estado, l.motivo_estado, l.pausado_ate, l.id_sessao_helena
@@ -156,7 +159,7 @@ async def mudar_ia(pool: asyncpg.Pool, id_escritorio: str, *, ligar: bool, orige
                 "religou_ia" if ligar else "desligou_ia",
                 f"IA {'religada' if ligar else 'desativada'} {de_quem} em {len(alterados)} conversa(s)"
                 + (f" por {minutos} min" if minutos else "") + f" — {codigo}",
-                json.dumps({"codigo": codigo, "origem": origem, "minutos": minutos or None,
+                json.dumps({**(extra or {}), "codigo": codigo, "origem": origem, "minutos": minutos or None,
                             "ate": alterados[0].get("ate").isoformat() if alterados[0].get("ate") else None,
                             "leads": [str(l["id"]) for l in alterados]}))
     primeiro = alterados[0] if alterados else {}

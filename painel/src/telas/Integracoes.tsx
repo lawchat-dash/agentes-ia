@@ -4,6 +4,7 @@ import { api, enviar, formatarTelefone, quando, type Canal } from "../api";
 import { Alerta, Cabecalho, Carregando, Painel, Situacao, Vazio, useAcao, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { IntegracaoZapSign } from "./IntegracaoZapSign";
+import { LinkControleIA } from "../componentes/LinkControleIA";
 import { SeloSaude, TestarConexao, TipoNumero, useSaudeNumeros, type SaudeCanal } from "../componentes/SaudeNumero";
 
 interface Integracao { situacao: string; final_segredo: string | null; config: Record<string, any>; erro: string | null; testado_em: string | null; tem_segredo: boolean; }
@@ -23,6 +24,7 @@ export function TelaIntegracoes() {
         <IntegracaoHelena integracao={helena} canais={dados.canais} saude={saude.dados?.canais ?? []} webhookPossivel={dados.url_webhook_configurada}
           aoMudar={() => { recarregar(); saude.recarregar(); }} />
         {helena?.situacao === "ok" && <IntegracaoCrm integracao={dados.integracoes.crm} aoMudar={recarregar} />}
+        <LinkControleIA />
         {helena?.situacao === "ok" && <DesligarIa url={dados.url_botao_ia} />}
         <IntegracaoZapSign integracao={dados.integracoes.zapsign} urlWebhook={dados.url_webhook_zapsign} aoMudar={recarregar} />
       </div>

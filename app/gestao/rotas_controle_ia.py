@@ -7,6 +7,15 @@
   POST /api/controle-ia/reativar  {id_lead}
   GET  /api/controle-ia/buscar?q=                         plano B: até 10 leads do escritório por nome ou telefone
 
+Link da conversa (link FIXO cadastrado na plataforma de atendimento, aberto como popup na conversa, SEM login):
+  GET  /api/controle-ia/publico/lead?id_da_conta=&id_do_atendimento=&id_do_contato=&telefone_do_contato=
+  POST /api/controle-ia/publico/desativar|reativar {id_da_conta, id_do_atendimento, id_do_contato,
+                                                    telefone_do_contato, id_do_usuario?, minutos?}
+O escritório é achado pela conta da plataforma (id_da_conta = agentesia_escritorios.id_conta_helena). A ação vale só
+no lead achado pelos dados da conversa dentro desse escritório (sessão → contato → telefone), nunca por um id de lead
+vindo do navegador. Nota e histórico dizem "pelo link da conversa" (+ o nome do atendente, se o id_do_usuario da
+plataforma for de um usuário do painel; o id vai no histórico). Limite em memória: 30 pedidos/min por conta e 60 por IP.
+
 Desativar e reativar passam pelo MESMO serviço da tela Conversas (app/ia_controle.mudar_ia, origem 'painel'): estado
 e prazo, follow-ups cancelados, etiqueta "🤖 IA Desativada", nota DES/ATV no atendimento e histórico.
 Clique repetido não duplica nota: o mudar_ia, numa conversa que já está no estado pedido, deixaria uma nota
@@ -17,6 +26,8 @@ Telefone sempre mascarado na resposta.
 from __future__ import annotations
 
 import re
+import time
+from collections import deque
 from datetime import datetime
 from typing import Any, Literal
 
@@ -112,6 +123,26 @@ async def _por_telefone(pool: Any, id_escritorio: str, bruto: str) -> Any:
     return await pool.fetchrow(_SELECAO + " and l.id_contato = $2" + _ORDEM, id_escritorio, contatos[0]["id"])
 
 
+async def _achar(pool: Any, id_escritorio: str, sessao: str, contato: str, telefone: str) -> tuple[Any, str] | None:
+    """Lead da conversa: pela sessão (atendimento), pelo contato e, por último, pelo telefone."""
+    if sessao and ID_EXTERNO.fullmatch(sessao):
+        linha = await pool.fetchrow(_SELECAO + " and l.id_sessao_helena = $2" + _ORDEM, id_escritorio, sessao)
+        if linha:
+            return linha, "sessao"
+    if contato and ID_EXTERNO.fullmatch(contato):
+        linha = await pool.fetchrow(_SELECAO + " and c.id_contato_helena = $2" + _ORDEM, id_escritorio, contato)
+        if linha:
+            return linha, "contato"
+    if telefone:
+        linha = await _por_telefone(pool, id_escritorio, telefone)
+        if linha:
+            return linha, "telefone"
+    return None
+
+
+NAO_ACHOU = "Esta conversa não tem lead da IA neste escritório (a IA ainda não atendeu este contato)."
+
+
 @api.get("/lead")
 async def lead_da_conversa(pedido: Request, sessao: str = "", contato: str = "", telefone: str = "", conta: str = "",
                            ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
@@ -120,20 +151,10 @@ async def lead_da_conversa(pedido: Request, sessao: str = "", contato: str = "",
     if not (sessao or contato or telefone):
         raise HTTPException(400, "Informe o atendimento, o contato ou o telefone da conversa.")
     pool = _repo(pedido).pool
-    id_escritorio = await _escritorio(pool, ctx, conta)
-    if sessao and ID_EXTERNO.fullmatch(sessao):
-        linha = await pool.fetchrow(_SELECAO + " and l.id_sessao_helena = $2" + _ORDEM, id_escritorio, sessao)
-        if linha:
-            return _resumo(linha, "sessao")
-    if contato and ID_EXTERNO.fullmatch(contato):
-        linha = await pool.fetchrow(_SELECAO + " and c.id_contato_helena = $2" + _ORDEM, id_escritorio, contato)
-        if linha:
-            return _resumo(linha, "contato")
-    if telefone:
-        linha = await _por_telefone(pool, id_escritorio, telefone)
-        if linha:
-            return _resumo(linha, "telefone")
-    raise HTTPException(404, "Esta conversa não tem lead da IA neste escritório (a IA ainda não atendeu este contato).")
+    achado = await _achar(pool, await _escritorio(pool, ctx, conta), sessao, contato, telefone)
+    if not achado:
+        raise HTTPException(404, NAO_ACHOU)
+    return _resumo(*achado)
 
 
 @api.get("/buscar")
@@ -179,11 +200,20 @@ def _prazo(minutos: int) -> str:
 
 async def _mudar(pedido: Request, ctx: Contexto, id_lead: str, ligar: bool, minutos: int,
                  conta: str | None) -> dict[str, Any]:
-    from app import ia_controle
-
     pool = _repo(pedido).pool
     id_escritorio = await _escritorio(pool, ctx, conta)
     antes = await _lead(pool, id_escritorio, id_lead)
+    return await _aplicar(pool, id_escritorio, antes, ligar, minutos, origem="painel", id_usuario=ctx.id_usuario)
+
+
+async def _aplicar(pool: Any, id_escritorio: str, antes: Any, ligar: bool, minutos: int, *, origem: str,
+                   id_usuario: str | None, de_quem: str | None = None,
+                   extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Desativa ou religa a IA do lead `antes` (já conferido: do escritório e não encerrado) pelo ia_controle.mudar_ia,
+    sem nota repetida no clique repetido."""
+    from app import ia_controle
+
+    id_lead = str(antes["id"])
     desligada_pela_equipe = antes["estado"] == "pausado" and antes["motivo_estado"] == ia_controle.MOTIVO
     repetido = False
     if ligar:
@@ -202,8 +232,8 @@ async def _mudar(pedido: Request, ctx: Contexto, id_lead: str, ligar: bool, minu
                 "mensagem": "A IA já estava ligada nesta conversa." if ligar else
                 ("A IA já estava desativada nesta conversa." if not minutos else
                  f"A IA já foi desativada por {_prazo(minutos)} agora há pouco.")}
-    r = await ia_controle.mudar_ia(pool, id_escritorio, ligar=ligar, origem="painel", id_lead=id_lead,
-                                   minutos=minutos, id_usuario=ctx.id_usuario)
+    r = await ia_controle.mudar_ia(pool, id_escritorio, ligar=ligar, origem=origem, id_lead=id_lead,
+                                   minutos=minutos, id_usuario=id_usuario, de_quem=de_quem, extra=extra)
     depois = await pool.fetchrow(_SELECAO + " and l.id = $2::uuid", id_escritorio, id_lead)
     if not r.get("alterados"):
         raise HTTPException(409, f"Não deu para {'religar' if ligar else 'desativar'} a IA agora. Atualize e tente de novo.")
@@ -225,3 +255,117 @@ async def desativar(dados: Desativar, pedido: Request, ctx: Contexto = Depends(T
 @api.post("/reativar")
 async def reativar(dados: Reativar, pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
     return await _mudar(pedido, ctx, dados.id_lead, ligar=True, minutos=0, conta=dados.conta)
+
+
+# ============================================================================ link da conversa (sem login)
+LIMITE_POR_CONTA = 30            # pedidos por minuto com a mesma conta da plataforma
+LIMITE_POR_IP = 60               # pedidos por minuto do mesmo IP (contas erradas incluídas)
+JANELA_S = 60.0
+_pedidos: dict[str, deque[float]] = {}
+SEM_CONTA = ("O link veio sem a conta da plataforma (id_da_conta). Cadastre o link exatamente como mostrado no painel "
+             "(Integrações › Link do Controle da IA).")
+CONTA_DESCONHECIDA = ("Esta conta da plataforma não está ligada a nenhum escritório da IA. Peça à equipe LawChat para "
+                      "conferir a conta cadastrada no escritório.")
+
+
+def _dentro_do_limite(nome: str, limite: int) -> bool:
+    """Janela deslizante de 1 minuto, em memória (vale por processo: simples e suficiente contra abuso do link)."""
+    agora = time.monotonic()
+    fila = _pedidos.setdefault(nome, deque())
+    while fila and agora - fila[0] > JANELA_S:
+        fila.popleft()
+    if len(fila) >= limite:
+        return False
+    fila.append(agora)
+    if len(_pedidos) > 5000:                 # não cresce sem fim: tira as filas paradas
+        for k in [k for k, f in _pedidos.items() if not f or agora - f[-1] > JANELA_S]:
+            _pedidos.pop(k, None)
+    return True
+
+
+def _limpo(valor: str | None, tamanho: int = 80) -> str:
+    """Variável da plataforma: vazia quando não foi preenchida (vem em branco ou como '{{id_do_card}}')."""
+    valor = (valor or "").strip()
+    return "" if not valor or "{{" in valor or "}}" in valor else valor[:tamanho]
+
+
+async def _escritorio_da_conta(pedido: Request, conta: str) -> str:
+    """Escritório pela conta da plataforma (id_da_conta = agentesia_escritorios.id_conta_helena), com limite de taxa."""
+    ip = pedido.client.host if pedido.client else "?"
+    if not _dentro_do_limite(f"ip:{ip}", LIMITE_POR_IP):
+        raise HTTPException(429, "Muitos pedidos seguidos. Espere um minuto e tente de novo.")
+    conta = _limpo(conta)
+    if not conta:
+        raise HTTPException(400, SEM_CONTA)
+    if not UUID.fullmatch(conta):
+        raise HTTPException(404, CONTA_DESCONHECIDA)
+    conta = conta.lower()
+    if not _dentro_do_limite(f"conta:{conta}", LIMITE_POR_CONTA):
+        raise HTTPException(429, "Muitos pedidos seguidos desta conta. Espere um minuto e tente de novo.")
+    achado = await _repo(pedido).pool.fetchval(
+        "select id from agentesia_escritorios where id_conta_helena = $1::uuid order by criado_em limit 1", conta)
+    if not achado:
+        raise HTTPException(404, CONTA_DESCONHECIDA)
+    return str(achado)
+
+
+async def _lead_do_link(pedido: Request, conta: str, sessao: str, contato: str, telefone: str) -> tuple[str, Any, str]:
+    id_escritorio = await _escritorio_da_conta(pedido, conta)
+    sessao, contato, telefone = _limpo(sessao), _limpo(contato), _limpo(telefone, 30)
+    if not (sessao or contato or telefone):
+        raise HTTPException(400, "O link veio sem os dados da conversa. Abra pelo botão dentro de uma conversa.")
+    achado = await _achar(_repo(pedido).pool, id_escritorio, sessao, contato, telefone)
+    if not achado:
+        raise HTTPException(404, NAO_ACHOU)
+    return id_escritorio, achado[0], achado[1]
+
+
+def _publico(resumo: dict[str, Any]) -> dict[str, Any]:
+    """Resumo sem o id do lead: o navegador do link não precisa dele (e as ações não aceitam id vindo de lá)."""
+    return {k: v for k, v in resumo.items() if k != "id_lead"}
+
+
+class AcaoPublica(BaseModel):
+    id_da_conta: str | None = None
+    id_do_atendimento: str | None = None
+    id_do_contato: str | None = None
+    telefone_do_contato: str | None = None
+    id_do_usuario: str | None = None
+    minutos: Literal[0, 30, 120, 1440] = 0
+
+
+@api.get("/publico/lead")
+async def lead_pelo_link(pedido: Request, id_da_conta: str = "", id_do_atendimento: str = "", id_do_contato: str = "",
+                         telefone_do_contato: str = "") -> dict[str, Any]:
+    """Popup do link da conversa: status da IA do lead (sem login; a conta da plataforma acha o escritório)."""
+    _id, linha, por = await _lead_do_link(pedido, id_da_conta, id_do_atendimento, id_do_contato, telefone_do_contato)
+    return _publico(_resumo(linha, por))
+
+
+async def _mudar_pelo_link(pedido: Request, dados: AcaoPublica, ligar: bool) -> dict[str, Any]:
+    id_escritorio, linha, por = await _lead_do_link(pedido, dados.id_da_conta or "", dados.id_do_atendimento or "",
+                                                    dados.id_do_contato or "", dados.telefone_do_contato or "")
+    if linha["estado"] == "encerrado":
+        raise HTTPException(409, "Esta conversa está encerrada: a IA não atende mais. Para voltar, use a tela Conversas.")
+    pool = _repo(pedido).pool
+    usuario_plataforma = _limpo(dados.id_do_usuario)
+    usuario = None
+    if usuario_plataforma:           # o atendente que clicou, se ele tem usuário no painel (entrou pela plataforma)
+        usuario = await pool.fetchrow(
+            "select id, nome from agentesia_usuarios where id_escritorio = $1::uuid and id_usuario_helena = $2 limit 1",
+            id_escritorio, usuario_plataforma)
+    de_quem = "pelo link da conversa" + (f" ({usuario['nome']})" if usuario and usuario["nome"] else "")
+    r = await _aplicar(pool, id_escritorio, linha, ligar, 0 if ligar else dados.minutos, origem="link",
+                       id_usuario=str(usuario["id"]) if usuario else None, de_quem=de_quem,
+                       extra={"id_usuario_plataforma": usuario_plataforma or None})
+    return {**r, "lead": _publico({**r["lead"], "por": por})}
+
+
+@api.post("/publico/desativar")
+async def desativar_pelo_link(dados: AcaoPublica, pedido: Request) -> dict[str, Any]:
+    return await _mudar_pelo_link(pedido, dados, ligar=False)
+
+
+@api.post("/publico/reativar")
+async def reativar_pelo_link(dados: AcaoPublica, pedido: Request) -> dict[str, Any]:
+    return await _mudar_pelo_link(pedido, dados, ligar=True)

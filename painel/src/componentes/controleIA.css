@@ -146,11 +146,24 @@
 .cia-gira { animation: cia-girar .8s linear infinite; }
 @keyframes cia-girar { to { transform: rotate(360deg); } }
 
-/* ------------------------------------------------------------ ponte (aberta sozinha ou dentro da plataforma) */
-.cia-ponte { min-height: 100vh; min-height: 100dvh; display: grid; place-items: start center; padding: 16px; background: #f1f5f9; font-family: 'Inter', system-ui, sans-serif; }
-.cia-ponte-cartao { width: 100%; max-width: 360px; border: 1px solid var(--cia-borda); border-radius: 16px; background: #fff; box-shadow: 0 6px 24px rgba(30, 41, 59, .08); overflow: hidden; }
-.cia-ponte-cartao header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #eef1f5; font-weight: 650; font-size: 13.5px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--cia-verde) 7%, #fff) 0%, #fff 100%); }
-.cia-ponte-cartao header svg { color: var(--cia-verde-forte); }
-.cia-ponte-conectada { display: flex; align-items: center; gap: 8px; color: var(--cia-texto-2); font-size: 12.5px; padding: 12px 14px; }
-.cia-ponte-conectada i { width: 8px; height: 8px; border-radius: 50%; background: var(--cia-verde); box-shadow: 0 0 0 3px rgba(0, 188, 51, .18); }
+/* ------------------------------------------------------------ ponte: popup do link da conversa (~400x560) */
+.cia-ponte { min-height: 100vh; min-height: 100dvh; display: grid; place-items: start center; padding: 12px; background: #f1f5f9;
+  font-family: 'Inter', system-ui, sans-serif; color: var(--cia-texto); font-size: 13px; }
+.cia-ponte-cartao { width: 100%; max-width: 400px; border: 1px solid var(--cia-borda); border-radius: 16px; background: #fff;
+  box-shadow: 0 6px 24px rgba(30, 41, 59, .08); overflow: hidden; animation: cia-entra .18s var(--cia-suave); }
+.cia-ponte-cartao header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid #eef1f5; background: linear-gradient(180deg, color-mix(in srgb, var(--cia-verde) 8%, #fff) 0%, #fff 100%); }
+.cia-ponte-cartao .cia-titulo { font-size: 14.5px; }
+.cia-atualizar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: var(--cia-texto-3); cursor: pointer; }
+.cia-atualizar:hover:not(:disabled) { background: rgba(30, 41, 59, .06); color: var(--cia-texto); }
+.cia-atualizar:disabled { opacity: .6; cursor: default; }
+.cia-ponte .cia-corpo { padding: 16px; gap: 14px; }
+/* Status grande: no popup ele é o centro da tela. */
+.cia-ponte .cia-status { padding: 14px; border-radius: 14px; }
+.cia-ponte .cia-status > i { width: 14px; height: 14px; margin-top: 3px; }
+.cia-ponte .cia-status b { font-size: 17px; font-weight: 700; }
+.cia-ponte .cia-status span { font-size: 12.5px; }
+.cia-ponte .cia-btn { height: 42px; font-size: 14px; }
+.cia-explica { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 18px 8px; color: var(--cia-texto-3); }
+.cia-explica b { color: var(--cia-texto); font-size: 15px; }
+.cia-explica p { margin: 0; color: var(--cia-texto-2); font-size: 12.5px; line-height: 1.5; }
