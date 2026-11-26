@@ -88,3 +88,8 @@
 .rot-ou { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12px; }
 .rot-ou::before, .rot-ou::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 @media (prefers-reduced-motion: reduce) { .rot-mic.gravando { animation: none; } .fer-card, .fer-card:hover { transform: none; } }
+
+/* Cartões com o SpotlightCard (React Bits): o cartão de fora dá o fundo e a luz; o botão fica transparente. */
+.fer-spot.spotlight-card { padding: 0; height: 100%; border-radius: var(--r-lg); background-color: var(--surface); box-shadow: none; }
+.fer-spot .fer-card { background: transparent; }
+.fer-spot .fer-card:not(:disabled):hover { transform: none; }

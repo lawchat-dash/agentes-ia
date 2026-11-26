@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import AnimatedList from "@/components/reactbits/AnimatedList";
 import { NomeDoEscritorio } from "./nomeEscritorio";
 import { PAGINAS_CONFIG, PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
 import { CamadaLawChat, preabrirLawChat } from "./camadaLawChat";
@@ -19,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { secoesDo } from "../telas/agenteSecoes";
 import { useSessao } from "../sessao";
 import { Modal, useCarregar } from "./ui";
-import { MenuFlutuante } from "./MenuFlutuante";
+import { DockAtalhos } from "./DockAtalhos";
 import { AvisoSaldo } from "./AvisoSaldo";
 import { SaldoTopo } from "./SaldoTopo";
 
@@ -341,6 +342,8 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
           )}
           {escritorio && <AvisoSaldo escritorio={escritorio} podeGerir={podeGerir} />}
           <div className="scroll"><main className={`page${telaLawChat ? " page-lawchat" : ""}`} key={`${escritorio}-${visao}`}>{children}</main></div>
+          {/* Atalhos num Dock (React Bits) no rodapé da área de conteúdo; aparece com o mouse perto da borda de baixo. */}
+          {!modoAdmin && <DockAtalhos errosAbertos={resumo.dados?.erros_abertos ?? 0} impersonando={impersonando} />}
         </div>
 
       </div>
@@ -511,6 +514,7 @@ function BuscaRapida({ itens, aoFechar }: { itens: Item[]; aoFechar: () => void 
     return itens.filter((i) => !t || `${i.rotulo} ${i.grupo}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").includes(t));
   }, [itens, texto]);
   const ir = (i: Item | undefined) => { if (i) { navegar(i.para); aoFechar(); } };
+  const entradas = useMemo(() => achados.map((i) => ({ id: i.para, icon: i.icone, title: i.rotulo, meta: i.grupo })), [achados]);
   return (
     <div className="ov busca-ov" onMouseDown={(e) => e.target === e.currentTarget && aoFechar()}>
       <div className="busca-caixa" role="dialog" aria-label="Buscar em tudo">
@@ -525,12 +529,13 @@ function BuscaRapida({ itens, aoFechar }: { itens: Item[]; aoFechar: () => void 
             }} />
           <kbd>Esc</kbd>
         </div>
-        <div className="busca-lista">
-          {achados.length === 0 ? <p className="muted" style={{ padding: 14, margin: 0 }}>Nada encontrado.</p> : achados.map((i, n) => (
-            <button key={i.para} className={n === indice ? "on" : ""} onMouseEnter={() => setIndice(n)} onClick={() => ir(i)}>
-              {i.icone}<span>{i.rotulo}</span><small>{i.grupo}</small>
-            </button>
-          ))}
+        <div className="busca-lista busca-lista-animada">
+          {/* Lista animada (AnimatedList do React Bits): entrada em cascata e seleção que desliza; as setas do campo movem a seleção. */}
+          {achados.length === 0 ? <p className="muted" style={{ padding: 14, margin: 0 }}>Nada encontrado.</p> : (
+            <AnimatedList items={entradas} selectedIndex={indice} onSelectedChange={(n) => { if (n >= 0) setIndice(n); }}
+              onItemSelect={(_, n) => ir(achados[n])} enableArrowNavigation={false} theme="light" accentColor="#00bc33"
+              frame={false} animation="slide" stagger={0.03} radius={10} gap={4} width="100%" maxHeight={420} fadeSize={28} />
+          )}
         </div>
       </div>
     </div>

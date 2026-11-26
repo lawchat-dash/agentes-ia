@@ -1,0 +1,35 @@
+/* Conteúdo dos cartões do bento de indicadores do Início (MagicBento, tema claro). */
+.lc-bento .magic-bento__content { padding: 16px 18px; gap: 0; }
+.lc-bento__corpo { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+.lc-bento__topo { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lc-bento__icone { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; flex: none; }
+.lc-bento__icone svg { width: 16px; height: 16px; }
+.lc-bento__rotulo { font-size: 13px; font-weight: 500; color: #667085; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.lc-bento__ver { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 600; color: #667085; flex: none; }
+.lc-bento__ver svg { width: 14px; height: 14px; }
+.magic-bento__card:hover .lc-bento__ver { color: #00bc33; }
+.lc-bento__valor { display: flex; align-items: flex-end; gap: 8px; margin-top: 10px; font-size: 26px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: #101828; font-variant-numeric: tabular-nums; }
+.lc-bento__valor--grande { font-size: 32px; }
+.lc-bento__unidade { font-size: 12px; font-weight: 500; letter-spacing: 0; color: #98a2b3; padding-bottom: 2px; }
+.lc-bento__delta { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 600; letter-spacing: 0; padding-bottom: 2px; }
+.lc-bento__delta svg { width: 12px; height: 12px; }
+.lc-bento__delta.is-up { color: #16a34a; }
+.lc-bento__delta.is-down { color: #dc2626; }
+.lc-bento__sub { margin-top: 6px; font-size: 11px; color: #98a2b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-bento__sub .lc-bento__delta { padding: 0; }
+.lc-bento__linha { margin: auto -18px -16px; height: 40px; min-height: 0; }
+.lc-bento__faixa { margin-top: auto; height: 6px; border-radius: 999px; background: #eef1f5; overflow: hidden; }
+.lc-bento__faixa span { display: block; height: 100%; border-radius: inherit; transition: width .7s ease; }
+.lc-bento__avatares { display: inline-flex; align-items: center; margin-left: auto; padding-bottom: 2px; }
+.lc-bento__avatares span { width: 20px; height: 20px; margin-left: -6px; border-radius: 999px; border: 2px solid #fff; display: grid; place-items: center; font-size: 8px; font-weight: 700; color: #fff; letter-spacing: 0; }
+.lc-bento__avatares span.is-mais { background: #eef2f7; color: #667085; font-size: 9px; }
+@media (prefers-reduced-motion: reduce) {
+  .lc-bento__faixa span { transition: none; }
+}
+@media (max-width: 480px) {
+  .lc-bento .magic-bento__content { padding: 14px; }
+  .lc-bento__valor { font-size: 22px; }
+  .lc-bento__valor--grande { font-size: 28px; }
+  .lc-bento__rotulo { font-size: 12px; }
+  .lc-bento__linha { margin: auto -14px -14px; }
+}

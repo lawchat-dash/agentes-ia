@@ -4,6 +4,9 @@
  * tempo até assinar, evolução por dia, origem + estados, horários, agentes, leads por etapa e os cards do CRM.
  * Dados: GET /api/relatorios/dashboard (e /api/relatorios/campanhas para o ranking de anúncios).
  */
+import Counter from "@/components/reactbits/Counter";
+import BorderGlow from "@/components/reactbits/BorderGlow";
+import GooeyNav from "@/components/reactbits/GooeyNav";
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
@@ -141,6 +144,18 @@ export function TelaRelatorioDashboard() {
   );
 }
 
+/** Abas em pílula com o GooeyNav (React Bits): verde LawChat, texto ativo branco. Sem WebGL, cai numa pílula lisa. */
+function AbasGooey<T extends string>({ valor, opcoes, aoMudar }: { valor: T; opcoes: { valor: NoInfer<T>; rotulo: string }[]; aoMudar: (v: NoInfer<T>) => void }) {
+  const ativo = Math.max(0, opcoes.findIndex((o) => o.valor === valor));
+  return (
+    // A tela das gotas passa um pouco da pílula: o recorte evita rolagem lateral (as gotas ainda saem 16 px).
+    <div style={{ overflow: "clip", overflowClipMargin: 16, maxWidth: "100%" }}>
+      <GooeyNav items={opcoes.map((o) => ({ label: o.rotulo }))} activeIndex={ativo} onChange={(i) => aoMudar(opcoes[i].valor)}
+        theme="light" color="#00bc33" activeTextColor="#ffffff" colors={["#00bc33", "#34d399", "#a7f3d0", "#0a8f35"]} size="sm" className="rl-abas-gooey" />
+    </div>
+  );
+}
+
 // --------------------------------------------------------------------------- indicadores
 const CURVAS = {
   sobe: "M0,65 C40,62 70,55 110,42 C140,32 180,22 220,15 C250,10 280,7 320,4",
@@ -160,7 +175,8 @@ function ValorIndicador({ i }: { i: Indicador }) {
   if (i.valor == null) return <>–</>;
   if (i.tipo === "pct") return <Contador valor={i.valor} casas={1} sufixo="%" />;
   if (i.tipo === "brl") return <Contador valor={i.valor} casas={2} prefixo="R$ " />;
-  return <Contador valor={i.valor} />;
+  // Contagens inteiras: dígitos que rolam (Counter do React Bits).
+  return <Counter value={Math.round(i.valor)} locale="pt-BR" fontSize="inherit" fontWeight="inherit" textColor="inherit" />;
 }
 
 function CartaoIndicador({ i, n }: { i: Indicador; n: number }) {
@@ -169,8 +185,12 @@ function CartaoIndicador({ i, n }: { i: Indicador; n: number }) {
   const subiu = i.variacao != null && i.variacao > 0;
   const bom = i.variacao == null || i.variacao === 0 ? null : i.inverter ? !subiu : subiu;
   return (
-    <motion.div variants={ITEM_CASCATA} whileHover={{ y: -4 }} transition={{ type: "spring", stiffness: 300, damping: 22 }}
-      className={cn("rl-kpi group relative overflow-hidden rounded-2xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_28px_-16px_rgba(15,23,42,0.22)] hover:shadow-[0_18px_40px_-18px_var(--rl-sombra)]",
+    <motion.div variants={ITEM_CASCATA} whileHover={{ y: -4 }} transition={{ type: "spring", stiffness: 300, damping: 22 }} className="rl-kpi-brilho h-full">
+    {/* Brilho na borda que segue o cursor (BorderGlow do React Bits), suave e em verde. */}
+    <BorderGlow className="h-full" backgroundColor="#ffffff" borderRadius={16} glowColor="140 70 45" glowIntensity={0.6} glowRadius={22}
+      coneSpread={20} edgeSensitivity={28} fillOpacity={0.2} colors={["#00bc33", "#34d399", "#a7f3d0"]}>
+    <div
+      className={cn("rl-kpi group relative h-full overflow-hidden rounded-2xl border bg-white transition-shadow hover:shadow-[0_18px_40px_-18px_var(--rl-sombra)]",
         i.destaque ? "border-transparent ring-2" : "border-white")}
       style={{ background: `linear-gradient(160deg, ${claro}3d 0%, ${claro}14 42%, #ffffff 78%)`, ["--rl-sombra" as string]: `${forte}66`,
                ...(i.destaque ? { ["--tw-ring-color" as string]: `${forte}55` } : {}) }}>
@@ -214,6 +234,8 @@ function CartaoIndicador({ i, n }: { i: Indicador; n: number }) {
             initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ delay: 0.2 + n * 0.06, duration: 1.1, ease: [0.65, 0, 0.35, 1] }} />
         </svg>
       </div>
+    </div>
+    </BorderGlow>
     </motion.div>
   );
 }
@@ -725,7 +747,7 @@ function Evolucao({ d }: { d: Dashboard }) {
             <p className="text-sm text-muted-foreground">Comportamento, tendências e sazonalidade no período</p>
           </div>
         </div>
-        <div className="print:hidden"><Abas valor={faixa} aoMudar={setFaixa} opcoes={FAIXAS.map((f) => ({ valor: f.valor, rotulo: f.rotulo }))} /></div>
+        <div className="print:hidden"><AbasGooey valor={faixa} aoMudar={setFaixa} opcoes={FAIXAS.map((f) => ({ valor: f.valor, rotulo: f.rotulo }))} /></div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -753,7 +775,8 @@ function Evolucao({ d }: { d: Dashboard }) {
             <p className="text-[11px] text-muted-foreground">Por dia · linha tracejada = média móvel de 7 dias</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 print:hidden">
-            <Abas valor={chave} aoMudar={(v) => { setChave(v); setSobre(null); }} opcoes={series.map((s) => ({ valor: s.valor, rotulo: s.rotulo }))} />
+            {/* Abas com pílula "gosmenta" (GooeyNav do React Bits). */}
+            <AbasGooey valor={chave} aoMudar={(v) => { setChave(v); setSobre(null); }} opcoes={series.map((s) => ({ valor: s.valor, rotulo: s.rotulo }))} />
             <Abas valor={tipo} aoMudar={setTipo} opcoes={[
               { valor: "linha", rotulo: <><IconeLinha className="h-3.5 w-3.5" /> Linha</> }, { valor: "area", rotulo: <><IconeArea className="h-3.5 w-3.5" /> Área</> }]} />
           </div>

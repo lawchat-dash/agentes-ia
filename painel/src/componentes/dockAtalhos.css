@@ -1,0 +1,10 @@
+/* Dock de atalhos (DockAtalhos.tsx): faixa invisível no rodapé da área de conteúdo; só o dock recebe cliques. */
+.lc-dock-host { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; z-index: 30; pointer-events: none; }
+.lc-dock-host .dock { pointer-events: auto; }
+.lc-dock-host .dock[data-hidden] { pointer-events: none; }
+.lc-dock-host .lc-dock-destaque .dock-face { background: linear-gradient(135deg, #12c94a, #0a8f35); color: #fff; }
+@media (max-width: 900px) { .lc-dock-host { display: none; } }
+@media print { .lc-dock-host { display: none; } }
+.lc-dock-host .dock-face { color: #344054; }
+.lc-dock-host .dock-face svg { width: 44%; height: 44%; }
+.lc-dock-host .lc-dock-destaque .dock-face { color: #fff; }

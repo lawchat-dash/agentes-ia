@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { Wallet, Info, AlertTriangle, Calendar, TrendingUp, PieChart, Check, ChevronRight, SlidersHorizontal } from "lucide-react";
 import walletImg from "@/assets/wallet-finance.png";
 
@@ -128,6 +129,7 @@ export const formatBRL = (v: number | null | undefined) =>
 
 /** Saldo da IA no Início — em reais, sem US$, cotação ou markup. */
 export function SaldoCenter({ carteira, admin, className = "" }: { carteira: CarteiraResumo; admin?: boolean; className?: string }) {
+  const navegar = useNavigate();
   const c = carteira;
   const temBonus = c.bonus_do_mes_brl > 0;
   const pct = temBonus ? Math.min(100, c.bonus_usado_pct ?? 0) : 0;
@@ -185,9 +187,10 @@ export function SaldoCenter({ carteira, admin, className = "" }: { carteira: Car
       </div>
 
       {/* Dentro da conta o botão é sempre o da própria conta (Créditos); a cobrança geral fica só no superadmin. */}
-      <Link to="/consumo" className="lc-pay-btn relative mt-3 w-full h-11 rounded-xl text-white font-bold text-[14px] inline-flex items-center justify-center gap-2">
+      {/* CTA estratégico: botão verde com o brilho na borda (SpecularButton do React Bits). */}
+      <BotaoBrilho cheio size="lg" radius={12} className="mt-3" style={{ height: 44, fontSize: 14 }} onClick={() => navegar("/consumo")}>
         Ver consumo e pedir recarga <ChevronRight className="size-4" />
-      </Link>
+      </BotaoBrilho>
     </div>
   );
 }

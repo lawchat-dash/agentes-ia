@@ -6,18 +6,21 @@
 //    plataforma recusar, o servidor volta com ?erro=... e mostramos o erro;
 //  - /login (ou /acesso, ?equipe) → abre direto no formulário de senha;
 //  - /superadmin → página própria do superadmin (só equipe LawChat; o servidor recusa quem é de escritório).
-import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Bot, CalendarCheck, Eye, EyeOff, FileSignature, Loader2, Lock, Mail,
-  MessageSquare, ShieldCheck, Smartphone, Sparkles,
+  AlertTriangle, ArrowLeft, ArrowRight, BarChart3, Bot, CalendarCheck, Eye, EyeOff, FileSignature, Loader2, Lock, Mail,
+  MessageSquare, Repeat, ShieldCheck, Smartphone, Sparkles,
 } from "lucide-react";
+import Carousel, { type CarouselItem } from "@/components/reactbits/Carousel";
+import BorderGlow from "@/components/reactbits/BorderGlow";
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
+import LogoEscrita from "@/components/reactbits/LogoEscrita";
 import { toast } from "sonner";
 import { api } from "../api";
 import { useSessao } from "../sessao";
 import { Button } from "@/components/ui/button";
 import { BlockedAccountDialog } from "@/components/auth/BlockedAccountDialog";
 import logoMark from "@/assets/lawchat-logo.png";
-import iconeLawChat from "@/assets/lawchat-icone.svg";
 import videoFundo from "@/assets/login-fundo.mp4";
 
 const ERROS_DA_HELENA: Record<string, string> = {
@@ -117,20 +120,32 @@ const splitStyle = `
   .lcsplit-esq>.lcauth-bg,.lcsplit-esq>.lcauth-grid,.lcsplit-esq>.lcauth-orb{position:absolute;z-index:0}
   .lcsplit-esq>.lcsplit-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
   .lcsplit-esq>.lcsplit-veu{position:absolute;inset:0;z-index:0;
-    background:linear-gradient(180deg,rgba(6,12,20,.35) 0%,rgba(6,12,20,.55) 45%,rgba(6,12,20,.88) 100%)}
+    background:linear-gradient(180deg,rgba(2,12,7,0) 0%,rgba(2,12,7,.06) 22%,rgba(2,12,7,.42) 46%,rgba(2,12,7,.8) 66%,rgba(2,12,7,.95) 84%,#020c07 100%)}
+  .lcsplit-baixo{margin-top:auto;display:flex;flex-direction:column}
+  .lcsplit-texto{padding-top:32px}
   .lcsplit-marca{display:flex;align-items:center;gap:10px;font-family:var(--fs);font-weight:700;font-size:1.25rem;letter-spacing:-.01em}
   .lcsplit-marca img{height:30px;width:auto}
+  .lcsplit-marca .le-logo{filter:drop-shadow(0 4px 14px rgba(0,0,0,.35))}
   .lcsplit-titulo{font-family:var(--fs);font-weight:700;font-size:clamp(2rem,3.4vw,3rem);line-height:1.08;letter-spacing:-.03em;max-width:15ch;margin:0}
   .lcsplit-titulo em{font-style:normal;background:linear-gradient(135deg,var(--g1),var(--g2));-webkit-background-clip:text;background-clip:text;color:transparent}
   .lcsplit-lista{list-style:none;padding:0;margin:26px 0 0;display:flex;flex-direction:column;gap:14px;max-width:440px}
   .lcsplit-lista li{display:flex;gap:12px;align-items:flex-start;font-size:.95rem;line-height:1.5;color:rgba(240,242,245,.78)}
   .lcsplit-lista b{color:#fff;font-weight:600}
+  .lcsplit-carrossel{margin:20px 0 0 -10px;width:calc(100% + 20px);max-width:480px}
+  .lcsplit-carrossel .carousel-icon{width:36px;height:36px;border-radius:11px;background:rgba(0,188,51,.16);border:1px solid rgba(0,188,51,.3);color:var(--g1)}
+  .lcsplit-carrossel .carousel-title{font-family:var(--fs);font-size:1.02rem;font-weight:600}
+  .lcsplit-carrossel .carousel-description{font-size:.86rem}
+  .lcsplit-carrossel .carousel-stage{-webkit-backdrop-filter:none;backdrop-filter:none}
+  .lcsplit-carrossel .carousel-bar-fill{background:#34e06b}
+  .lcsplit-brilho{width:100%;max-width:420px;animation:lcUp .5s cubic-bezier(.22,1,.36,1) both}
+  .lcsplit-brilho .lcsplit-card{border-color:transparent;box-shadow:none;animation:none}
+  .lcsplit-brilho>.rb-glow-inner{overflow:visible}
   .lcsplit-ic{flex:none;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:rgba(0,188,51,.14);border:1px solid rgba(0,188,51,.28);color:var(--g1)}
   .lcsplit-chat{display:flex;flex-direction:column;gap:10px;max-width:380px;margin-top:34px}
   .lcsplit-bolha{padding:11px 14px;border-radius:16px;font-size:.84rem;line-height:1.45;max-width:85%;animation:lcUp .6s cubic-bezier(.22,1,.36,1) both}
   .lcsplit-bolha.lead{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-bottom-left-radius:6px;align-self:flex-start}
   .lcsplit-bolha.ia{background:linear-gradient(135deg,rgba(0,188,51,.9),rgba(0,153,38,.9));color:#fff;border-bottom-right-radius:6px;align-self:flex-end}
-  .lcsplit-rodape{font-size:.75rem;color:rgba(240,242,245,.45);display:flex;gap:16px;flex-wrap:wrap}
+  .lcsplit-rodape{font-size:.75rem;color:rgba(240,242,245,.55);display:flex;gap:16px;flex-wrap:wrap;margin-top:28px;padding-top:16px;border-top:1px solid rgba(255,255,255,.12)}
   .lcsplit-rodape span{display:inline-flex;align-items:center;gap:5px}
   .lcsplit-dir{display:grid;place-items:center;padding:32px 24px}
   .lcsplit-card{width:100%;max-width:420px;background:#fff;border:1px solid var(--l2);border-radius:24px;padding:36px 32px;
@@ -152,13 +167,49 @@ const splitStyle = `
     .lcsplit-esq{margin:12px 12px 0;min-height:auto;padding:28px 24px;border-radius:22px}
     .lcsplit-titulo{font-size:1.75rem}
     .lcsplit-chat,.lcsplit-rodape{display:none}
+    .lcsplit-texto{padding-top:120px}
+    .lcsplit-esq>.lcsplit-veu{background:linear-gradient(180deg,rgba(2,12,7,.1) 0%,rgba(2,12,7,.35) 28%,rgba(2,12,7,.78) 50%,rgba(2,12,7,.94) 70%,#020c07 100%)}
     .lcsplit-lista{margin-top:18px;gap:10px}
     .lcsplit-lista li{font-size:.86rem}
+    .lcsplit-carrossel{margin-top:18px}
     .lcsplit-dir{padding:16px 16px 32px}
     .lcsplit-card{padding:28px 20px}
   }
+  @media (max-height: 940px){ .lcsplit-chat{display:none} }
   @media (max-width: 380px){ .lcsplit-otp{gap:5px} .lcsplit-otp input{height:46px;font-size:1.15rem} }
 `;
+
+/** O que o LawChat faz (carrossel do painel escuro da entrada). */
+const DESTAQUES: CarouselItem[] = [
+  { id: "whatsapp", icon: <MessageSquare />, title: "Responde no WhatsApp na hora",
+    description: "24 horas, com o jeito e as regras do seu escritório." },
+  { id: "qualifica", icon: <CalendarCheck />, title: "Qualifica cada contato",
+    description: "E passa para a equipe só quem tem caso, no momento certo." },
+  { id: "contrato", icon: <FileSignature />, title: "Coleta os dados e envia o contrato",
+    description: "Para assinar, e acompanha até a assinatura." },
+  { id: "followup", icon: <Repeat />, title: "Retoma quem parou de responder",
+    description: "Follow-up automático no tempo certo, sem a equipe precisar lembrar." },
+  { id: "relatorios", icon: <BarChart3 />, title: "Mostra o que dá resultado",
+    description: "Leads, contratos e custo da IA por campanha e por agente, em tempo real." },
+];
+
+/** Cartões do carrossel como vidro escuro sobre o vídeo, com o verde LawChat nos ícones e nas barras. */
+const ESTILO_CARROSSEL = {
+  "--carousel-frame": "transparent",
+  "--carousel-frame-edge": "transparent",
+  "--carousel-frame-highlight": "transparent",
+  "--carousel-frame-shadow": "none",
+  "--carousel-tile": "linear-gradient(160deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,.04) 100%)",
+  "--carousel-tile-edge": "rgba(255,255,255,.12)",
+  "--carousel-tile-highlight": "rgba(255,255,255,.14)",
+  "--carousel-tile-shadow": "0 10px 30px -18px rgba(0,0,0,.7)",
+  "--carousel-ink": "#ffffff",
+  "--carousel-muted": "rgba(240,242,245,.72)",
+  "--carousel-faint": "rgba(255,255,255,.18)",
+  "--carousel-soft": "#34e06b",
+  "--carousel-badge": "rgba(0,188,51,.16)",
+  width: "100%",
+} as CSSProperties;
 
 const CHAVE_DISPOSITIVO = "agentesia_dispositivo";
 const ESPERA_REENVIO_S = 60;
@@ -203,9 +254,24 @@ function formatarTelefone(bruto: string): string {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
+/** Celular: o carrossel fica mais alto para caber o texto do cartão. */
+function useTelaEstreita(limite = 560) {
+  const consulta = `(max-width: ${limite}px)`;
+  const [estreito, setEstreito] = useState(() => typeof window !== "undefined" && window.matchMedia?.(consulta).matches);
+  useEffect(() => {
+    const m = window.matchMedia?.(consulta);
+    if (!m) return;
+    const mudar = () => setEstreito(m.matches);
+    m.addEventListener?.("change", mudar);
+    return () => m.removeEventListener?.("change", mudar);
+  }, [consulta]);
+  return Boolean(estreito);
+}
+
 /** Tela principal: layout dividido com o login por código (e o por senha num clique). */
 function TelaEntrada({ comSenha }: { comSenha: boolean }) {
   const [modo, setModo] = useState<"codigo" | "senha">(comSenha ? "senha" : "codigo");
+  const estreito = useTelaEstreita();
   return (
     <>
       <style>{brandStyle}</style>
@@ -215,30 +281,33 @@ function TelaEntrada({ comSenha }: { comSenha: boolean }) {
           {/* Fundo em vídeo (mudo, em loop), com um véu escuro por cima para o texto ficar legível. */}
           <video className="lcsplit-video" src={videoFundo} autoPlay muted loop playsInline preload="auto" aria-hidden />
           <div className="lcsplit-veu" aria-hidden />
-          <div className="lcsplit-marca"><img src={iconeLawChat} alt="" /> LawChat</div>
-          <div>
-            <h1 className="lcsplit-titulo">Atendimento com IA para o <em>seu escritório.</em></h1>
-            <ul className="lcsplit-lista">
-              <li><span className="lcsplit-ic"><MessageSquare className="size-4" /></span>
-                <span><b>Responde no WhatsApp na hora</b>, 24 horas, com o jeito e as regras do seu escritório.</span></li>
-              <li><span className="lcsplit-ic"><CalendarCheck className="size-4" /></span>
-                <span><b>Qualifica cada contato</b> e passa para a equipe só quem tem caso, no momento certo.</span></li>
-              <li><span className="lcsplit-ic"><FileSignature className="size-4" /></span>
-                <span><b>Coleta os dados e envia o contrato</b> para assinar, e acompanha até a assinatura.</span></li>
-            </ul>
-            <div className="lcsplit-chat" aria-hidden>
-              <div className="lcsplit-bolha lead">Oi, sofri um acidente no trabalho e fiquei com sequela. Tenho direito?</div>
-              <div className="lcsplit-bolha ia" style={{ animationDelay: ".25s" }}>Sinto muito pelo acidente. Vou te ajudar a entender: o acidente aconteceu há quanto tempo?</div>
+          {/* Logo que se escreve (contorno das letras e depois o preenchimento). */}
+          <div className="lcsplit-marca"><LogoEscrita altura={30} /></div>
+          {/* Texto embaixo, sobre o degradê escuro; a linha do rodapé fecha o painel. */}
+          <div className="lcsplit-baixo">
+            <div className="lcsplit-texto">
+              <h1 className="lcsplit-titulo">Atendimento com IA para o <em>seu escritório.</em></h1>
+              {/* O que o LawChat faz, em carrossel (React Bits): passa sozinho, para com o mouse em cima. */}
+              <div className="lcsplit-carrossel">
+                <Carousel items={DESTAQUES} baseWidth="100%" aspectRatio={estreito ? 2.1 : 3.1} frame effect="slide" indicator="bars"
+                          autoplay autoplayDelay={4200} pauseOnHover loop radius={18} gap={14} theme="dark" style={ESTILO_CARROSSEL} />
+              </div>
+              <div className="lcsplit-chat" aria-hidden>
+                <div className="lcsplit-bolha lead">Oi, sofri um acidente no trabalho e fiquei com sequela. Tenho direito?</div>
+                <div className="lcsplit-bolha ia" style={{ animationDelay: ".25s" }}>Sinto muito pelo acidente. Vou te ajudar a entender: o acidente aconteceu há quanto tempo?</div>
+              </div>
             </div>
-          </div>
-          <div className="lcsplit-rodape">
-            <span><Bot className="size-3.5" /> Agentes de IA</span>
-            <span><Sparkles className="size-3.5" /> Modelos de ponta</span>
-            <span><ShieldCheck className="size-3.5" /> Dados protegidos</span>
+            <div className="lcsplit-rodape">
+              <span><Bot className="size-3.5" /> Agentes de IA</span>
+              <span><Sparkles className="size-3.5" /> Modelos de ponta</span>
+              <span><ShieldCheck className="size-3.5" /> Dados protegidos</span>
+            </div>
           </div>
         </aside>
 
         <main className="lcsplit-dir">
+          <BorderGlow className="lcsplit-brilho" backgroundColor="#ffffff" borderRadius={24} glowColor="140 70 45" glowIntensity={0.7}
+                      glowRadius={28} coneSpread={22} edgeSensitivity={26} fillOpacity={0.25} colors={["#00bc33", "#34d399", "#a7f3d0"]}>
           <div className="lcsplit-card">
             <img src={logoMark} alt="LawChat" style={{ height: 34, objectFit: "contain", marginBottom: 20 }} />
             <h2 className="lcauth-title" style={{ fontSize: "1.5rem" }}>Entrar no LawChat</h2>
@@ -268,6 +337,7 @@ function TelaEntrada({ comSenha }: { comSenha: boolean }) {
               </>
             )}
           </div>
+          </BorderGlow>
         </main>
       </div>
     </>
@@ -383,9 +453,9 @@ function FormCodigo() {
           ))}
         </div>
         {erro && <div className="lcsplit-erro" role="alert">{erro}</div>}
-        <button type="submit" disabled={ocupado || !digitos.every(Boolean)} className="lcauth-btn">
+        <BotaoBrilho type="submit" disabled={ocupado || !digitos.every(Boolean)} size="lg" radius={50} cheio style={{ marginTop: 6, fontFamily: "var(--fs)" }}>
           {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>Entrar<ArrowRight className="size-4" /></>}
-        </button>
+        </BotaoBrilho>
         <div className="lcsplit-linha" style={{ marginTop: 2 }}>
           <button type="button" className="lcauth-link" onClick={() => { setEtapa("pedir"); setErro(null); }}>
             <ArrowLeft className="size-3.5" style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
@@ -431,9 +501,9 @@ function FormCodigo() {
         </div>
       )}
       {erro && <div className="lcsplit-erro" role="alert">{erro}</div>}
-      <button type="submit" disabled={ocupado} className="lcauth-btn">
+      <BotaoBrilho type="submit" disabled={ocupado} size="lg" radius={50} cheio style={{ marginTop: 6, fontFamily: "var(--fs)" }}>
         {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>Receber código<ArrowRight className="size-4" /></>}
-      </button>
+      </BotaoBrilho>
     </form>
   );
 }
@@ -510,9 +580,9 @@ function FormSenha({ superadmin = false }: { superadmin?: boolean }) {
         </div>
       )}
 
-      <button type="submit" disabled={ocupado} className="lcauth-btn">
+      <BotaoBrilho type="submit" disabled={ocupado} size="lg" radius={50} cheio style={{ marginTop: 6, fontFamily: "var(--fs)" }}>
         {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>{superadmin ? "Entrar como superadmin" : "Entrar"}<ArrowRight className="size-4" /></>}
-      </button>
+      </BotaoBrilho>
     </form>
   );
 }

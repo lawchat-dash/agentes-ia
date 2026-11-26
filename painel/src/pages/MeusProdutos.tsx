@@ -20,6 +20,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useProvisioningRealtime } from "@/hooks/useProvisioning";
 import folder3d from "@/assets/folder-3d.png";
+import GlassIcons from "@/components/reactbits/GlassIcons";
+import PixelCard from "@/components/reactbits/PixelCard";
+import { BarChart3, Library, Wrench } from "lucide-react";
 import { StatusToggle } from "@/components/ui/status-toggle";
 import { ButtonHoldAndRelease } from "@/components/ui/hold-and-release-button";
 import { AvisoFollowupDesligado } from "@/components/followup/AvisoFollowupDesligado";
@@ -277,10 +280,19 @@ const MeusProdutos = () => {
       >
         <div className="absolute -top-24 -right-12 size-80 rounded-full bg-success/10 blur-3xl pointer-events-none" />
         <div className="hidden lg:block absolute right-[18rem] top-1/2 -translate-y-1/2 size-28 opacity-50 pointer-events-none" style={{ backgroundImage: "radial-gradient(hsl(var(--success)/0.35) 1.5px, transparent 1.5px)", backgroundSize: "16px 16px" }} />
-        <div className="hidden lg:grid absolute right-8 top-7 size-11 rounded-2xl bg-success/10 border border-success/20 place-items-center pointer-events-none">
+        <div className="hidden md:grid lg:hidden absolute right-8 top-7 size-11 rounded-2xl bg-success/10 border border-success/20 place-items-center pointer-events-none">
           <Sparkles className="size-5 text-success" />
         </div>
-        <img src={folder3d} alt="" className="hidden md:block absolute right-2 lg:right-8 top-1/2 -translate-y-1/2 w-48 lg:w-64 xl:w-72 select-none pointer-events-none drop-shadow-xl" loading="eager" />
+        <img src={folder3d} alt="" className="hidden md:block lg:hidden absolute right-2 top-1/2 -translate-y-1/2 w-48 select-none pointer-events-none drop-shadow-xl" loading="eager" />
+        {/* Atalhos dos Apps em ícones de vidro (GlassIcons do React Bits), no lugar da pasta 3D, no computador. */}
+        <div className="hidden lg:block absolute right-8 xl:right-20 top-1/2 -translate-y-1/2">
+          <GlassIcons theme="light" labels="always" columns={2} size={52} gap={34} hover="lift" tilt={22} items={[
+            { icon: <Library />, label: "Biblioteca", color: "#00bc33", onClick: () => navigate("/biblioteca") },
+            { icon: <Wrench />, label: "Ferramentas", color: "#0d9488", onClick: () => navigate("/ferramentas") },
+            { icon: <Send />, label: "Follow-up", color: "#059669", onClick: () => navigate("/ferramentas/followup") },
+            { icon: <BarChart3 />, label: "Relatórios", color: "#0284c7", onClick: () => navigate("/relatorios/dashboard") },
+          ]} />
+        </div>
 
         <div className="relative max-w-[62%]">
           <div className="inline-flex flex-wrap items-center gap-2.5 px-3 py-1.5 rounded-full bg-success/10 border border-success/20 text-success text-[12px] font-semibold">
@@ -384,18 +396,22 @@ const MeusProdutos = () => {
           <Button variant="outline" className="mt-4" onClick={() => recarregarLista()}><RotateCw className="size-4 mr-1.5" />Tentar de novo</Button>
         </Card>
       ) : filter !== "trash" && (!products || products.length === 0) ? (avulsos.length > 0 ? null :
-        <Card className="p-12 text-center bg-gradient-card backdrop-blur border-dashed">
-          <div className="size-16 rounded-2xl bg-primary/10 grid place-items-center mx-auto mb-4">
-            <Package className="size-8 text-primary" />
+        // Estado vazio com pixels verdes que se acendem ao passar o mouse (PixelCard do React Bits).
+        <PixelCard theme="light" colors={["#dcfce7", "#86efac", "#00bc33"]} gap={7} speed={30} radius={16} noFocus
+          style={{ width: "100%", height: "auto", minHeight: 300 }}>
+          <div className="p-12 text-center">
+            <div className="size-16 rounded-2xl bg-primary/10 grid place-items-center mx-auto mb-4">
+              <Package className="size-8 text-primary" />
+            </div>
+            <h3 className="text-lg font-bold">Nenhum agente ativado ainda</h3>
+            <p className="text-muted-foreground mt-2 max-w-md mx-auto">
+              Escolha um produto da Biblioteca e ative: o agente fica aqui, com o número, o prompt e o follow-up.
+            </p>
+            <Button asChild className="mt-6 bg-gradient-primary text-white shadow-glow">
+              <Link to="/biblioteca"><Plus className="size-4 mr-1.5" />Novo a partir da Biblioteca</Link>
+            </Button>
           </div>
-          <h3 className="text-lg font-bold">Nenhum agente ativado ainda</h3>
-          <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-            Escolha um produto da Biblioteca e ative: o agente fica aqui, com o número, o prompt e o follow-up.
-          </p>
-          <Button asChild className="mt-6 bg-gradient-primary text-white shadow-glow">
-            <Link to="/biblioteca"><Plus className="size-4 mr-1.5" />Novo a partir da Biblioteca</Link>
-          </Button>
-        </Card>
+        </PixelCard>
       ) : filtered.length === 0 ? (
         <Card className="p-12 text-center bg-gradient-card backdrop-blur border-dashed">
           <Search className="size-10 text-muted-foreground mx-auto mb-3 opacity-50" />

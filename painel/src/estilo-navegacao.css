@@ -590,3 +590,13 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 
 /* Cobre a tela da LawChat enquanto ela se redesenha (zoom/janela mudando). */
 .lc-quadro-ajustando { position: absolute; inset: 0; z-index: 20; background: #EFF3F8; }
+
+/* Busca rápida (Ctrl K) com a AnimatedList do React Bits: a lista rola sozinha; linhas mais leves, no tom do painel. */
+.busca-lista.busca-lista-animada { max-height: none; overflow: visible; padding: 6px 8px 8px; }
+.busca-lista-animada .animated-list__item { padding-block: 6px; background: transparent; box-shadow: none; }
+.busca-lista-animada .animated-list__rim { display: none; }
+.busca-lista-animada .animated-list__item[data-selected] { background: rgba(0, 188, 51, .07); }
+.busca-lista-animada .animated-list__lead { width: 30px; height: 30px; color: #0a8f35; }
+.busca-lista-animada .animated-list__lead svg { width: 17px; height: 17px; }
+.busca-lista-animada .animated-list__title { font-weight: 500; font-size: 14px; }
+.busca-lista-animada .animated-list__meta { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }

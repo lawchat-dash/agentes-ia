@@ -2,6 +2,7 @@ import { type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Bell, FileText, Library, Lock, Mic, Send } from "lucide-react";
 import { Cabecalho } from "../componentes/ui";
+import SpotlightCard from "@/components/reactbits/SpotlightCard";
 import "../estilo-ferramentas.css";
 
 /** Ferramentas: recursos extras dos agentes num lugar só. */
@@ -31,6 +32,9 @@ function Cartao({ icone, cor, titulo, texto, emBreve = false, novo = false, onCl
   icone: ReactNode; cor: string; titulo: string; texto: string; emBreve?: boolean; novo?: boolean; onClick?: () => void;
 }) {
   return (
+    // Luz que segue o cursor dentro do cartão (SpotlightCard do React Bits), em verde bem suave.
+    <SpotlightCard theme="light" className="fer-spot" spotlightColor="rgba(0, 188, 51, 0.55)" intensity={0.5} spotlightSize={260}
+      borderGlow={0.5} flare={false}>
     <button type="button" className="fer-card" disabled={emBreve} onClick={onClick} style={{ "--fer-cor": cor } as CSSProperties}>
       <div className="fer-topo">
         <span className="fer-ic" aria-hidden>{icone}</span>
@@ -45,5 +49,6 @@ function Cartao({ icone, cor, titulo, texto, emBreve = false, novo = false, onCl
         {!emBreve && <ArrowRight aria-hidden />}
       </span>
     </button>
+    </SpotlightCard>
   );
 }

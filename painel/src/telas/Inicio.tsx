@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   MessageSquare, Mail, Box, Users, Package, ChevronRight, Reply, ArrowUpRight, Sparkles, Activity, Zap, Trophy,
@@ -13,7 +14,6 @@ import { formatarTelefone, quando } from "../api";
 import { Cabecalho, Carregando, Painel, Vazio, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { PainelFunil } from "./Funil";
-import CountUp from "@/components/ui/count-up";
 import BorderGlow from "@/components/ui/border-glow";
 import { useCardGlow } from "@/components/dashboard/useCardGlow";
 import { SaldoCenter, formatUSD, type ConsumoMes, type CarteiraResumo } from "@/components/dashboard/ConsumoCenter";
@@ -26,6 +26,7 @@ import { BellOff } from "lucide-react";
 import { conectarAvisoAssinatura } from "@/hooks/useZapsign";
 import { toast } from "sonner";
 import { PrimeirosPassos, type PrimeirosPassosDados } from "@/components/dashboard/PrimeirosPassos";
+import { BentoIndicadores } from "@/components/dashboard/BentoIndicadores";
 import "../estilo-inicio.css";
 
 /* ---------- dados da API ---------- */
@@ -129,6 +130,7 @@ function tempo(segundos: number | null): string {
 
 export function TelaInicio() {
   const { escritorio, podeGerir, admin, eu, lawchat } = useSessao();
+  const navegar = useNavigate();
   const inicio = useCarregar<Inicio>(escritorio ? "/inicio" : null, [escritorio]);
   const metricas = useCarregar<Metricas>(escritorio ? `/inicio/metricas?dias=${DIAS}` : null, [escritorio]);
   const carteira = useCarregar<CarteiraResumo>(escritorio && podeGerir ? "/carteira" : null, [escritorio]);
@@ -273,23 +275,6 @@ export function TelaInicio() {
     };
   });
 
-  const agentesPct = v.agentes_total > 0 ? (v.agentes_ativos / v.agentes_total) * 100 : 0;
-  const taxaPct = v.followup.taxa_resposta ?? 0;
-  const stateCol = (p: number) => (p >= 66 ? "#16a34a" : p >= 40 ? "#f59e0b" : "#ef4444");
-  const miniBars = {
-    agentes: { bar: agentesPct, color: stateCol(agentesPct) },
-    followup: { bar: Math.min(100, (v.followup.pendentes / 40) * 100), color: v.followup.pendentes <= 10 ? "#16a34a" : v.followup.pendentes <= 25 ? "#f59e0b" : "#ef4444" },
-    produtos: { bar: v.produtos.total > 0 ? (v.produtos.ativos / v.produtos.total) * 100 : v.produtos.ativos > 0 ? 100 : 0, color: "#16a34a" },
-    taxa: { bar: taxaPct, color: taxaPct >= 90 ? "#16a34a" : taxaPct >= 75 ? "#f59e0b" : "#ef4444" },
-  };
-
-  const kpis = [
-    { label: "Conversas hoje", value: v.conversas_hoje, delta: v.conversas_hoje_variacao, sub: "vs. ontem", icon: MessageSquare, bg: "#e8f9ee", c: "#00bc33", g: "#22c55e", key: "conv" },
-    { label: `Mensagens (${v.dias}d)`, value: v.mensagens, delta: v.mensagens_variacao, sub: "trocadas", icon: Mail, bg: "#eaf1ff", c: "#2563eb", g: "#3b82f6", key: "msgs" },
-    { label: `Tokens (${v.dias}d)`, value: v.tokens, delta: v.tokens_variacao, sub: admin ? `consumidos · ${formatUSD(v.custo_periodo_usd)}` : "consumidos", icon: Box, bg: "#e0f2fe", c: "#0891b2", g: "#0ea5e9", key: "tokens" },
-    { label: "Agentes ativos", value: v.agentes_ativos, delta: null as number | null, sub: `de ${v.agentes_total} agentes`, icon: Users, bg: "#fff4df", c: "#d97706", g: "#f59e0b", key: "conv" },
-  ];
-
   return (
     <div ref={rootRef} className="lc-inicio pb-6 max-w-[1600px] mx-auto overflow-x-clip">
       {/* Header */}
@@ -305,7 +290,7 @@ export function TelaInicio() {
           <p className="text-[#667085] mt-0.5 text-[13px]">Aqui está o desempenho de hoje<span className="ml-1.5 text-[11px] text-[#98A2B3]">· {APP_VERSION}</span></p>
         </div>
         {podeGerir && (
-          <Link to="/biblioteca" className="lc-pay-btn inline-flex items-center gap-1.5 h-10 px-4 rounded-xl text-white font-bold text-[13px]"><Plus className="size-4" /> Novo a partir da Biblioteca</Link>
+          <BotaoBrilho size="md" radius={12} onClick={() => navegar("/biblioteca")}><Plus className="size-4" /> Novo a partir da Biblioteca</BotaoBrilho>
         )}
       </motion.div>
 
@@ -336,34 +321,17 @@ export function TelaInicio() {
       {/* Primeiros passos: marcam-se sozinhos e o cartão some quando tudo está feito */}
       {podeGerir && passos.dados && <PrimeirosPassos dados={passos.dados} />}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {kpis.map((k, i) => (
-          <motion.div key={k.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04, ease: [0.22, 1, 0.36, 1] }} className={`${TILE} p-[18px] pb-0 flex flex-col`}>
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] font-medium text-[#667085] truncate">{k.label}</span>
-              <div className="size-9 rounded-xl grid place-items-center shrink-0" style={{ background: k.bg, color: k.c }}><k.icon className="size-[17px]" strokeWidth={2} /></div>
-            </div>
-            <div className="flex items-end gap-1.5 mt-2.5">
-              <span className="text-[28px] font-bold tracking-[-0.03em] tabular-nums leading-none text-[#101828]"><CountUp key={`${escritorio}-${k.label}`} to={k.value} separator="." duration={1.2} /></span>
-              {k.delta != null && (
-                <span className={`text-[11px] font-semibold inline-flex items-center gap-0.5 pb-0.5 ${k.delta >= 0 ? "text-[#16a34a]" : "text-[#dc2626]"}`}>
-                  {k.delta >= 0 ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}{Math.abs(k.delta)}%
-                </span>
-              )}
-            </div>
-            <span className="text-[11px] text-[#98A2B3] mt-1 truncate">{k.sub}</span>
-            <div className="h-10 mt-2 -mx-[18px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={series} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
-                  <defs><linearGradient id={`kg${i}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={k.g} stopOpacity={0.2} /><stop offset="100%" stopColor={k.g} stopOpacity={0} /></linearGradient></defs>
-                  <Area type="monotone" dataKey={k.key} stroke={k.g} strokeWidth={1.75} fill={`url(#kg${i})`} dot={false} isAnimationActive={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </motion.div>
-        ))}
-      </div>
+      {/* Indicadores num bento (MagicBento + Counter, React Bits) */}
+      <BentoIndicadores chave={escritorio} d={{
+        dias: v.dias, serie: series,
+        conversasHoje: v.conversas_hoje, conversasHojeVariacao: v.conversas_hoje_variacao,
+        mensagens: v.mensagens, mensagensVariacao: v.mensagens_variacao,
+        tokens: v.tokens, tokensVariacao: v.tokens_variacao, tokensSub: admin ? `consumidos · ${formatUSD(v.custo_periodo_usd)}` : "consumidos",
+        agentesAtivos: v.agentes_ativos, agentesTotal: v.agentes_total, nomesAgentes: v.ranking_agentes.map((a) => a.nome),
+        contratos: v.ranking_agentes.reduce((s, a) => s + (a.assinados || 0), 0),
+        followup: { pendentes: v.followup.pendentes, enviados: v.followup.enviados, respondidos: v.followup.respondidos, taxa: v.followup.taxa_resposta, taxaVariacao: v.followup.taxa_variacao },
+        produtos: v.produtos, podeGerir,
+      }} />
 
       {/* Bloco superior: charts (esq, 2 sub-colunas) + Atividades (coluna alta à direita) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mt-3 items-stretch">
@@ -425,14 +393,6 @@ export function TelaInicio() {
       {/* Linha 4: mini-cards + ranking + banner (esquerda) | Contatos por Estado (direita) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mt-3 items-stretch">
         <div className="lg:col-span-8 flex flex-col gap-3">
-          {/* Mini cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <MiniCard icon={Users} label="Agentes" value={`${v.agentes_ativos}`} sub={`ativos de ${v.agentes_total}`} avatars={v.ranking_agentes.map((a) => a.nome)} extra={Math.max(0, v.agentes_total - 3)} bar={miniBars.agentes.bar} barColor={miniBars.agentes.color} />
-            <MiniCard icon={Reply} label="Follow-up" value={`${v.followup.pendentes}`} sub={`pendentes · ${v.followup.enviados} enviados`} bar={miniBars.followup.bar} barColor={miniBars.followup.color} />
-            <MiniCard icon={Package} label="Produtos ativos" value={`${v.produtos.ativos}`} sub={`de ${v.produtos.total} produtos`} link={podeGerir ? "/meus-produtos" : undefined} linkLabel="Ver" bar={miniBars.produtos.bar} barColor={miniBars.produtos.color} />
-            <MiniCard icon={TrendingUp} label="Taxa de resposta" value={v.followup.taxa_resposta != null ? `${v.followup.taxa_resposta}%` : "—"} sub={v.followup.enviados ? `${v.followup.respondidos} de ${v.followup.enviados} follow-ups` : "sem follow-up enviado"} delta={v.followup.taxa_variacao} bar={v.followup.taxa_resposta != null ? miniBars.taxa.bar : undefined} barColor={miniBars.taxa.color} />
-          </div>
-
           {/* Ranking + Banner */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
             <Tile className="lg:col-span-7 p-5 flex flex-col" delay={0.2}>
@@ -520,42 +480,6 @@ const PanelHead = ({ title, icon: Icon, iconColor, action, actionIcon: ActionIco
       <Link to={to} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] transition-colors">
         {action} <ActionIcon className="size-3.5" />
       </Link>
-    )}
-  </div>
-);
-
-const MiniCard = ({ icon: Icon, label, value, sub, delta, link, linkLabel, avatars, extra = 0, bar, barColor = "#16a34a" }: { icon: any; label: string; value: string; sub: string; delta?: number | null; link?: string; linkLabel?: string; avatars?: string[]; extra?: number; bar?: number; barColor?: string }) => (
-  <div className={`${TILE} p-4 flex flex-col`}>
-    <div className="flex items-center gap-1.5">
-      <div className="size-8 rounded-lg grid place-items-center" style={{ background: "#e8f9ee", color: "#00bc33" }}><Icon className="size-4" /></div>
-      <span className="text-[12px] font-medium text-[#667085] truncate">{label}</span>
-    </div>
-    <div className="mt-2.5 flex items-end justify-between gap-2">
-      <div className="min-w-0">
-        <div className="text-[24px] font-bold tracking-[-0.03em] tabular-nums text-[#101828] leading-none">{value}</div>
-        <div className="text-[11px] text-[#98A2B3] mt-1 truncate">{sub}</div>
-      </div>
-      {avatars && avatars.length > 0 && (
-        <div className="flex items-center -space-x-1.5 shrink-0">
-          {avatars.slice(0, 3).map((nome, i) => (
-            <span key={i} title={nome} className="size-5 rounded-full border-2 border-white grid place-items-center text-[8px] font-bold text-white" style={{ background: CORES_AGENTES[i % CORES_AGENTES.length] }}>{nome.charAt(0).toUpperCase()}</span>
-          ))}
-          {extra > 0 && <span className="size-5 rounded-full border-2 border-white bg-[#eef2f7] grid place-items-center text-[9px] font-bold text-[#667085]">+{extra}</span>}
-        </div>
-      )}
-      {delta != null && (
-        <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold shrink-0 ${delta >= 0 ? "text-[#16a34a]" : "text-[#dc2626]"}`}>
-          {delta >= 0 ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}{Math.abs(delta)}{label === "Taxa de resposta" ? " p.p." : "%"}
-        </span>
-      )}
-      {link && linkLabel && (
-        <Link to={link} className="text-[11px] font-semibold text-[#667085] hover:text-[#00bc33] inline-flex items-center gap-0.5 shrink-0 transition-colors">{linkLabel} <ChevronRight className="size-3.5" /></Link>
-      )}
-    </div>
-    {bar != null && (
-      <div className="mt-3 h-1.5 rounded-full bg-[#eef1f5] overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(4, Math.min(100, bar))}%`, background: barColor }} />
-      </div>
     )}
   </div>
 );

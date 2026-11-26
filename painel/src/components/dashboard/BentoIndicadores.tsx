@@ -1,0 +1,198 @@
+// Indicadores do Início num bento (MagicBento do React Bits, tema claro, brilho verde LawChat seguindo o cursor).
+// Os números rolam com o Counter (React Bits). Mesmos dados que os KPIs e mini-cartões tinham antes.
+import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { ResponsiveContainer, AreaChart, Area } from "recharts";
+import { ArrowDown, ArrowUp, Box, ChevronRight, FileSignature, Mail, MessageSquare, Package, Reply, Users, type LucideIcon } from "lucide-react";
+import MagicBento, { type MagicBentoItem } from "@/components/reactbits/MagicBento";
+import Counter from "@/components/reactbits/Counter";
+import "./BentoIndicadores.css";
+
+export interface DadosBento {
+  dias: number;
+  serie: { date: string; conv: number; msgs: number; tokens: number }[];
+  conversasHoje: number; conversasHojeVariacao: number | null;
+  mensagens: number; mensagensVariacao: number | null;
+  tokens: number; tokensVariacao: number | null; tokensSub: string;
+  agentesAtivos: number; agentesTotal: number; nomesAgentes: string[];
+  contratos: number;
+  followup: { pendentes: number; enviados: number; respondidos: number; taxa: number | null; taxaVariacao: number | null };
+  produtos: { ativos: number; total: number };
+  podeGerir: boolean;
+}
+
+const CORES_AGENTES = ["#22c55e", "#0ea5e9", "#2563eb", "#f59e0b", "#ef4444"];
+
+function Variacao({ v, sufixo = "%" }: { v: number | null | undefined; sufixo?: string }) {
+  if (v == null) return null;
+  return (
+    <span className={`lc-bento__delta ${v >= 0 ? "is-up" : "is-down"}`}>
+      {v >= 0 ? <ArrowUp aria-hidden /> : <ArrowDown aria-hidden />}{Math.abs(v)}{sufixo}
+    </span>
+  );
+}
+
+function Topo({ icone: Icone, rotulo, cor, fundo, acao }: { icone: LucideIcon; rotulo: string; cor: string; fundo: string; acao?: ReactNode }) {
+  return (
+    <div className="lc-bento__topo">
+      <span className="lc-bento__icone" style={{ background: fundo, color: cor }}><Icone aria-hidden /></span>
+      <span className="lc-bento__rotulo">{rotulo}</span>
+      {acao}
+    </div>
+  );
+}
+
+function Numero({ valor, chave }: { valor: number; chave: string }) {
+  return <Counter key={chave} value={Math.round(valor) || 0} locale="pt-BR" fontSize="inherit" fontWeight="inherit" textColor="inherit" />;
+}
+
+function Faixa({ pct, cor }: { pct: number; cor: string }) {
+  return (
+    <div className="lc-bento__faixa"><span style={{ width: `${Math.max(4, Math.min(100, pct))}%`, background: cor }} /></div>
+  );
+}
+
+function Linha({ serie, chave, cor, id }: { serie: DadosBento["serie"]; chave: "conv" | "msgs" | "tokens"; cor: string; id: string }) {
+  return (
+    <div className="lc-bento__linha" aria-hidden>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={serie} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+          <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={cor} stopOpacity={0.22} /><stop offset="100%" stopColor={cor} stopOpacity={0} /></linearGradient></defs>
+          <Area type="monotone" dataKey={chave} stroke={cor} strokeWidth={1.75} fill={`url(#${id})`} dot={false} isAnimationActive={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+const corEstado = (p: number) => (p >= 66 ? "#16a34a" : p >= 40 ? "#f59e0b" : "#ef4444");
+
+export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string }) {
+  const navegar = useNavigate();
+  const items = useMemo<MagicBentoItem[]>(() => {
+    const pctAgentes = d.agentesTotal > 0 ? (d.agentesAtivos / d.agentesTotal) * 100 : 0;
+    const pctProdutos = d.produtos.total > 0 ? (d.produtos.ativos / d.produtos.total) * 100 : d.produtos.ativos > 0 ? 100 : 0;
+    const pend = d.followup.pendentes;
+    const lista: MagicBentoItem[] = [
+      {
+        id: "conversas", colSpan: 2,
+        content: (
+          <div className="lc-bento__corpo">
+            <Topo icone={MessageSquare} rotulo="Conversas hoje" cor="#00bc33" fundo="#e8f9ee" />
+            <div className="lc-bento__valor lc-bento__valor--grande"><Numero valor={d.conversasHoje} chave={`${chave}-conv`} /><Variacao v={d.conversasHojeVariacao} /></div>
+            <span className="lc-bento__sub">vs. ontem · {d.serie.reduce((s, x) => s + (x.conv || 0), 0).toLocaleString("pt-BR")} nos últimos {d.dias} dias</span>
+            <Linha serie={d.serie} chave="conv" cor="#22c55e" id="lcb-conv" />
+          </div>
+        ),
+      },
+      {
+        id: "mensagens",
+        content: (
+          <div className="lc-bento__corpo">
+            <Topo icone={Mail} rotulo={`Mensagens (${d.dias}d)`} cor="#2563eb" fundo="#eaf1ff" />
+            <div className="lc-bento__valor"><Numero valor={d.mensagens} chave={`${chave}-msgs`} /><Variacao v={d.mensagensVariacao} /></div>
+            <span className="lc-bento__sub">trocadas</span>
+            <Linha serie={d.serie} chave="msgs" cor="#3b82f6" id="lcb-msgs" />
+          </div>
+        ),
+      },
+      {
+        id: "tokens",
+        content: (
+          <div className="lc-bento__corpo">
+            <Topo icone={Box} rotulo={`Tokens (${d.dias}d)`} cor="#0891b2" fundo="#e0f2fe" />
+            <div className="lc-bento__valor"><Numero valor={d.tokens} chave={`${chave}-tokens`} /><Variacao v={d.tokensVariacao} /></div>
+            <span className="lc-bento__sub">{d.tokensSub}</span>
+            <Linha serie={d.serie} chave="tokens" cor="#0ea5e9" id="lcb-tokens" />
+          </div>
+        ),
+      },
+      {
+        id: "agentes",
+        content: (
+          <div className="lc-bento__corpo">
+            <Topo icone={Users} rotulo="Agentes ativos" cor="#d97706" fundo="#fff4df" />
+            <div className="lc-bento__valor">
+              <Numero valor={d.agentesAtivos} chave={`${chave}-agentes`} />
+              {d.nomesAgentes.length > 0 && (
+                <span className="lc-bento__avatares">
+                  {d.nomesAgentes.slice(0, 3).map((nome, i) => (
+                    <span key={i} title={nome} style={{ background: CORES_AGENTES[i % CORES_AGENTES.length] }}>{nome.charAt(0).toUpperCase()}</span>
+                  ))}
+                  {d.agentesTotal > 3 && <span className="is-mais">+{d.agentesTotal - 3}</span>}
+                </span>
+              )}
+            </div>
+            <span className="lc-bento__sub">de {d.agentesTotal} {d.agentesTotal === 1 ? "agente" : "agentes"}</span>
+            <Faixa pct={pctAgentes} cor={corEstado(pctAgentes)} />
+          </div>
+        ),
+      },
+      {
+        id: "contratos",
+        content: (
+          <div className="lc-bento__corpo">
+            <Topo icone={FileSignature} rotulo="Contratos assinados" cor="#15803d" fundo="#dcfce7" />
+            <div className="lc-bento__valor"><Numero valor={d.contratos} chave={`${chave}-contratos`} /></div>
+            <span className="lc-bento__sub">nos últimos {d.dias} dias, pelos agentes</span>
+          </div>
+        ),
+      },
+      {
+        id: "followup",
+        content: (
+          <div className="lc-bento__corpo">
+            <Topo icone={Reply} rotulo="Follow-up" cor="#00bc33" fundo="#e8f9ee" />
+            <div className="lc-bento__valor"><Numero valor={pend} chave={`${chave}-followup`} /><span className="lc-bento__unidade">pendentes</span></div>
+            <span className="lc-bento__sub">
+              {d.followup.enviados ? <>Resposta {d.followup.taxa ?? 0}% · {d.followup.respondidos} de {d.followup.enviados}</> : "sem follow-up enviado"}
+              {" "}<Variacao v={d.followup.taxaVariacao} sufixo=" p.p." />
+            </span>
+            <Faixa pct={Math.min(100, (pend / 40) * 100)} cor={pend <= 10 ? "#16a34a" : pend <= 25 ? "#f59e0b" : "#ef4444"} />
+          </div>
+        ),
+      },
+      {
+        id: "produtos",
+        onClick: d.podeGerir ? () => navegar("/meus-produtos") : undefined,
+        title: "Produtos ativos",
+        content: (
+          <div className="lc-bento__corpo">
+            <Topo icone={Package} rotulo="Produtos ativos" cor="#00bc33" fundo="#e8f9ee"
+              acao={d.podeGerir ? <span className="lc-bento__ver">Ver <ChevronRight aria-hidden /></span> : undefined} />
+            <div className="lc-bento__valor"><Numero valor={d.produtos.ativos} chave={`${chave}-produtos`} /></div>
+            <span className="lc-bento__sub">de {d.produtos.total} produtos</span>
+            <Faixa pct={pctProdutos} cor="#16a34a" />
+          </div>
+        ),
+      },
+    ];
+    return lista;
+  }, [d, chave, navegar]);
+
+  return (
+    <MagicBento
+      className="lc-bento"
+      items={items}
+      columns={4}
+      rowHeight={150}
+      gap={12}
+      radius={20}
+      theme="light"
+      glowColor="#00bc33"
+      enableSpotlight
+      enableBorderGlow
+      spotlightRadius={260}
+      enableStars={false}
+      enableTilt={false}
+      enableMagnetism={false}
+      clickEffect={false}
+      style={{
+        "--mb-surface": "rgba(255,255,255,0.9)",
+        "--mb-shadow": "0 8px 24px rgba(15,23,42,0.055), inset 0 0 0 1px rgba(226,232,240,0.9)",
+        "--mb-spot-alpha": 0.08,
+        "--mb-glow-alpha": 0.8,
+      } as CSSProperties}
+    />
+  );
+}
