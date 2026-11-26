@@ -1,0 +1,112 @@
+/* Tela de abertura do painel (TelaCarregamento.tsx). Prefixo tc- para não esbarrar em nada do painel. */
+
+.tc-raiz {
+  position: fixed; inset: 0; z-index: 2147483000;
+  display: grid; place-items: center; overflow: hidden;
+  color: #fff; background: #010a05;
+  animation: tc-entrar .35s ease-out both;
+  transition: opacity .65s cubic-bezier(.4, 0, .2, 1);
+}
+.tc-raiz.tc-saindo { opacity: 0; pointer-events: none; }
+
+/* Fundo: gradiente CSS (fica sozinho quando não há WebGL) + canvas do shader por cima + véu para dar contraste. */
+.tc-fundo {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(60% 55% at 50% 50%, rgba(15, 154, 59, .38), transparent 70%),
+    radial-gradient(45% 40% at 22% 30%, rgba(13, 90, 42, .55), transparent 70%),
+    radial-gradient(50% 45% at 80% 75%, rgba(5, 56, 26, .7), transparent 70%),
+    #010a05;
+  transition: transform .9s cubic-bezier(.4, 0, .2, 1);
+}
+.tc-saindo .tc-fundo { transform: scale(1.06); }
+.tc-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tc-veu {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, rgba(1, 10, 5, .28) 0%, rgba(1, 10, 5, .15) 40%, rgba(1, 10, 5, .6) 100%);
+}
+
+.tc-palco {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: clamp(28px, 5vh, 44px); padding: 0 16px; width: 100%;
+  transition: transform .65s cubic-bezier(.4, 0, .2, 1), filter .65s ease;
+}
+.tc-saindo .tc-palco { transform: scale(1.05); filter: blur(2px); }
+
+.tc-logo { width: min(560px, 84vw); height: auto; overflow: visible; filter: drop-shadow(0 10px 30px rgba(0, 0, 0, .35)); }
+
+/* ---- Traços (desenho do contorno) ---- */
+.tc-traco { fill: none; stroke-dasharray: 1; stroke-dashoffset: 1; stroke-linejoin: round; stroke-linecap: round; }
+
+/* Balão: contorno se desenha e depois enche de verde. */
+.tc-balao-traco { stroke: #9af5ae; stroke-width: 16; animation: tc-tracar .8s cubic-bezier(.6, 0, .3, 1) .05s forwards, tc-sumir .45s ease .85s forwards; }
+.tc-balao { opacity: 0; animation: tc-aparecer .55s ease-out .5s forwards; }
+
+/* Rede: o anel se fecha, as linhas saem do centro e as três pontas chegam de fora e se encaixam. */
+.tc-anel { stroke-dasharray: 1; stroke-dashoffset: 1; animation: tc-tracar .55s cubic-bezier(.6, 0, .3, 1) .3s forwards; }
+.tc-linha { stroke-dasharray: 1; stroke-dashoffset: 1; animation: tc-tracar .4s ease-out calc(.5s + var(--i) * .06s) forwards; }
+.tc-no {
+  transform-box: fill-box; transform-origin: center; opacity: 0;
+  transform: translate(var(--dx), var(--dy)) scale(.35);
+  animation: tc-encaixar .6s cubic-bezier(.2, .9, .25, 1.15) calc(.55s + var(--i) * .08s) forwards;
+}
+
+/* Letras: cada uma sobe um pouco, é traçada e então preenchida, em sequência. */
+.tc-letra {
+  opacity: 0; transform: translateY(22px);
+  animation: tc-subir .55s cubic-bezier(.2, .8, .2, 1) calc(.4s + var(--i) * .11s) forwards;
+}
+.tc-letra-traco { stroke-width: 6; animation: tc-tracar .75s cubic-bezier(.55, 0, .3, 1) calc(.4s + var(--i) * .11s) forwards, tc-sumir .4s ease calc(.9s + var(--i) * .11s) forwards; }
+.tc-letra-traco.tc-law { stroke: #8fe6a0; }
+.tc-letra-traco.tc-chat { stroke: rgba(255, 255, 255, .9); }
+.tc-letra-cheia { opacity: 0; animation: tc-aparecer .45s ease-out calc(.9s + var(--i) * .11s) forwards; }
+
+/* Brilho que atravessa a escrita, em laço, depois que a logo está pronta. */
+.tc-brilho { opacity: 0; transform: translateX(80px); animation: tc-varrer 2.6s cubic-bezier(.45, 0, .25, 1) 2s infinite; }
+
+/* ---- Texto e barra ---- */
+.tc-rodape { display: flex; flex-direction: column; align-items: center; gap: 14px; opacity: 0; animation: tc-aparecer .6s ease-out .7s forwards; }
+.tc-frase {
+  margin: 0; font-size: 13.5px; letter-spacing: .02em; font-weight: 500;
+  color: rgba(226, 244, 230, .78); min-height: 1.3em; text-align: center;
+}
+.tc-barra { position: relative; width: min(200px, 56vw); height: 2px; border-radius: 2px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.tc-barra-cheia {
+  position: absolute; inset: 0 auto 0 0; border-radius: 2px;
+  background: linear-gradient(90deg, #a7d7a4, #00bc33);
+  box-shadow: 0 0 10px rgba(0, 188, 51, .55);
+  transition: width .7s cubic-bezier(.4, 0, .2, 1);
+}
+.tc-barra-cheia::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .7), transparent);
+  transform: translateX(-100%); animation: tc-correr 1.6s ease-in-out infinite;
+}
+
+@keyframes tc-entrar { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tc-tracar { to { stroke-dashoffset: 0; } }
+@keyframes tc-sumir { to { opacity: 0; } }
+@keyframes tc-aparecer { to { opacity: 1; } }
+@keyframes tc-subir { to { opacity: 1; transform: translateY(0); } }
+@keyframes tc-encaixar { 60% { opacity: 1; } to { opacity: 1; transform: translate(0, 0) scale(1); } }
+@keyframes tc-varrer {
+  0% { opacity: 0; transform: translateX(80px); }
+  12% { opacity: 1; }
+  70% { opacity: 1; transform: translateX(1900px); }
+  71%, 100% { opacity: 0; transform: translateX(1900px); }
+}
+@keyframes tc-correr { to { transform: translateX(100%); } }
+
+/* Menos movimento: logo pronta, sem traços nem brilho; a tela só aparece e some com esmaecer. */
+.tc-parado .tc-traco, .tc-parado .tc-brilho { display: none; }
+.tc-parado .tc-balao, .tc-parado .tc-anel, .tc-parado .tc-linha, .tc-parado .tc-no,
+.tc-parado .tc-letra, .tc-parado .tc-letra-cheia, .tc-parado .tc-rodape {
+  animation: none; opacity: 1; transform: none; stroke-dashoffset: 0;
+}
+.tc-parado .tc-palco { animation: tc-entrar .5s ease-out both; }
+.tc-parado .tc-barra-cheia::after { animation: none; display: none; }
+.tc-parado.tc-saindo .tc-palco, .tc-parado.tc-saindo .tc-fundo { transform: none; filter: none; }
+@media (prefers-reduced-motion: reduce) {
+  .tc-raiz *, .tc-raiz *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+  .tc-parado .tc-palco { animation-duration: .5s !important; }
+}

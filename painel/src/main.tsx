@@ -24,6 +24,7 @@ import { enviar } from "./api";
 import { Estrutura } from "./componentes/Estrutura";
 import { Alerta, Carregando, Modal, ProvedorAvisos, useAcao } from "./componentes/ui";
 import { ProvedorSessao, useSessao } from "./sessao";
+import { PortaoCarregamento } from "./componentes/TelaCarregamento";
 import { CarregandoEntrada, Entrar } from "./telas/Entrar";
 // Cada tela vira um arquivo JS próprio, baixado só quando a pessoa abre a tela (antes era um bundle único de ~2,5 MB).
 const TelaAdminEscritorios = lazy(() => import("./telas/AdminEscritorios").then((m) => ({ default: m.TelaAdminEscritorios })));
@@ -243,7 +244,10 @@ createRoot(document.getElementById("raiz")!).render(naPonte ? (
         <BrowserRouter>
           <ProvedorAvisos>
             <ProvedorSessao>
-              <Rotas />
+              {/* Abertura animada por cima do app enquanto a sessão, a primeira tela e os dados iniciais carregam. */}
+              <PortaoCarregamento>
+                <Rotas />
+              </PortaoCarregamento>
             </ProvedorSessao>
           </ProvedorAvisos>
         </BrowserRouter>
