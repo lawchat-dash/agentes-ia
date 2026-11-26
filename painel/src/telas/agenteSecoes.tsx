@@ -48,7 +48,7 @@ export const SECOES_AGENTE: SecaoAgente[] = [
   {
     chave: "followup", rotulo: "Follow-up", etiqueta: "Cadência", cor: "#DB2777", cor2: "#F472B6", icone: (t) => <Send size={t} />, fora_do_hub: true,
     descricao: "O agente de follow-up retoma quem parou de responder, no ritmo da cadência e no horário comercial.",
-    numeros: (a) => [[a.followup_resumo?.ativo ? "Ligado" : "Desligado", "follow-up"], [a.followup_resumo?.passos ?? 7, "tentativas"]],
+    numeros: (a) => [[a.followup_resumo?.ativo ? "Ligado" : "Desligado", "follow-up"], [a.followup_resumo?.passos ?? 4, "tentativas"]],
   },
   {
     chave: "laboratorio", rotulo: "Laboratório", etiqueta: "Testar", cor: "#7C3AED", cor2: "#A78BFA", icone: (t) => <FlaskConical size={t} />, fora_do_hub: true,

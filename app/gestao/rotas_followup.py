@@ -96,6 +96,11 @@ MOTIVOS: dict[str, str] = {
     "agente_decidiu_nao_enviar": "o agente de follow-up decidiu não enviar",
     "escritorio_sem_conexao_whatsapp": "sem conexão com o WhatsApp",
     "enviado_antes_da_queda": "enviado (confirmado depois de uma queda)",
+    "ia_desativada": "a IA foi desligada nesta conversa", "ia_desligada_durante_o_envio": "a IA foi desligada na hora do envio",
+    "lead_suspeito": "lead suspeito (robô ou só figurinhas): a IA foi desligada",
+    "sem_saldo": "o saldo da IA acabou", "lead_pausado": "conversa pausada (IA desligada ou equipe atendendo)",
+    "lead_encerrado": "conversa encerrada", "cadencia_alterada": "a cadência mudou e este toque deixou de existir",
+    "produto_na_lixeira": "o produto foi para a lixeira", "produto_excluido": "o produto foi excluído",
 }
 
 

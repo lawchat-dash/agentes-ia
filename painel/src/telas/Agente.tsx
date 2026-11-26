@@ -6,7 +6,7 @@ import { Alerta, Cabecalho, Carregando, Painel, Situacao, Vazio, useAcao, useCar
 import { useSessao } from "../sessao";
 import { EditorDefinicao } from "./EditorDefinicao";
 import { EscolherPapeis, ItensDaBase, PerguntasSemResposta, ResumoFixoOuBuscado, papeisDoAgente } from "./AgenteBase";
-import { AbaFollowup } from "./AgenteFollowup";
+import { AbaFollowup, PainelFollowupDoAgente } from "./AgenteFollowup";
 import { cartoesDo, estiloIconeSecao, secoesDo } from "./agenteSecoes";
 import { HistoricoDoAgente } from "./AgenteHistorico";
 import { AbaFuncoes } from "./AgenteFuncoes";
@@ -78,6 +78,7 @@ function AbaGeral({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente) 
 
   return (
     <div className="two">
+      <div className="stack">
       <Painel titulo="Configuração" acoes={<button className="btn pri sm" onClick={salvar} disabled={ocupado}><Save />Salvar</button>}>
         <div className="form">
           <div className="form cols">
@@ -108,6 +109,9 @@ function AbaGeral({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente) 
             <span className="ajuda">Em modo teste, a IA responde só a estes números.</span></label>
         </div>
       </Painel>
+      {/* Follow-up dentro do agente: ver, ligar/desligar na hora e ir montar a cadência (telas/AgenteFollowup.tsx). */}
+      <PainelFollowupDoAgente agente={agente} />
+      </div>
 
       <div className="stack">
         <PainelAtivacao agente={agente} aoSalvar={aoSalvar} />

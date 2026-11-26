@@ -148,36 +148,54 @@ def _limites(bruto: Any) -> dict[str, Any] | None:
                 "oferecer_parar": bool(bruto.get("oferecer_parar")),
                 "lead_parado_apos": max(0, min(12, int(bruto.get("lead_parado_apos", LEAD_PARADO_APOS) or 0)))}
     except (TypeError, ValueError):
-        raise ValueError("Limites do follow-up inválidos.") from None
+        raise ErroConfig("Limites do follow-up inválidos.") from None
+
+
+class ErroConfig(ValueError):
+    """Erro de uso na configuração do follow-up, com a mensagem pronta para a tela."""
 
 
 def validar(bruto: dict[str, Any], anterior: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Limpa a configuração vinda do painel. Erro de uso vira ValueError com mensagem para a tela.
+    """Limpa a configuração vinda do painel. Erro de uso vira ValueError com mensagem para a tela (em português, também
+    para número torto: "abc" no horário, passo que não é objeto...).
 
     "limites" (regras da OAB e da Meta) fica como veio; se não veio, fica o da config `anterior` (a tela de edição que
     não conhece o campo não apaga os limites de quem ligou com o padrão novo)."""
+    if not isinstance(bruto, dict):
+        raise ErroConfig("Configuração do follow-up inválida.")
+    try:
+        return _validar(bruto, anterior)
+    except ErroConfig:
+        raise
+    except (TypeError, ValueError, AttributeError):
+        raise ErroConfig("Configuração do follow-up inválida: confira o horário, o intervalo e o tempo de cada "
+                         "tentativa (só números).") from None
+
+
+def _validar(bruto: dict[str, Any], anterior: dict[str, Any] | None = None) -> dict[str, Any]:
+    """validar sem a tradução dos erros de número (ver validar)."""
     horario = bruto.get("horario") or {}
     inicio, fim = int(horario.get("inicio", 8)), int(horario.get("fim", 20))
     if not (0 <= inicio < fim <= 24):
-        raise ValueError("Horário inválido: o início tem de ser antes do fim (0 a 24 h).")
+        raise ErroConfig("Horário inválido: o início tem de ser antes do fim (0 a 24 h).")
     dias = sorted({int(d) for d in horario.get("dias", [0, 1, 2, 3, 4, 5]) if 0 <= int(d) <= 6})
     if not dias:
-        raise ValueError("Escolha pelo menos um dia da semana.")
+        raise ErroConfig("Escolha pelo menos um dia da semana.")
     passos = []
     for p in bruto.get("passos") or []:
         horas = float(p.get("apos_horas") or 0)
         if not 10 / 60 - 1e-9 <= horas <= 24 * 90:
-            raise ValueError("Cada passo precisa de um tempo entre 10 minutos e 90 dias.")
+            raise ErroConfig("Cada passo precisa de um tempo entre 10 minutos e 90 dias.")
         modo = p.get("modo") if p.get("modo") in ("ia", "texto", "modelo") else "ia"
         texto = str(p.get("texto") or "").strip()[:1000]
         if modo == "texto" and not texto:
-            raise ValueError("Passo com texto fixo precisa do texto.")
+            raise ErroConfig("Passo com texto fixo precisa do texto.")
         passos.append({"apos_horas": horas, "modo": modo, "instrucao": str(p.get("instrucao") or "").strip()[:1500], "texto": texto})
     if len(passos) > 12:
-        raise ValueError("No máximo 12 passos de follow-up.")
+        raise ErroConfig("No máximo 12 passos de follow-up.")
     horas = [p["apos_horas"] for p in passos]
     if len(set(horas)) != len(horas):
-        raise ValueError("Dois passos com o mesmo tempo: ajuste a cadência.")
+        raise ErroConfig("Dois passos com o mesmo tempo: ajuste a cadência.")
     desistir = bruto.get("desistir") or {}
     limites = _limites(bruto["limites"] if "limites" in bruto else (anterior or {}).get("limites"))
     limpo = {

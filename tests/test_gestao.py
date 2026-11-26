@@ -546,7 +546,7 @@ async def test_followup_configurado_pelo_painel(ambiente):
 
     inicial = (await cliente.get(f"/api/agentes/{agente['id']}/followup", headers=h)).json()
     assert inicial["config"]["ativo"] is False and [p["apos_horas"] for p in inicial["config"]["passos"]] == [1, 24, 72, 168]
-    assert {"codigo": "sdr", "nome": "Primeiro atendimento", "tipo": "conversa"} in inicial["etapas"]
+    assert {"codigo": "sdr", "nome": "Primeiro atendimento", "tipo": "conversa", "pode_followup": True} in inicial["etapas"]
     ruim = await cliente.put(f"/api/agentes/{agente['id']}/followup", headers=h, json={**inicial["config"], "horario": {"inicio": 20, "fim": 8, "dias": [0]}})
     assert ruim.status_code == 400 and "início" in ruim.json()["detail"]
     salvo = (await cliente.put(f"/api/agentes/{agente['id']}/followup", headers=h, json={

@@ -150,6 +150,49 @@ async def _agendar(pool: asyncpg.Pool, id_lead: str, base: datetime) -> datetime
         return quando
 
 
+async def reprogramar_do_agente(pool: asyncpg.Pool, id_agente: str, antes: dict[str, Any] | None,
+                                depois: dict[str, Any] | None) -> dict[str, int]:
+    """Depois de salvar a cadência: os follow-ups já agendados (pendentes) deste agente passam a seguir a nova.
+
+    - toque que ainda existe na cadência nova: novo horário (base + tempo novo, dentro do horário permitido), menos o
+      adiado a pedido do lead;
+    - toque que deixou de existir (cadência encurtou): cancelado com motivo 'cadencia_alterada';
+    - desistência agendada (passo = nº de toques antigo): segue só se a desistência continua ligada (vira o passo da
+      desistência na cadência nova); desligada, é cancelada.
+    Reservados (sendo enviados agora) não mudam. Follow-up desligado: quem chama já cancelou tudo."""
+    novo = regras.Config.de(depois)
+    if not novo.ativo:
+        return {"reprogramados": 0, "cancelados": 0}
+    antigo = regras.Config.de(antes)
+    linhas = await pool.fetch(
+        """select id, id_lead, passo, base, agendado_para, motivo from agentesia_followups
+           where id_agente = $1::uuid and situacao = 'pendente'""", id_agente)
+    reprogramados = cancelados = 0
+    for r in linhas:
+        if r["passo"] >= len(antigo.passos):                 # era a desistência
+            if not novo.desistir_ativo:
+                await pool.execute("update agentesia_followups set situacao = 'cancelado', motivo = 'cadencia_alterada' "
+                                   "where id = $1 and situacao = 'pendente'", r["id"])
+                cancelados += 1
+            elif r["passo"] != len(novo.passos):
+                await pool.execute("update agentesia_followups set passo = $2 where id = $1 and situacao = 'pendente'",
+                                   r["id"], len(novo.passos))
+                reprogramados += 1
+            continue
+        quando = regras.horario_do_passo(r["base"], r["passo"], novo, str(r["id_lead"]))
+        if quando is not None and r["motivo"] == "lead_pediu_para_esperar":
+            continue                                        # o lead pediu para esperar: guarda o adiamento
+        if quando is None:
+            await pool.execute("update agentesia_followups set situacao = 'cancelado', motivo = 'cadencia_alterada' "
+                               "where id = $1 and situacao = 'pendente'", r["id"])
+            cancelados += 1
+        elif abs((quando - r["agendado_para"]).total_seconds()) >= 60:
+            await pool.execute("update agentesia_followups set agendado_para = $2 where id = $1 and situacao = 'pendente'",
+                               r["id"], quando)
+            reprogramados += 1
+    return {"reprogramados": reprogramados, "cancelados": cancelados}
+
+
 # ------------------------------------------------------------------ disparador
 class Disparador:
     def __init__(self, pool: asyncpg.Pool, modelo: Modelo, url_helena: str, helena_por_token=HelenaConta,
@@ -243,6 +286,9 @@ class Disparador:
             return await self._reagendar(f, ultima_saida + timedelta(minutes=config.intervalo_minimo_min), "intervalo_minimo")
 
         if f["passo"] >= len(config.passos):
+            if not config.desistir_ativo:
+                # A cadência encurtou ou a desistência foi desligada depois que esta linha nasceu: não encerra o lead.
+                return await self._fechar(f, "cancelado", "cadencia_alterada")
             return await self._desistir(f, lead, config)
 
         helena = await self._helena(lead)

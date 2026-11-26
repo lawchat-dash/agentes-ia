@@ -182,7 +182,7 @@ export interface Agente {
   funcoes: Record<string, boolean>; id_equipe_transferencia: string | null; automacoes: Record<string, Regra>;
   gatilhos: Record<string, string>; definicao: Definicao | null; etapas: Etapa[]; criado_em: string;
   ultima_preparacao?: Preparacao | null; preparacao?: Preparacao;
-  espera_s?: number | null; pausa_sem_volta?: boolean; followup_resumo?: { ativo: boolean; passos: number };
+  espera_s?: number | null; pausa_sem_volta?: boolean; followup_resumo?: { ativo: boolean; passos: number; resumo?: string[] };
   conhecimento?: { faq: ItemBase[]; objecoes: ItemBase[]; dados_escritorio: string; teto_documentos?: number };
 }
 

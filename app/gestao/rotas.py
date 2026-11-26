@@ -1612,8 +1612,9 @@ def _agente_para_tela(agente: dict[str, Any]) -> dict[str, Any]:
     agente["id_equipe_transferencia"] = config.get("id_equipe_transferencia")
     agente["automacoes"] = config.get("automacoes") or {}
     agente["ultima_preparacao"] = config.get("ultima_preparacao")
-    followup = config.get("followup") or {}
-    agente["followup_resumo"] = {"ativo": bool(followup.get("ativo")), "passos": len(followup.get("passos") or []) or 7}
+    from app.followup import padrao as padrao_fu
+    situacao_fu = padrao_fu.situacao(config)          # sem config: desligado e a cadência padrão (4 toques), não "7"
+    agente["followup_resumo"] = {"ativo": situacao_fu["ligado"], "passos": situacao_fu["passos"], "resumo": situacao_fu["resumo"]}
     agente["espera_s"] = config.get("espera_s")
     agente["pausa_sem_volta"] = bool(config.get("pausa_sem_volta"))
     agente["conhecimento"] = config.get("conhecimento") or {"faq": [], "objecoes": [], "dados_escritorio": ""}
@@ -1979,15 +1980,26 @@ async def ver_followup(id_agente: str, pedido: Request, ctx: Contexto = Depends(
            where f.id_agente = $1::uuid and f.situacao in ('enviado', 'falhou', 'cancelado') order by f.atualizado_em desc limit 30""", id_agente))
     if not agente:
         raise HTTPException(404, "Agente não encontrado.")
+    from app.gestao.rotas_followup import _textos as textos_fu, motivo_legivel
     produto = _produto_do(agente)
+    bruto = (agente.get("config") or {}).get("followup")
+    total = len(regras.Config.de(bruto if isinstance(bruto, dict) else None).passos)
     proximos, recentes = _linhas(proximos), _linhas(recentes)
+    for linha in proximos + recentes:
+        linha["motivo_texto"] = motivo_legivel(linha.get("motivo"))
+        linha["desistencia"] = linha["passo"] >= total
+    for linha in recentes:
+        linha["mensagens"] = textos_fu(linha.get("mensagens"))
     variaveis, por_etapa_padrao = await _extras_do_editor_followup(repo, ctx.escritorio(), agente)
-    return {"config": _followup_para_tela((agente.get("config") or {}).get("followup")),
+    # Etapas em que o follow-up PODE valer: as de conversa, menos desqualificado e contrato assinado (regras.vale_para).
+    conversa = {e.codigo for e in produto.etapas if e.tipo == "conversa"} - regras.ETAPAS_SEM_FOLLOWUP
+    return {"config": _followup_para_tela(bruto),
+            "configurado": isinstance(bruto, dict),
             "padrao": {"prompt": regras.PROMPT_PADRAO, "cadencia": list(regras.CADENCIA_PADRAO),
                        "instrucoes": {str(k): v for k, v in regras.INSTRUCAO_PASSO_PADRAO.items()},
                        "por_etapa": por_etapa_padrao},
             "variaveis": variaveis,
-            "etapas": [{"codigo": e.codigo, "nome": e.nome, "tipo": e.tipo} for e in produto.etapas],
+            "etapas": [{"codigo": e.codigo, "nome": e.nome, "tipo": e.tipo, "pode_followup": e.codigo in conversa} for e in produto.etapas],
             "tipo_canal": agente.get("tipo_canal"), "proximos": proximos, "recentes": recentes}
 
 
@@ -2047,16 +2059,21 @@ async def salvar_followup(id_agente: str, dados: dict[str, Any], pedido: Request
     antes = (agente.get("config") or {}).get("followup")
     config = {**(agente.get("config") or {}), "followup": novo}
     await repo.alterar_agente(ctx.escritorio(), id_agente, {"config": config})
+    reprogramacao = {"reprogramados": 0, "cancelados": 0}
     if not novo["ativo"]:
-        await repo.pool.execute(
+        reprogramacao["cancelados"] = int((await repo.pool.execute(
             "update agentesia_followups set situacao = 'cancelado', motivo = 'followup_desligado' where id_agente = $1::uuid and situacao in ('pendente', 'reservado')",
-            id_agente)
+            id_agente)).split()[-1])
+    else:
+        # Os já agendados passam a seguir a cadência nova (tempo novo; toque que sumiu é cancelado).
+        from app.followup import servico as servico_fu
+        reprogramacao = await servico_fu.reprogramar_do_agente(repo.pool, id_agente, antes if isinstance(antes, dict) else None, novo)
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_agentes",
                                    id_registro=id_agente, acao="alterou",
                                    resumo=f"Follow-up de {agente['nome']} {'ligado' if novo['ativo'] else 'desligado'}: "
                                           + ", ".join(f"{p['apos_horas']:g}h" for p in novo["passos"]),
                                    antes=antes, depois=novo)
-    return _followup_para_tela(novo)
+    return {**_followup_para_tela(novo), "reprogramacao": reprogramacao}
 
 
 class PreviaFollowup(BaseModel):

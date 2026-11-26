@@ -140,3 +140,29 @@
 .mid-previa audio { width: 100%; height: 36px; }
 .mid-acoes { display: flex; gap: 2px; margin-left: auto; }
 .mid-acoes .btn { padding: 0 8px; }
+
+/* Follow-up do agente (telas/AgenteFollowup.tsx): resumo, agendados, cadência e barra de salvar */
+.fu-titulo { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0; }
+.fu-ligar { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.fu-resumo { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; color: var(--ink-2); }
+.fu-lista { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.fu-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 12px; font-size: 13px; min-width: 0; }
+.fu-item + .fu-item { border-top: 1px solid var(--line); }
+.fu-item > b { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.fu-quando { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.fu-motivo { flex-basis: 100%; overflow-wrap: anywhere; color: var(--ink-2); }
+.fu-passo-linha { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fu-passo-linha .btn { margin-left: auto; }
+.fu-passo-ajuda { font-size: 12.5px; }
+.fu-limites { margin-top: 6px; padding-top: 12px; border-top: 1px dashed var(--line); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.fu-limites .fu-check { grid-column: 1 / -1; font-size: 13px; }
+.fu-numeros-mini { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
+.fu-numeros-mini b { color: var(--ink); font-family: var(--mono); }
+.fu-pagina { padding-bottom: 72px; }
+.fu-barra-salvar { position: sticky; bottom: 12px; z-index: 6; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .12); font-size: 13.5px; font-weight: 600; }
+.fu-barra-salvar > span { flex: 1 1 180px; }
+@media (max-width: 640px) {
+  .fu-limites { grid-template-columns: minmax(0, 1fr); }
+  .fu-passo-ajuda { flex-basis: 100%; order: 5; }
+}
