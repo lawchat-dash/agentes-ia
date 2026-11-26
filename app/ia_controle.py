@@ -74,6 +74,24 @@ async def _responder_o_que_esperava(conexao: Any, id_lead: Any) -> bool:
            returning true""", id_lead))
 
 
+async def _descartar_guardadas(conexao: Any, id_lead: Any, id_escritorio: Any) -> int:
+    """Religar depois do detector de lead suspeito: o que o lead mandou durante a suspeita (robô, figurinhas) não é
+    respondido. As mensagens ficam num turno 'descartado' (saem da fila e as mídias não são lidas); a IA volta a
+    responder na próxima mensagem do lead."""
+    ids = await conexao.fetch(
+        """select id from agentesia_mensagens where id_lead = $1 and autor = 'lead' and id_turno is null""", id_lead)
+    if not ids:
+        return 0
+    id_turno = await conexao.fetchval(
+        """insert into agentesia_turnos (id_escritorio, id_lead, modo, situacao, motivo, concluido_em)
+           values ($1, $2, 'producao', 'descartado', $3, now()) returning id""", id_escritorio, id_lead, MOTIVO_SUSPEITO)
+    await conexao.execute(
+        """update agentesia_mensagens set id_turno = $2, midia_pendente_desde = null
+           where id = any($1::uuid[])""", [l["id"] for l in ids], id_turno)
+    await conexao.execute("update agentesia_leads set responder_apos = null where id = $1", id_lead)
+    return len(ids)
+
+
 async def mudar_ia(pool: asyncpg.Pool, id_escritorio: str, *, ligar: bool, origem: str,
                    id_sessao: str | None = None, telefone: str | None = None, minutos: int = 0,
                    id_lead: str | None = None, id_usuario: str | None = None, de_quem: str | None = None,
@@ -110,8 +128,12 @@ async def mudar_ia(pool: asyncpg.Pool, id_escritorio: str, *, ligar: bool, orige
                 await conexao.execute(
                     "update agentesia_leads set estado = 'ativo', motivo_estado = null, pausado_ate = null where id = $1",
                     lead["id"])
-                esperando = await _responder_o_que_esperava(conexao, lead["id"])
-                alterados.append({**dict(lead), "esperando": esperando})
+                if lead["motivo_estado"] == MOTIVO_SUSPEITO:
+                    descartadas = await _descartar_guardadas(conexao, lead["id"], id_escritorio)
+                    alterados.append({**dict(lead), "esperando": False, "descartadas": descartadas})
+                else:
+                    esperando = await _responder_o_que_esperava(conexao, lead["id"])
+                    alterados.append({**dict(lead), "esperando": esperando})
             elif not ligar and not (ja_desligada and (origem == "etiqueta" or (not minutos and lead["pausado_ate"] is None))):
                 # Etiqueta repetida não mexe; botão ou painel numa conversa já desligada só valem para trocar o prazo.
                 ate = await conexao.fetchval(
@@ -128,6 +150,9 @@ async def mudar_ia(pool: asyncpg.Pool, id_escritorio: str, *, ligar: bool, orige
                          "sem repetir as boas-vindas, e volta a responder na próxima mensagem do lead.")
                 if lead["esperando"]:
                     texto += " O lead escreveu enquanto ela estava desligada: ela responde agora."
+                if lead.get("descartadas"):
+                    texto += (f" As {lead['descartadas']} mensagem(ns) da suspeita (robô/figurinhas) foram descartadas: "
+                              "ela não responde a elas.")
             elif minutos:
                 texto = (f"🤖 IA desativada nesta conversa até {_quando(lead['ate'])} ({minutos} min, {codigo}), {de_quem}. "
                          "Depois disso ela volta sozinha, sem mandar mensagem; se o lead escrever no meio tempo, "

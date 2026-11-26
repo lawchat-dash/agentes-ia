@@ -284,6 +284,15 @@ async def test_postgres_dispara_eco_da_etiqueta_ignorado_e_religar_pela_etiqueta
         tag["content"]["tags"] = []
         assert (await ia_controle.receber_evento_de_etiqueta(pool, id_escritorio, tag))["alterados"] == 1
         assert await pool.fetchval("select estado from agentesia_leads where id = $1::uuid", id_lead) == "ativo"
+        # Religado depois da suspeita: o que ficou guardado é descartado (não vira resposta na hora).
+        assert await pool.fetchval("""select count(*) from agentesia_mensagens where id_lead = $1::uuid
+                                      and autor = 'lead' and id_turno is null""", id_lead) == 0
+        assert await pool.fetchval("select responder_apos from agentesia_leads where id = $1::uuid", id_lead) is None
+        assert await pool.fetchval("""select count(*) from agentesia_turnos where id_lead = $1::uuid
+                                      and situacao = 'descartado' and motivo = 'lead_suspeito'""", id_lead) == 1
+        nota = await pool.fetchval("""select dados::text from agentesia_acoes where id_lead = $1::uuid and tipo = 'nota'
+                                      order by criado_em desc limit 1""", id_lead)
+        assert "descartadas" in nota
         # Só o que veio depois do disparo conta: as 5 antigas não disparam de novo.
         assert await repo.mensagens_para_suspeita(id_lead, 18) == []
         assert (await atendimento.receber(chega(CLARO)))["feito"] == "agendado"
