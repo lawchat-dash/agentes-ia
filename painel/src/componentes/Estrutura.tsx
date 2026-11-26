@@ -270,7 +270,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
                           {submenuAberto && (
                             <div className="lc-sub-itens">
                               <NavLink to={`/agentes/${idAgente}`} end><LayoutGrid size={14} /><span>Visão geral</span></NavLink>
-                              {secoesDo(agenteAberto.dados.tipo_produto === "proprio").map((s) => (
+                              {secoesDo(agenteAberto.dados.tipo_produto === "proprio", admin).map((s) => (
                                 <NavLink key={s.chave} to={`/agentes/${idAgente}/${s.chave}`}>{s.icone(14)}<span>{s.rotulo}</span></NavLink>
                               ))}
                             </div>
@@ -334,7 +334,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             <nav className="lc-abas-agente" aria-label={`Agente ${agenteAberto.dados.nome}`}>
               <span className="lc-abas-agente-nome"><span className="lc-sub-ponto" data-ativo={agenteAberto.dados.situacao === "ativo"} />{agenteAberto.dados.nome}</span>
               <NavLink to={`/agentes/${idAgente}`} end><LayoutGrid size={14} /><span>Visão geral</span></NavLink>
-              {secoesDo(agenteAberto.dados.tipo_produto === "proprio").map((s) => (
+              {secoesDo(agenteAberto.dados.tipo_produto === "proprio", admin).map((s) => (
                 <NavLink key={s.chave} to={`/agentes/${idAgente}/${s.chave}`}>{s.icone(14)}<span>{s.rotulo}</span></NavLink>
               ))}
             </nav>

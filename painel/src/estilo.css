@@ -563,6 +563,13 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 2px 6px; border-radi
 
 /* Página do agente: cartões de módulo. */
 .hub { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+/* Poucos cartões: colunas fixas, para a grade fechar sem buraco (3 lado a lado; 4 em 4 ou 2×2). */
+.hub.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hub.n4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.hub.n3 .hub-cartao p, .hub.n4 .hub-cartao p { font-size: 13.5px; }
+@media (max-width: 1180px) { .hub.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .hub.n3 { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .hub.n4 { grid-template-columns: 1fr; } }
 .hub-cartao { --tom: var(--acento); text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 0; cursor: pointer;
   display: flex; flex-direction: column; overflow: hidden; color: var(--ink); animation: subir .35s var(--ease-out) both;
   transition: transform .2s var(--ease-out), box-shadow .2s ease, border-color .2s ease; }
@@ -639,3 +646,30 @@ label.btn.disabled { opacity: .55; pointer-events: none; }
 
 /* Ações no cabeçalho de painel: ficam juntas na mesma linha e só descem inteiras no celular. */
 .panel-h .more { flex-wrap: wrap; align-items: center; justify-content: flex-end; min-width: 0; }
+
+/* Funções e automações (telas/AgenteFuncoes.tsx): topo com o modo, abas e linhas de regra. */
+.func-topo { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); flex-wrap: wrap; }
+.func-topo.padrao { border-color: color-mix(in srgb, var(--acento) 35%, var(--line)); background: linear-gradient(135deg, var(--acento-suave), var(--surface) 70%); }
+.func-topo.proprio { border-color: color-mix(in srgb, #D97706 35%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, #D97706 10%, var(--surface)), var(--surface) 70%); }
+.func-topo b { font-size: 15px; }
+.func-topo p { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); line-height: 1.45; max-width: 760px; }
+.func-topo-icone { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; color: #fff; background: linear-gradient(135deg, #2BD45A, #00BC33); }
+.func-topo.proprio .func-topo-icone { background: linear-gradient(135deg, #FBBF24, #D97706); }
+.func-topo-acoes { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+.func-linha { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-top: 1px solid var(--line); }
+.func-linha:first-child { border-top: 0; }
+.func-explica { margin: 0 16px 10px; font-size: 13px; }
+.func-quando { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; font-weight: 600; font-size: 13.5px; }
+.func-cab, .func-linha-regra { display: grid; grid-template-columns: minmax(170px, 1.1fr) repeat(3, minmax(0, 1fr)); gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+.func-cab { font-size: 11.5px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; background: var(--surface-2); }
+.func-linha-regra .field { margin: 0; }
+.func-linha-regra .lbl.so-celular { display: none; }
+.func-linha-nota { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 1.6fr); gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+.func-resumo { display: grid; gap: 0; }
+.func-resumo > div { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 13px; }
+.func-resumo > div:first-child { border-top: 0; }
+@media (max-width: 860px) {
+  .func-cab { display: none; }
+  .func-linha-regra, .func-linha-nota { grid-template-columns: 1fr; }
+  .func-linha-regra .lbl.so-celular { display: block; }
+}

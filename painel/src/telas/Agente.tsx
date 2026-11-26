@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState, type KeyboardEvent as TeclaReact } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, CircleDashed, FileText, FlaskConical, Lock, Pause, Play, Plus, Rocket, RotateCcw, Save, Send, Sparkles, Trash2, Unlock, Upload, Wrench, XCircle, Zap } from "lucide-react";
-import { api, enviar, formatarTelefone, quando, type Agente, type Canal, type Definicao, type PassoAtivacao, type Preparacao, type Regra } from "../api";
-import { Alerta, Cabecalho, Carregando, Interruptor, Painel, Situacao, Vazio, useAcao, useCarregar, useConfirmar } from "../componentes/ui";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, CircleDashed, FileText, FlaskConical, Lock, Pause, Play, Plus, Rocket, RotateCcw, Save, Send, Trash2, Unlock, Upload, Wrench, XCircle } from "lucide-react";
+import { api, enviar, formatarTelefone, quando, type Agente, type Canal, type Definicao, type PassoAtivacao, type Preparacao } from "../api";
+import { Alerta, Cabecalho, Carregando, Painel, Situacao, Vazio, useAcao, useCarregar, useConfirmar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { EditorDefinicao } from "./EditorDefinicao";
 import { EscolherPapeis, ItensDaBase, PerguntasSemResposta, ResumoFixoOuBuscado, papeisDoAgente } from "./AgenteBase";
 import { AbaFollowup } from "./AgenteFollowup";
-import { estiloIconeSecao, secoesDo } from "./agenteSecoes";
+import { cartoesDo, estiloIconeSecao, secoesDo } from "./agenteSecoes";
+import { HistoricoDoAgente } from "./AgenteHistorico";
+import { AbaFuncoes } from "./AgenteFuncoes";
 
 export function TelaAgente() {
   const { id = "", secao } = useParams();
@@ -19,8 +21,14 @@ export function TelaAgente() {
 
   if (!agente) return <Carregando erro={erro} />;
   const proprio = agente.tipo_produto === "proprio";
-  const secoes = secoesDo(proprio);
+  const secoes = secoesDo(proprio, admin);
+  const cartoes = cartoesDo(proprio, admin);
   const atual = secoes.find((s) => s.chave === secao);
+  // Seção que esta pessoa não vê (ex.: Instruções fora do superadmin) ou que não existe: volta para a página do agente.
+  if (secao && !atual) return <Navigate to={`/agentes/${agente.id}`} replace />;
+  const aviso_criado = admin
+    ? <><b>Agente criado.</b> Agora ajuste as instruções, ligue as funções, teste no Laboratório e ative.</>
+    : <><b>Agente criado.</b> As funções e automações já vêm no padrão. Confira e ative.</>;
   const salvarComoModelo = admin ? <button className="btn" disabled={ocupado} onClick={() => executar(async () => {
     const modelo = await api<{ id: string }>(`/admin/modelos/do-agente/${agente.id}`, { metodo: "POST" });
     window.location.assign(`/admin/modelos/${modelo.id}`);
@@ -36,9 +44,9 @@ export function TelaAgente() {
             texto={<>Número <span className="mono">{formatarTelefone(agente.numero_canal)}</span> · <Situacao valor={agente.situacao} /> {agente.situacao === "ativo" && <Situacao valor={agente.modo} />}</>}
             acoes={<>{salvarComoModelo}<Link className="btn pri" to={`/agentes/${agente.id}/ativacao`}><Rocket />{agente.situacao === "ativo" ? "Ativação" : "Ativar agente"}</Link></>} />
         </div>
-        {busca.get("criado") && <div style={{ marginBottom: 16 }}><Alerta tipo="ok"><b>Agente criado.</b> Agora ajuste as instruções, ligue as funções, teste no Laboratório e ative.</Alerta></div>}
-        <div className="hub">
-          {secoes.map((s, n) => {
+        {busca.get("criado") && <div style={{ marginBottom: 16 }}><Alerta tipo="ok">{aviso_criado}</Alerta></div>}
+        <div className={`hub n${cartoes.length}`}>
+          {cartoes.map((s, n) => {
             const numeros = s.numeros(agente);
             return (
               <button key={s.chave} className={`hub-cartao ${n === 0 && agente.situacao !== "ativo" ? "destaque" : ""}`} style={{ ["--tom" as string]: s.cor }}
@@ -67,7 +75,7 @@ export function TelaAgente() {
       <Cabecalho eyebrow={`${agente.nome} · ${atual.etiqueta}`} titulo={atual.rotulo}
         texto={<>{atual.descricao} <Situacao valor={agente.situacao} /> {agente.situacao === "ativo" && <Situacao valor={agente.modo} />}</>}
         acoes={atual.chave === "ativacao" ? salvarComoModelo : undefined} />
-      {busca.get("criado") && <div style={{ marginBottom: 16 }}><Alerta tipo="ok"><b>Agente criado.</b> Agora ajuste as instruções, ligue as funções, teste no Laboratório e ative.</Alerta></div>}
+      {busca.get("criado") && <div style={{ marginBottom: 16 }}><Alerta tipo="ok">{aviso_criado}</Alerta></div>}
       {/* As abas copiam o agente para os formulários delas: esperam o dado do servidor (não a cópia guardada da última visita). */}
       {!fresco ? <Carregando erro={erro} /> : <div key={atual.chave} className="passo-corpo">
         {atual.chave === "ativacao" && <AbaGeral agente={agente} aoSalvar={setDados} />}
@@ -392,102 +400,7 @@ function AbaEtapas({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente)
   );
 }
 
-// =========================================================================== funções e automações
-interface Painel_ { id: string; titulo: string; etapas: { id: string; titulo: string }[] }
-
-function AbaFuncoes({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente) => void }) {
-  const { catalogo } = useSessao();
-  const { ocupado, executar } = useAcao();
-  const integracoes = useCarregar<{ integracoes: Record<string, { situacao: string; config: any }> }>("/integracoes");
-  const equipes = useCarregar<{ id: string; nome: string }[]>("/integracoes/helena/equipes");
-  const etiquetas = useCarregar<{ id: string; nome: string }[]>("/integracoes/helena/etiquetas");
-  const [funcoes, setFuncoes] = useState(agente.funcoes);
-  const [equipe, setEquipe] = useState(agente.id_equipe_transferencia ?? "");
-  const [regras, setRegras] = useState<Record<string, Regra>>(agente.automacoes);
-  const [painel, setPainel] = useState<Painel_ | null>(null);
-  const crm = integracoes.dados?.integracoes.crm?.config;
-
-  useEffect(() => {
-    if (crm?.id_painel) api<{ painel: Painel_ }>(`/agentes/${agente.id}/automacoes/sugestao`).then((r) => setPainel(r.painel)).catch(() => undefined);
-  }, [crm?.id_painel, agente.id]);
-
-  const sugerir = () => executar(async () => {
-    const r = await api<{ painel: Painel_; automacoes: Record<string, Regra> }>(`/agentes/${agente.id}/automacoes/sugestao`);
-    setPainel(r.painel);
-    setRegras({ ...r.automacoes, ...Object.fromEntries(Object.entries(regras).filter(([, v]) => Object.keys(v).length)) });
-  }, "Sugestão montada pelo nome das colunas. Confira e salve.");
-
-  const salvarFuncoes = () => executar(async () => aoSalvar(await enviar<Agente>(`/agentes/${agente.id}`, { funcoes, id_equipe_transferencia: equipe }, "PATCH")), "Funções salvas.");
-  const salvarRegras = () => executar(async () => aoSalvar(await enviar<Agente>(`/agentes/${agente.id}/automacoes`, { automacoes: regras }, "PUT")), "Automações salvas. Valem a partir da próxima mensagem.");
-  const mudarRegra = (gatilho: string, parcial: Partial<Regra>) => setRegras({ ...regras, [gatilho]: { ...(regras[gatilho] ?? {}), ...parcial } });
-  const lista = (texto: string) => texto.split(",").map((t) => t.trim()).filter(Boolean);
-
-  return (
-    <div className="stack">
-      <Painel titulo="Funções do agente" acoes={<button className="btn pri sm" onClick={salvarFuncoes} disabled={ocupado}><Save />Salvar funções</button>} sem_corpo>
-        <p className="sec" style={{ margin: "0 16px 6px" }}>A IA não aciona ferramentas sozinha: cada função roda quando uma regra abaixo manda, pela fila de ações, com novas tentativas se falhar.</p>
-        <div className="rows">
-          {(catalogo?.funcoes ?? []).map((f) => (
-            <div key={f.id} style={{ alignItems: "flex-start" }}>
-              <Interruptor rotulo={f.nome} ligado={Boolean(funcoes[f.id])} desligado={!f.pronta} aoMudar={(v) => setFuncoes({ ...funcoes, [f.id]: v })} />
-              <div style={{ flex: 1 }}>
-                <b>{f.nome}</b> {!f.pronta && <span className="chip">em breve</span>}
-                <div className="sec" style={{ fontSize: 13 }}>{f.descricao}</div>
-                {f.id === "transferir_humano" && funcoes[f.id] && (
-                  <select className="inp" style={{ marginTop: 8, maxWidth: 320 }} aria-label="Equipe" value={equipe} onChange={(e) => setEquipe(e.target.value)}>
-                    <option value="">Departamento padrão (quando a regra não escolhe)</option>
-                    {(equipes.dados ?? []).map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                  </select>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Painel>
-
-      <Painel titulo="Automações: quando isto acontecer, faça aquilo" sem_corpo acoes={<>
-        <button className="btn sm" onClick={sugerir} disabled={ocupado || !crm?.id_painel}><Sparkles />Sugerir pelo CRM</button>
-        <button className="btn pri sm" onClick={salvarRegras} disabled={ocupado}><Save />Salvar automações</button>
-      </>}>
-        {!crm?.id_painel && <div style={{ margin: "0 16px 10px" }}><Alerta tipo="info">Para mover cards, escolha antes o painel do CRM em <Link to="/integracoes">Integrações</Link>.</Alerta></div>}
-        <datalist id="etiquetas-helena">{(etiquetas.dados ?? []).map((t) => <option key={t.id} value={t.nome} />)}</datalist>
-        {Object.entries(agente.gatilhos).map(([gatilho, descricao]) => {
-          const r = regras[gatilho] ?? {};
-          const ativa = Object.keys(r).length > 0;
-          return (
-            <div key={gatilho} className="regra" style={{ alignItems: "flex-start" }}>
-              <Zap className="i" color={ativa ? "var(--acento)" : "var(--line-2)"} />
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600 }}>Quando: {descricao}</div>
-                <div className="form cols" style={{ marginTop: 8 }}>
-                  <label className="field"><span className="lbl">Coluna do CRM</span>
-                    <select value={r.coluna_crm ?? ""} disabled={!painel} onChange={(e) => mudarRegra(gatilho, { coluna_crm: e.target.value || undefined })}>
-                      <option value="">Não mover</option>
-                      {(painel?.etapas ?? []).map((s) => <option key={s.id} value={s.id}>{s.titulo}</option>)}
-                    </select></label>
-                  <label className="field"><span className="lbl">Pôr etiquetas</span>
-                    <input list="etiquetas-helena" value={(r.adicionar_etiquetas ?? []).join(", ")} placeholder="separadas por vírgula" onChange={(e) => mudarRegra(gatilho, { adicionar_etiquetas: lista(e.target.value) })} /></label>
-                  <label className="field"><span className="lbl">Tirar etiquetas</span>
-                    <input list="etiquetas-helena" value={(r.remover_etiquetas ?? []).join(", ")} placeholder="separadas por vírgula" onChange={(e) => mudarRegra(gatilho, { remover_etiquetas: lista(e.target.value) })} /></label>
-                  <label className="field"><span className="lbl">Nota no atendimento</span>
-                    <input value={r.nota ?? ""} placeholder="Texto para a equipe ver" onChange={(e) => mudarRegra(gatilho, { nota: e.target.value || undefined })} /></label>
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-                  <label className="check" style={{ fontSize: 13 }}><input type="checkbox" checked={Boolean(r.transferir)} onChange={(e) => mudarRegra(gatilho, { transferir: e.target.checked || undefined, id_equipe: e.target.checked ? r.id_equipe : undefined })} />Trocar de departamento</label>
-                  {r.transferir && <select className="inp" aria-label="Departamento desta regra" style={{ maxWidth: 260 }} value={r.id_equipe ?? ""} onChange={(e) => mudarRegra(gatilho, { id_equipe: e.target.value || undefined })}>
-                    <option value="">Departamento padrão do agente</option>
-                    {(equipes.dados ?? []).map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                  </select>}
-                </div>
-              </div>
-              {ativa ? <span className="chip ac">ativa</span> : <span className="chip">sem ação</span>}
-            </div>
-          );
-        })}
-      </Painel>
-    </div>
-  );
-}
+// funções e automações: telas/AgenteFuncoes.tsx (abas, já com o padrão automático)
 
 // =========================================================================== laboratório
 interface Turno {
@@ -608,20 +521,5 @@ function DetalheTurno({ turno }: { turno: Turno }) {
 
 // =========================================================================== histórico
 function AbaHistorico({ agente }: { agente: Agente }) {
-  const { dados, erro } = useCarregar<{ id: string; id_registro: string; acao: string; resumo: string; usuario: string; criado_em: string; antes: unknown; depois: unknown }[]>("/alteracoes");
-  if (!dados) return <Carregando erro={erro} />;
-  const ids = new Set([agente.id, ...agente.etapas.map((e) => e.id)]);
-  const doAgente = dados.filter((h) => ids.has(h.id_registro));
-  return (
-    <div className="lst">
-      {doAgente.length === 0 ? <Vazio>Nenhuma alteração registrada.</Vazio> : (
-        <table>
-          <thead><tr><th>Quando</th><th>Quem</th><th>O quê</th></tr></thead>
-          <tbody>{doAgente.map((h) => (
-            <tr key={h.id}><td className="s num">{quando(h.criado_em)}</td><td>{h.usuario ?? "sistema"}</td><td>{h.resumo}</td></tr>
-          ))}</tbody>
-        </table>
-      )}
-    </div>
-  );
+  return <HistoricoDoAgente agente={agente} />;
 }

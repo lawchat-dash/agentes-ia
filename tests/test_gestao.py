@@ -190,11 +190,9 @@ async def test_jornada_completa_do_admin_e_do_cliente(ambiente):
     assert [e["codigo"] for e in agente["etapas"]][:3] == ["sdr", "periodo_graca", "closer"]
     assert (await cliente.post("/api/agentes", json={"nome": "Outra", "id_canal": canal["id"]})).status_code == 409
 
-    # 5. Edita instrução: personaliza e volta ao padrão.
-    etapa = await cliente.put(f"/api/agentes/{agente['id']}/etapas/sdr", json={"instrucao": "Fale bem devagar."})
-    assert etapa.json()["instrucao"] == "Fale bem devagar."
-    padrao = agente["etapas"][0]["instrucao_padrao"]
-    assert (await cliente.put(f"/api/agentes/{agente['id']}/etapas/sdr", json={"instrucao": padrao})).json()["instrucao"] is None
+    # 5. Instrução (prompt por etapa) é só da equipe LawChat: o gestor do escritório não edita.
+    negada = await cliente.put(f"/api/agentes/{agente['id']}/etapas/sdr", json={"instrucao": "Fale bem devagar."})
+    assert negada.status_code == 403 and "equipe LawChat" in negada.json()["detail"]
     assert (await cliente.put(f"/api/agentes/{agente['id']}/etapas/sdr",
                               json={"instrucao": "x", "travada": True})).status_code == 403
 
@@ -259,13 +257,22 @@ async def test_jornada_completa_do_admin_e_do_cliente(ambiente):
     await cliente.post("/api/sair")
     await _entrar(cliente, email_admin, "senha-admin-123")
     cabecalho = {"x-escritorio": id_escritorio}
+    etapa = await cliente.put(f"/api/agentes/{agente['id']}/etapas/sdr", json={"instrucao": "Fale bem devagar."}, headers=cabecalho)
+    assert etapa.json()["instrucao"] == "Fale bem devagar."
+    padrao = agente["etapas"][0]["instrucao_padrao"]
+    assert (await cliente.put(f"/api/agentes/{agente['id']}/etapas/sdr", json={"instrucao": padrao},
+                              headers=cabecalho)).json()["instrucao"] is None
     travada = await cliente.put(f"/api/agentes/{agente['id']}/etapas/closer",
                                 json={"instrucao": "Regra do escritório.", "travada": True}, headers=cabecalho)
     assert travada.json()["instrucao_travada"] is True
+    # Na visão do cliente (x-visao) a equipe LawChat também não edita: vale o que o escritório vê.
+    visao_cliente = {**cabecalho, "x-visao": "gestor"}
+    assert (await cliente.put(f"/api/agentes/{agente['id']}/etapas/closer", json={"instrucao": "Outra coisa."},
+                              headers=visao_cliente)).status_code == 403
     await cliente.post("/api/sair")
     await _entrar(cliente, email_gestor, "nova-senha-forte")
     bloqueada = await cliente.put(f"/api/agentes/{agente['id']}/etapas/closer", json={"instrucao": "Outra coisa."})
-    assert bloqueada.status_code == 403 and "travada" in bloqueada.json()["detail"]
+    assert bloqueada.status_code == 403
 
 
 async def test_admin_precisa_escolher_escritorio(ambiente):

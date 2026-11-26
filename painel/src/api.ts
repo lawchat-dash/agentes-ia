@@ -171,6 +171,7 @@ export interface Etapa {
 
 export interface Regra {
   coluna_crm?: string; adicionar_etiquetas?: string[]; remover_etiquetas?: string[]; transferir?: boolean; id_equipe?: string; nota?: string;
+  nota_sempre?: boolean;          // nota da troca de agente (padrão): sai mesmo sem "Avisar a equipe"
 }
 
 export interface Agente {

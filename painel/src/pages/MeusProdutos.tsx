@@ -11,7 +11,7 @@ import {
 import {
   Plus, Loader2, Package, CircleDot, CircleDashed, Pause, AlertTriangle,
   Trash2, Search, Settings2, MessageSquare, Sparkles,
-  Workflow, Activity, RotateCcw, RotateCw, X, Phone, Bot, Send, BookOpen, FlaskConical,
+  Workflow, Activity, RotateCcw, RotateCw, X, Phone, Bot, Send, BookOpen, History,
 } from "lucide-react";
 import { useMyProducts, useTrashedProducts, useRetryProductProvisioning, ROLE_META, ROLE_ORDER } from "@/hooks/useProducts";
 import { getCategoryIcon, resolveGradient } from "@/data/categories";
@@ -26,14 +26,24 @@ import { AvisoFollowupDesligado } from "@/components/followup/AvisoFollowupDesli
 import { SeloSaude, TipoNumero, useSaudeNumeros, type SaudeAgente } from "@/componentes/SaudeNumero";
 import { FiltroNumero } from "@/componentes/FiltroNumero";
 import { useSessao } from "@/sessao";
+import { PopupHistoricoAgente } from "@/telas/AgenteHistorico";
 
 /** As abas do agente, direto do cartão (as mesmas rotas do submenu /agentes/:id/:secao). */
-const ABAS_DO_AGENTE = [
-  { chave: "instrucoes", rotulo: "Prompt", Icone: Bot },
+type AtalhoAgente = { chave: "instrucoes" | "followup" | "conhecimento" | "historico"; rotulo: string; Icone: typeof Bot };
+const ATALHOS_DO_AGENTE: AtalhoAgente[] = [
+  { chave: "instrucoes", rotulo: "Prompt", Icone: Bot },          // só o superadmin (equipe LawChat) edita o prompt
   { chave: "followup", rotulo: "Follow-up", Icone: Send },
-  { chave: "conhecimento", rotulo: "Conhecimento", Icone: BookOpen },
-  { chave: "laboratorio", rotulo: "Laboratório", Icone: FlaskConical },
-] as const;
+  { chave: "conhecimento", rotulo: "Base", Icone: BookOpen },
+  { chave: "historico", rotulo: "Histórico", Icone: History },    // abre o popup, não sai da lista
+];
+const abasDoAgente = (superadmin: boolean) => ATALHOS_DO_AGENTE.filter((a) => superadmin || a.chave !== "instrucoes");
+
+/** Um atalho do cartão: abre a parte DENTRO do agente (/agentes/:id/:secao); o Histórico abre num popup. */
+const AtalhoDoAgente = ({ atalho, idAgente, className, aoHistorico, children }:
+  { atalho: AtalhoAgente; idAgente: string; className: string; aoHistorico: () => void; children: React.ReactNode }) =>
+  atalho.chave === "historico"
+    ? <button type="button" title={atalho.rotulo} className={className} onClick={aoHistorico}>{children}</button>
+    : <Link to={`/agentes/${idAgente}/${atalho.chave}`} title={atalho.rotulo} className={className}>{children}</Link>;
 
 /** Junta os campos de um erro (message/details/hint/code) para diagnóstico. */
 const erroDetalhe = (e: any): string =>
@@ -71,7 +81,9 @@ const MeusProdutos = () => {
   const qc = useQueryClient();
   const retryProduct = useRetryProductProvisioning();
   useProvisioningRealtime();
-  const { escritorio } = useSessao();
+  const { escritorio, admin } = useSessao();
+  const ABAS_DO_AGENTE = abasDoAgente(admin);
+  const [historico, setHistorico] = useState<{ id: string; nome: string } | null>(null);
   // Saúde do número de cada agente: selo da última mensagem recebida, tipo do número e o "Testar conexão".
   const saude = useSaudeNumeros(escritorio);
   const saudePorAgente = useMemo(() => new Map((saude.dados?.agentes ?? []).map((a) => [a.id, a] as [string, SaudeAgente])), [saude.dados]);
@@ -636,17 +648,18 @@ const MeusProdutos = () => {
                     );
                   })()}
 
-                  {/* Abas do agente (as mesmas do submenu): Prompt, Follow-up, Conhecimento, Laboratório */}
+                  {/* Atalhos do agente: Prompt (só superadmin), Follow-up e Base abrem dentro do agente; Histórico abre um popup */}
                   {!trashed && !building && p.weaver_agent_id && (
                     <div className="px-3 pb-3 pt-1 space-y-2">
                       {/* Atalhos do agente: ícone em cima e nome embaixo, os 4 lado a lado (cabem no cartão estreito). */}
-                      <nav aria-label={`Abrir ${p.name}`} className="grid grid-cols-4 gap-1.5">
-                        {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
-                          <Link key={chave} to={`/agentes/${p.weaver_agent_id}/${chave}`} title={rotulo}
+                      <nav aria-label={`Abrir ${p.name}`} className={`grid gap-1.5 ${ABAS_DO_AGENTE.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
+                        {ABAS_DO_AGENTE.map((atalho) => (
+                          <AtalhoDoAgente key={atalho.chave} atalho={atalho} idAgente={p.weaver_agent_id}
+                            aoHistorico={() => setHistorico({ id: p.weaver_agent_id, nome: p.name })}
                             className="flex min-w-0 flex-col items-center gap-1 rounded-xl border border-border/70 bg-muted/20 px-1 py-2 text-[10.5px] font-semibold leading-none text-muted-foreground transition-colors hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33]">
-                            <Icone className="size-4 shrink-0" aria-hidden />
-                            <span className="w-full truncate text-center">{rotulo === "Conhecimento" ? "Base" : rotulo === "Laboratório" ? "Testar" : rotulo}</span>
-                          </Link>
+                            <atalho.Icone className="size-4 shrink-0" aria-hidden />
+                            <span className="w-full truncate text-center">{atalho.rotulo}</span>
+                          </AtalhoDoAgente>
                         ))}
                       </nav>
                       {/* Filtro de número numa linha própria, com o estado à vista. */}
@@ -837,13 +850,17 @@ const MeusProdutos = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-
+      <PopupHistoricoAgente idAgente={historico?.id ?? null} nome={historico?.nome} aberto={Boolean(historico)} aoFechar={() => setHistorico(null)} />
     </div>
   );
 };
 
 /** Agentes da conta que não vieram de um produto da Biblioteca (criados pelo caminho antigo). */
-const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => (
+const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => {
+  const { admin } = useSessao();
+  const ABAS_DO_AGENTE = abasDoAgente(admin);
+  const [historico, setHistorico] = useState<{ id: string; nome: string } | null>(null);
+  return (
   <section aria-label="Outros agentes" className="space-y-2.5">
     <div>
       <h2 className="text-sm font-bold text-foreground">Outros agentes da conta</h2>
@@ -871,18 +888,20 @@ const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => (
             {a.selo.tipo !== "sem_numero" && <TipoNumero tipo={a.tipo} aviso={a.aviso_tipo} />}
           </div>
           <nav aria-label={`Abrir ${a.nome}`} className="px-3 pb-2.5 pt-1 flex flex-wrap gap-1">
-            {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
-              <Link key={chave} to={`/agentes/${a.id}/${chave}`}
+            {ABAS_DO_AGENTE.map((atalho) => (
+              <AtalhoDoAgente key={atalho.chave} atalho={atalho} idAgente={a.id} aoHistorico={() => setHistorico({ id: a.id, nome: a.nome })}
                 className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors">
-                <Icone className="size-3 shrink-0" aria-hidden />{rotulo}
-              </Link>
+                <atalho.Icone className="size-3 shrink-0" aria-hidden />{atalho.rotulo}
+              </AtalhoDoAgente>
             ))}
           </nav>
         </Card>
       ))}
     </div>
+    <PopupHistoricoAgente idAgente={historico?.id ?? null} nome={historico?.nome} aberto={Boolean(historico)} aoFechar={() => setHistorico(null)} />
   </section>
-);
+  );
+};
 
 const StatCard = ({
   icon: Icon, label, sub, value, tone,

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRightLeft, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowRightLeft, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,22 +81,34 @@ export const FrasesTrocaDialog = ({ open, onOpenChange, onExcluida }: Props) => 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-4 text-left space-y-1.5">
+        <DialogHeader className="p-6 pb-4 text-left space-y-3 border-b border-border">
           <DialogTitle className="flex items-center gap-2.5">
             <span className="size-9 rounded-xl grid place-items-center shrink-0" style={{ background: "#fff7ed", color: COR_TRANSFERENCIA }}>
               <ArrowRightLeft className="size-[18px]" />
             </span>
             Frases para Transferência
           </DialogTitle>
-          <DialogDescription className="leading-relaxed">
-            <strong>Frases só deste produto</strong> — editar ou excluir aqui não muda os outros produtos.{" "}
-            O agente anterior fala a frase e o fluxo passa o lead para o departamento dela. No prompt, insira com{" "}
-            <strong>@ → Transferência</strong>: o chip vira o texto exato no prompt e a mesma frase é gravada na{" "}
-            <code className="text-xs">mensagem_troca</code> do departamento — os dois precisam ser idênticos.
+          <DialogDescription className="text-sm leading-relaxed text-foreground/80">
+            Cada agente (departamento) tem a <strong>sua própria frase de entrada</strong>. Quando o agente anterior
+            fala exatamente essa frase, o lead passa para aquele agente.
           </DialogDescription>
+          {/* O fluxo em uma linha: quem fala, o quê, e para onde o lead vai. */}
+          <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground" aria-hidden>
+            <span className="rounded-md border border-border bg-card px-2 py-1 font-semibold text-foreground">Agente anterior</span>
+            <span>fala a frase</span>
+            <span className="rounded-md px-2 py-1 font-semibold" style={{ color: COR_TRANSFERENCIA, background: "#fff7ed" }}>“Ótimo, vou te passar…”</span>
+            <ArrowRight className="size-3.5" />
+            <span className="rounded-md border border-border bg-card px-2 py-1 font-semibold text-foreground">o lead entra no agente dono da frase</span>
+          </div>
+          <ul className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+            <li>• No prompt do agente anterior, insira com <strong className="text-foreground">@ → Transferência</strong>.</li>
+            <li>• A frase precisa ser dita igual, palavra por palavra.</li>
+            <li>• Vale só para este produto: os outros não mudam.</li>
+            <li>• Editar o texto atualiza os prompts que já usam a frase.</li>
+          </ul>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-2.5">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-2.5">
           {isLoading ? (
             <div className="grid place-items-center py-12"><Loader2 className="size-6 animate-spin text-primary" /></div>
           ) : (
@@ -107,13 +119,13 @@ export const FrasesTrocaDialog = ({ open, onOpenChange, onExcluida }: Props) => 
                 <div key={etapa} className="rounded-xl border border-border bg-card p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Entrar em {label}</div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Frase de entrada do agente <span className="text-foreground">{label}</span></div>
                       {f ? (
                         <code className="mt-1 inline-block rounded px-1.5 py-0.5 text-xs font-semibold" style={{ color: COR_TRANSFERENCIA, background: "#fff7ed" }}>
                           @{rotuloFrase(f.nome)}
                         </code>
                       ) : (
-                        <p className="mt-1 text-xs text-muted-foreground">Sem frase para transferência.</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Ainda sem frase: nenhum agente consegue passar o lead para {label}.</p>
                       )}
                     </div>
                     {!emEdicao && (
@@ -151,7 +163,7 @@ export const FrasesTrocaDialog = ({ open, onOpenChange, onExcluida }: Props) => 
                   {emEdicao ? (
                     <div className="mt-3 space-y-3">
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold">Frase exata</Label>
+                        <Label className="text-xs font-semibold">Frase exata (quando o agente anterior falar isto, o lead vai para {label})</Label>
                         <Textarea
                           value={texto}
                           onChange={(e) => setTexto(e.target.value.replace(/\n/g, " "))}
@@ -166,7 +178,7 @@ export const FrasesTrocaDialog = ({ open, onOpenChange, onExcluida }: Props) => 
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs font-semibold">Quando usar (opcional)</Label>
-                        <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex.: O SDR fala esta frase quando o lead cumpre os requisitos." className="text-sm" />
+                        <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder={`Ex.: O agente anterior fala esta frase quando o lead deve ir para ${label}.`} className="text-sm" />
                       </div>
                       <div className="flex justify-end gap-2">
                         <Button size="sm" variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>

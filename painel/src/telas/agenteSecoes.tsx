@@ -12,6 +12,8 @@ export interface SecaoAgente {
   descricao: string;
   numeros: (a: Agente) => [string | number, string][];
   so_proprio?: boolean;
+  so_superadmin?: boolean;       // só a equipe LawChat (visão LawChat) vê e abre
+  fora_do_hub?: boolean;         // abre pela rota/atalho, mas não vira cartão na página do agente (fora do superadmin)
 }
 
 const ligados = (r: Record<string, boolean> | undefined) => Object.values(r ?? {}).filter(Boolean).length;
@@ -24,7 +26,7 @@ export const SECOES_AGENTE: SecaoAgente[] = [
     numeros: (a) => [[a.situacao === "ativo" ? "Ativo" : "Pausado", "situação"], [a.modo === "producao" ? "Todos" : "Teste", "responde a"]],
   },
   {
-    chave: "instrucoes", rotulo: "Instruções", etiqueta: "Prompt por etapa", cor: "#2563EB", cor2: "#60A5FA", icone: (t) => <Bot size={t} />,
+    chave: "instrucoes", rotulo: "Instruções", etiqueta: "Prompt por etapa", cor: "#2563EB", cor2: "#60A5FA", icone: (t) => <Bot size={t} />, so_superadmin: true,
     descricao: "O que a IA faz em cada etapa do atendimento. Vazio usa a instrução padrão.",
     numeros: (a) => [[a.etapas.length, "etapas"], [a.etapas.filter((e) => e.personalizada).length, "personalizadas"]],
   },
@@ -34,22 +36,22 @@ export const SECOES_AGENTE: SecaoAgente[] = [
     numeros: (a) => [[a.definicao?.campos.length ?? 0, "campos"], [a.definicao?.regras.length ?? 0, "regras"]],
   },
   {
-    chave: "conhecimento", rotulo: "Conhecimento", etiqueta: "Referência", cor: "#0891B2", cor2: "#22D3EE", icone: (t) => <BookOpen size={t} />,
+    chave: "conhecimento", rotulo: "Conhecimento", etiqueta: "Referência", cor: "#0891B2", cor2: "#22D3EE", icone: (t) => <BookOpen size={t} />, fora_do_hub: true,
     descricao: "Perguntas frequentes, objeções e dados do escritório que a IA consulta para responder.",
     numeros: (a) => [[a.conhecimento?.faq.length ?? 0, "perguntas"], [a.conhecimento?.objecoes.length ?? 0, "objeções"], [a.documentos ?? 0, "documentos"]],
   },
   {
     chave: "funcoes", rotulo: "Funções e automações", etiqueta: "CRM, departamento, avisos", cor: "#D97706", cor2: "#FBBF24", icone: (t) => <Zap size={t} />,
-    descricao: "Quando isto acontecer, faça aquilo: mover card, etiquetas, trocar de departamento, avisar, contrato.",
-    numeros: (a) => [[ligados(a.funcoes), "funções ligadas"], [Object.keys(a.automacoes ?? {}).length, "automações"]],
+    descricao: "O que acontece sozinho a cada passo do lead: card no CRM, etiquetas, notas, departamento, avisos e contrato. Já vem configurado.",
+    numeros: (a) => [[ligados(a.funcoes), "funções ligadas"], [Object.keys(a.automacoes ?? {}).length || "Padrão", Object.keys(a.automacoes ?? {}).length ? "regras próprias" : "automações"]],
   },
   {
-    chave: "followup", rotulo: "Follow-up", etiqueta: "Cadência", cor: "#DB2777", cor2: "#F472B6", icone: (t) => <Send size={t} />,
+    chave: "followup", rotulo: "Follow-up", etiqueta: "Cadência", cor: "#DB2777", cor2: "#F472B6", icone: (t) => <Send size={t} />, fora_do_hub: true,
     descricao: "O agente de follow-up retoma quem parou de responder, no ritmo da cadência e no horário comercial.",
     numeros: (a) => [[a.followup_resumo?.ativo ? "Ligado" : "Desligado", "follow-up"], [a.followup_resumo?.passos ?? 7, "tentativas"]],
   },
   {
-    chave: "laboratorio", rotulo: "Laboratório", etiqueta: "Testar", cor: "#7C3AED", cor2: "#A78BFA", icone: (t) => <FlaskConical size={t} />,
+    chave: "laboratorio", rotulo: "Laboratório", etiqueta: "Testar", cor: "#7C3AED", cor2: "#A78BFA", icone: (t) => <FlaskConical size={t} />, fora_do_hub: true,
     descricao: "Converse com o agente usando a configuração salva, sem mandar nada no WhatsApp.",
     numeros: () => [],
   },
@@ -60,7 +62,13 @@ export const SECOES_AGENTE: SecaoAgente[] = [
   },
 ];
 
-export const secoesDo = (proprio: boolean) => SECOES_AGENTE.filter((s) => !s.so_proprio || proprio);
+/** As seções que esta pessoa pode abrir. Instruções (prompt por etapa) é só do superadmin (equipe LawChat). */
+export const secoesDo = (proprio: boolean, superadmin = false) =>
+  SECOES_AGENTE.filter((s) => (!s.so_proprio || proprio) && (!s.so_superadmin || superadmin));
+
+/** Os cartões da página do agente. Fora do superadmin: Ativação, Funções e automações e Histórico (e Etapas, no agente próprio). */
+export const cartoesDo = (proprio: boolean, superadmin = false) =>
+  secoesDo(proprio, superadmin).filter((s) => superadmin || !s.fora_do_hub);
 
 /** Ícone da seção em degradê (claro → tom), branco por cima, com sombra na cor: o mesmo acabamento dos cartões do LawChat. */
 export const estiloIconeSecao = (s: Pick<SecaoAgente, "cor" | "cor2">): CSSProperties => ({

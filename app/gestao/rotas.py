@@ -1744,6 +1744,9 @@ async def alterar_agente(id_agente: str, dados: AlterarAgente, pedido: Request,
 @api.put("/agentes/{id_agente}/etapas/{codigo}")
 async def alterar_etapa(id_agente: str, codigo: str, dados: AlterarEtapa, pedido: Request,
                         ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    # A instrução (prompt por etapa) é da equipe LawChat: o escritório não vê nem edita essa tela.
+    if not ctx.admin:
+        raise HTTPException(403, "Só a equipe LawChat edita as instruções do agente.")
     repo = _repo(pedido)
     agente = await repo.agente(ctx.escritorio(), id_agente)
     etapa = next((e for e in (agente or {}).get("etapas", []) if e["codigo"] == codigo), None)
@@ -1904,7 +1907,8 @@ async def salvar_automacoes(id_agente: str, dados: Automacoes, pedido: Request,
     if not agente:
         raise HTTPException(404, "Agente não encontrado.")
     antes = (agente.get("config") or {}).get("automacoes") or {}
-    limpas = automacoes.validar(dados.automacoes, automacoes.gatilhos_do_produto(_produto_do(agente)))
+    limpas = _manter_nota_sempre(dados.automacoes,
+                                 automacoes.validar(dados.automacoes, automacoes.gatilhos_do_produto(_produto_do(agente))))
     config = {**(agente.get("config") or {}), "automacoes": limpas}
     await repo.alterar_agente(ctx.escritorio(), id_agente, {"config": config})
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_agentes",
@@ -2035,6 +2039,64 @@ async def modelos_aprovados_helena(pedido: Request, ctx: Contexto = Depends(GEST
         return await helena.modelos_aprovados()
     except ErroHelenaApi as erro:
         raise _erro_helena(erro) from erro
+
+
+def _manter_nota_sempre(entrada: dict[str, Any], limpas: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """A nota da troca de agente (padrão) sai mesmo sem "Avisar a equipe" ligada: ao salvar o padrão como regras
+    próprias, o "nota_sempre" vem junto (o validar comum não conhece esse campo)."""
+    for gatilho, regra in limpas.items():
+        if isinstance(entrada.get(gatilho), dict) and entrada[gatilho].get("nota_sempre") and regra.get("nota"):
+            regra["nota_sempre"] = True
+    return limpas
+
+
+def _automacoes_padrao_tela(config: dict[str, Any], crm: dict[str, Any], colunas: dict[str, str]) -> dict[str, Any]:
+    """O CRM automático deste agente, como o motor roda (automacoes.regras_automaticas / config_efetiva).
+
+    Sem as colunas fixas na conta (etapas_por_tipo), as regras vêm iguais, mas sem coluna: a tela mostra o padrão
+    e avisa que falta o painel do CRM."""
+    por_tipo = crm.get("etapas_por_tipo") or {}
+    crm_pronto = bool(por_tipo and crm.get("id_painel"))
+    base = crm if crm_pronto else {"id_painel": crm.get("id_painel") or "-",
+                                   "etapas_por_tipo": {t: por_tipo.get(t) for t in automacoes.ETIQUETA_DO_TIPO}}
+    regras = automacoes.regras_automaticas(config, base)
+    tipos: dict[str, str] = {}
+    for gatilho, regra in regras.items():
+        if not regra.get("coluna_crm"):
+            regra.pop("coluna_crm", None)
+        tipo = "SDR" if gatilho == "lead_novo" else automacoes._tipo_do_papel(gatilho.split(":", 1)[-1])
+        if tipo:
+            tipos[gatilho] = tipo
+    funcoes = config.get("funcoes") or {}
+    proprias = config.get("automacoes") or {}
+    efetiva = automacoes.config_efetiva(config, crm)
+    return {
+        "regras": regras, "tipos": tipos,
+        "usa_padrao": not proprias and funcoes.get("crm") is not False,
+        "crm_desligado": funcoes.get("crm") is False,
+        "crm_pronto": crm_pronto, "tem_painel": bool(crm.get("id_painel")),
+        "etapas_por_tipo": por_tipo, "colunas": colunas,
+        "funcoes_efetivas": {f["id"]: bool((efetiva.get("funcoes") or {}).get(f["id"])) for f in FUNCOES},
+    }
+
+
+@api.get("/agentes/{id_agente}/automacoes/padrao")
+async def automacoes_padrao(id_agente: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """As regras automáticas calculadas para o agente (o que o motor roda quando ele não tem regras próprias)."""
+    repo = _repo(pedido)
+    agente = await repo.agente(ctx.escritorio(), id_agente)
+    if not agente:
+        raise HTTPException(404, "Agente não encontrado.")
+    crm = (await repo.integracao(ctx.escritorio(), "crm") or {}).get("config") or {}
+    colunas: dict[str, str] = {}
+    if crm.get("id_painel"):
+        try:                                       # só para dar nome às colunas; sem a LawChat, a tela mostra o tipo
+            helena = await _helena_do_escritorio(pedido, repo, ctx.escritorio())
+            painel = next((p for p in await helena.paineis() if p["id"] == crm["id_painel"]), None)
+            colunas = {e["id"]: e["titulo"] for e in (painel or {}).get("etapas", [])}
+        except (ErroHelenaApi, HTTPException):
+            colunas = {}
+    return _automacoes_padrao_tela(agente.get("config") or {}, crm, colunas)
 
 
 @api.get("/agentes/{id_agente}/automacoes/sugestao")
