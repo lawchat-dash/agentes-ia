@@ -474,7 +474,7 @@ button.link:hover { text-decoration: underline; }
    ========================================================================= */
 :root { --serif: "Instrument Serif", Georgia, serif; --lado: 264px; }
 .app { grid-template-columns: var(--lado) minmax(0, 1fr); transition: grid-template-columns .28s var(--ease-out); background:
-  radial-gradient(1200px 500px at 0% 0%, color-mix(in srgb, var(--acento) 5%, transparent), transparent 60%), var(--bg); }
+  var(--bg); }
 .app.recolhido { --lado: 92px; }
 .side { margin: 12px 0 12px 12px; height: calc(100% - 24px); border: 1px solid var(--line); border-radius: 20px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--acento) 7%, var(--surface)) 0%, var(--surface) 34%);
