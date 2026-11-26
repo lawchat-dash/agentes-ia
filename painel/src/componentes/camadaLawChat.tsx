@@ -92,7 +92,8 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
     if (!escritorio) return;
     const faltam = fila.filter((p) => !quadros[p.codigo]);
     if (!faltam.length) return;
-    const t = window.setTimeout(() => abrir(faltam[0].codigo, faltam[0].titulo, faltam[0].estilo), 600);
+    // Uma por vez e com folga (1,2 s): o painel continua leve enquanto as telas entram por trás.
+    const t = window.setTimeout(() => abrir(faltam[0].codigo, faltam[0].titulo, faltam[0].estilo), 1200);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fila, quadros, escritorio]);

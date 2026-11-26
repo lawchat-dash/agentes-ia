@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AcoesDoTopo, NomeDoEscritorio, guardarTelaDoPainel } from "./nomeEscritorio";
-import { PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
-import { CamadaLawChat } from "./camadaLawChat";
-import { TelaAtendimento } from "../telas/Atendimento";
+import { PAGINAS_CONFIG, PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
+import { CamadaLawChat, preabrirLawChat } from "./camadaLawChat";
+import { TelaAtendimento, estiloDoQuadro, estiloDoQuadroConfig } from "../telas/Atendimento";
 import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig, motion } from "framer-motion";
@@ -72,6 +72,22 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   // Minha Conta: também em tela cheia, como a Central (as configurações da conta, com o menu delas e o "Voltar").
   const telaConta = /^\/(minha-conta|crm)(\/|$)/.test(local.pathname);
   const [visitou, setVisitou] = useState(false);
+  // Ao abrir o sistema, as telas da LawChat entram por trás, uma de cada vez (Central primeiro), e ficam montadas:
+  // ao clicar, já estão prontas. Atualizar a página (F5) faz de novo.
+  const { podeGerir: gestorDaConta } = useSessao();
+  useEffect(() => {
+    if (!escritorio) return;
+    const t = window.setTimeout(() => {
+      setVisitou(true);
+      if (!gestorDaConta) return;
+      preabrirLawChat([
+        ...PAGINAS_CRM.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })),
+        ...PAGINAS_CONTA.filter((p) => p.codigo !== "ia" && p.codigo !== "conta").map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })),
+        ...PAGINAS_CONFIG.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadroConfig })),
+      ]);
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, [escritorio, gestorDaConta]);
   useEffect(() => { if (telaCheia) setVisitou(true); }, [telaCheia]);
   useEffect(() => { if (!telaCheia && !telaConta) guardarTelaDoPainel(local.pathname + local.search); }, [telaCheia, telaConta, local.pathname, local.search]);
   const atendimentoVisitado = visitou || telaCheia;
