@@ -102,7 +102,7 @@ function ComEstrutura() {
         <Route path="/" element={<TelaInicio />} />
         {/* Conversas: todos os papéis do escritório (o atendente pausa e devolve a IA por aqui). */}
         <Route path="/conversas/:id?" element={precisaEscritorio(<TelaConversas />)} />
-        <Route path="/atendimento" element={precisaEscritorio(<TelaAtendimento />)} />
+        <Route path="/atendimento" element={escritorio ? null : precisaEscritorio(<span />)} />
         {podeGerir && <>
           <Route path="/agentes" element={precisaEscritorio(<TelaAgentes />)} />
           <Route path="/agentes/novo" element={precisaEscritorio(<TelaAgenteNovo />)} />

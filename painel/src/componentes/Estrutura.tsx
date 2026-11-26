@@ -1,4 +1,6 @@
-import { createContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { NomeDoEscritorio } from "./nomeEscritorio";
+import { TelaAtendimento } from "../telas/Atendimento";
 import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig, motion } from "framer-motion";
@@ -25,8 +27,7 @@ import { AvisoSaldo } from "./AvisoSaldo";
  * No celular (até 820px) o menu vira gaveta por cima do conteúdo, que ocupa a largura toda.
  */
 
-/** Nome do escritório em uso, para telas que ficam fora da moldura (Central de Atendimento). */
-export const NomeDoEscritorio = createContext<string>("");
+export { NomeDoEscritorio } from "./nomeEscritorio";
 
 interface Item { para: string; rotulo: string; icone: ReactNode; contador?: number; grupo?: string }
 const CHAVE_RECOLHIDO = "agentesia_menu_recolhido";
@@ -65,6 +66,9 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   const local = useLocation();
   // Central de Atendimento (Helena embutida): ocupa a tela inteira.
   const telaCheia = local.pathname.startsWith("/atendimento");
+  const [visitou, setVisitou] = useState(false);
+  useEffect(() => { if (telaCheia) setVisitou(true); }, [telaCheia]);
+  const atendimentoVisitado = visitou || telaCheia;
   const celular = useCelular();
   const [abertos, setAbertos] = useState(false);
   const [recolhido, setRecolhido] = useState(lerRecolhido());
@@ -151,11 +155,19 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   const subtitulo = lawchat && !impersonando ? "Equipe LawChat" : impersonando ? nomeEscritorio : eu?.nome_escritorio ?? "";
 
   // Central de Atendimento: tela própria, sem menu lateral, barra do topo nem atalhos (a tela traz o "Voltar").
-  if (telaCheia) {
-    return <NomeDoEscritorio.Provider value={escritorio ? nomeEscritorio : ""}><div className="lc-modo-atendimento" key={`${escritorio}-${visao}`}>{children}</div></NomeDoEscritorio.Provider>;
-  }
+  // A Central de Atendimento fica montada depois da 1ª visita (só escondida quando você sai): voltar para ela
+  // mantém a conversa aberta. Recomeça só ao trocar de escritório ou fechar a aba do navegador.
+  const atendimento = atendimentoVisitado && escritorio ? (
+    <NomeDoEscritorio.Provider value={nomeEscritorio}>
+      <div className="lc-modo-atendimento" key={`${escritorio}-${visao}`} style={telaCheia ? undefined : { display: "none" }} aria-hidden={!telaCheia}>
+        <TelaAtendimento />
+      </div>
+    </NomeDoEscritorio.Provider>
+  ) : null;
 
-  return (
+  return (<>
+    {atendimento}
+    {telaCheia ? (escritorio ? null : children) : (
     <MotionConfig reducedMotion="user">
       <div className={`lc-casca${compacto ? " recolhido" : ""}${abertos ? " gaveta-aberta" : ""}`}>
         {/* Degradê verde usado pelos ícones ativos (stroke: url(#lc-grad-icone)). */}
@@ -301,7 +313,8 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
         )}
       </div>
     </MotionConfig>
-  );
+    )}
+  </>);
 }
 
 /** Um item do menu. A seleção é um único fundo (layoutId) que desliza de um item para o outro. */

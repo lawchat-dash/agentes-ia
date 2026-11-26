@@ -4,7 +4,7 @@ import { ArrowLeft, ExternalLink, Headset, RefreshCw } from "lucide-react";
 import { enviar } from "../api";
 import { Alerta, Carregando } from "../componentes/ui";
 import { useSessao } from "../sessao";
-import { NomeDoEscritorio } from "../componentes/Estrutura";
+import { NomeDoEscritorio } from "../componentes/nomeEscritorio";
 
 /** Pede ao servidor o link de uso único do Login integrado da Helena (o token da conta nunca vem ao navegador). */
 export async function linkDaHelena(idLead?: string): Promise<string> {
