@@ -330,15 +330,8 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             {escritorio && podeGerir && !modoAdmin && <SaldoTopo escritorio={escritorio} />}
             {acoesTopo}
           </header>
-          {idAgente && agenteAberto.dados && (
-            <nav className="lc-abas-agente" aria-label={`Agente ${agenteAberto.dados.nome}`}>
-              <span className="lc-abas-agente-nome"><span className="lc-sub-ponto" data-ativo={agenteAberto.dados.situacao === "ativo"} />{agenteAberto.dados.nome}</span>
-              <NavLink to={`/agentes/${idAgente}`} end><LayoutGrid size={14} /><span>Visão geral</span></NavLink>
-              {secoesDo(agenteAberto.dados.tipo_produto === "proprio", admin).map((s) => (
-                <NavLink key={s.chave} to={`/agentes/${idAgente}/${s.chave}`}>{s.icone(14)}<span>{s.rotulo}</span></NavLink>
-              ))}
-            </nav>
-          )}
+          {/* A barra de abas do agente no topo saiu (pedido do dono): navega-se pelos cartões da página do agente e
+              pelo "← voltar" de cada tela. */}
           <ImpersonationBanner nomeEscritorio={nomeEscritorio} />
           {modoAdmin && (
             <div className="lc-faixa-superadmin" role="status">
