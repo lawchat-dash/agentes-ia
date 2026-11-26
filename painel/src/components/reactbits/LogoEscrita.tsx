@@ -1,8 +1,9 @@
-// Logo LawChat que se escreve: o balão se desenha e enche de verde, a rede se junta, e cada letra tem o contorno
+// Logo LawChat que se escreve: o símbolo entra animado (SimboloLawchat), e cada letra tem o contorno
 // traçado e depois preenchido, em sequência. Usa os mesmos traços da tela de carregamento
 // (componentes/logoLawchatTracos.ts, gerados dos SVGs da pasta "escrita"). Com prefers-reduced-motion: logo pronta.
 import { useId, type CSSProperties } from "react";
-import { BALAO, CENTRO, LETRAS, PONTAS } from "@/componentes/logoLawchatTracos";
+import { LETRAS } from "@/componentes/logoLawchatTracos";
+import SimboloLawchat from "@/components/marca/SimboloLawchat";
 import "./LogoEscrita.css";
 
 export default function LogoEscrita({ altura = 32, atraso = 0.15, brilho = true, className = "" }: {
@@ -36,19 +37,8 @@ export default function LogoEscrita({ altura = 32, atraso = 0.15, brilho = true,
         </clipPath>
       </defs>
 
-      <g transform="translate(0 5) scale(.38)">
-        <path className="le-balao" d={BALAO} fill={`url(#${u("verde")})`} />
-        <path className="le-traco le-balao-traco" d={BALAO} pathLength={1} />
-        {PONTAS.map((p, i) => (
-          <path key={`l${i}`} className="le-linha" style={{ "--i": i } as CSSProperties}
-                d={`M ${CENTRO.x} ${CENTRO.y} L ${p.x} ${p.y}`} pathLength={1} stroke={`url(#${u("branco")})`} strokeWidth={49} strokeLinecap="round" fill="none" />
-        ))}
-        <circle className="le-anel" cx={CENTRO.x} cy={CENTRO.y} r={87.5} pathLength={1} fill="none" stroke={`url(#${u("branco")})`} strokeWidth={45} />
-        {PONTAS.map((p, i) => (
-          <circle key={`n${i}`} className="le-no" cx={p.x} cy={p.y} r={83} fill={`url(#${u("branco")})`}
-                  style={{ "--i": i, "--dx": `${(p.x - CENTRO.x) * 0.9}px`, "--dy": `${(p.y - CENTRO.y) * 0.9}px` } as CSSProperties} />
-        ))}
-      </g>
+      {/* Símbolo (balão + rede) animado; na mesma posição e escala do símbolo da logo horizontal. */}
+      <SimboloLawchat decorativo x={19.3} y={15.5} tamanho={357} atraso={atraso} />
 
       <g transform="translate(410 25)">
         {LETRAS.map((l, i) => (

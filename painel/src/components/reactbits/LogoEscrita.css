@@ -2,15 +2,6 @@
 .le-logo { display: block; overflow: visible; --le-atraso: .15s; }
 .le-traco { fill: none; stroke-dasharray: 1; stroke-dashoffset: 1; stroke-linejoin: round; stroke-linecap: round; }
 
-.le-balao-traco { stroke: #9af5ae; stroke-width: 16; animation: le-tracar .8s cubic-bezier(.6, 0, .3, 1) var(--le-atraso) forwards, le-sumir .45s ease calc(var(--le-atraso) + .8s) forwards; }
-.le-balao { opacity: 0; animation: le-aparecer .55s ease-out calc(var(--le-atraso) + .45s) forwards; }
-.le-anel { stroke-dasharray: 1; stroke-dashoffset: 1; animation: le-tracar .55s cubic-bezier(.6, 0, .3, 1) calc(var(--le-atraso) + .25s) forwards; }
-.le-linha { stroke-dasharray: 1; stroke-dashoffset: 1; animation: le-tracar .4s ease-out calc(var(--le-atraso) + .45s + var(--i) * .06s) forwards; }
-.le-no {
-  transform-box: fill-box; transform-origin: center; opacity: 0;
-  transform: translate(var(--dx), var(--dy)) scale(.35);
-  animation: le-encaixar .6s cubic-bezier(.2, .9, .25, 1.15) calc(var(--le-atraso) + .5s + var(--i) * .08s) forwards;
-}
 
 .le-letra { opacity: 0; transform: translateY(22px); animation: le-subir .55s cubic-bezier(.2, .8, .2, 1) calc(var(--le-atraso) + .35s + var(--i) * .11s) forwards; }
 .le-letra-traco { stroke-width: 7; animation: le-tracar .75s cubic-bezier(.55, 0, .3, 1) calc(var(--le-atraso) + .35s + var(--i) * .11s) forwards, le-sumir .4s ease calc(var(--le-atraso) + .85s + var(--i) * .11s) forwards; }
@@ -24,7 +15,6 @@
 @keyframes le-sumir { to { opacity: 0; } }
 @keyframes le-aparecer { to { opacity: 1; } }
 @keyframes le-subir { to { opacity: 1; transform: translateY(0); } }
-@keyframes le-encaixar { 60% { opacity: 1; } to { opacity: 1; transform: translate(0, 0) scale(1); } }
 @keyframes le-varrer {
   0% { opacity: 0; transform: translateX(80px); }
   5% { opacity: 1; }
@@ -34,5 +24,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .le-traco, .le-brilho { display: none; }
-  .le-balao, .le-anel, .le-linha, .le-no, .le-letra, .le-letra-cheia { animation: none; opacity: 1; transform: none; stroke-dashoffset: 0; }
+  .le-letra, .le-letra-cheia { animation: none; opacity: 1; transform: none; stroke-dashoffset: 0; }
 }

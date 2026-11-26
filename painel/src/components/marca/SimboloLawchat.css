@@ -1,0 +1,90 @@
+/* Símbolo LawChat animado (SimboloLawchat.tsx). Prefixo sl- para não esbarrar em nada do painel.
+   Linha do tempo da entrada (somada ao --sl-atraso), ~1,9 s:
+   0–0,85 balão com mola · 0,2–0,95 acende · 0,45–1,25 reflexo · 0,3–1,0 anel gira e se fecha · 0,6–1,05 hastes
+   0,85–1,7 bolinhas estalam (a sombra suave vem junto) · 1,35 pulso do anel. Depois, em loop: respiro + dados nas hastes.
+   Origens de giro/escala em coordenadas do desenho (transform-box: view-box + --ox/--oy). */
+.sl-simbolo { display: block; overflow: visible; --sl-atraso: 0s; }
+.sl-balao, .sl-respiro, .sl-anel-giro, .sl-bolinha, .sl-bolinha-forma { transform-box: view-box; }
+
+/* Balão */
+.sl-balao { transform-origin: 140px 290px; animation: sl-balao-surge .85s linear var(--sl-atraso) both; }
+.sl-veu { opacity: .6; animation: sl-acender .75s ease-out calc(var(--sl-atraso) + .2s) both; }
+.sl-reflexo { opacity: 0; animation: sl-reflexo .8s cubic-bezier(.45, 0, .25, 1) calc(var(--sl-atraso) + .45s) both; }
+
+/* Rede */
+.sl-anel-giro { transform-origin: var(--ox) var(--oy); animation: sl-anel-gira .7s cubic-bezier(.2, .9, .3, 1.15) calc(var(--sl-atraso) + .3s) both; }
+.sl-anel-traco { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sl-tracar .6s cubic-bezier(.55, 0, .25, 1) calc(var(--sl-atraso) + .3s) forwards; }
+.sl-haste { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sl-tracar .45s cubic-bezier(.3, 0, .2, 1) calc(var(--sl-atraso) + .6s + var(--i) * .08s) forwards; }
+.sl-bolinha {
+  transform-origin: var(--ox) var(--oy); opacity: 0; transform: scale(0);
+  animation: sl-estalar .6s linear calc(var(--sl-atraso) + .85s + var(--i) * .12s) forwards;
+}
+.sl-bolinha-forma { transform-origin: var(--ox) var(--oy); }
+.sl-pulso {
+  transform-box: fill-box; transform-origin: center; opacity: 0;
+  animation: sl-pulsar 3.4s cubic-bezier(.2, .6, .3, 1) calc(var(--sl-atraso) + 1.35s) 1 forwards;
+}
+.sl-dado { opacity: 0; }
+
+/* Em loop (enquanto espera): respira, o anel emite sinal e as bolinhas recebem "dados" em sequência. */
+.sl-loop .sl-respiro { transform-origin: 187px 211px; animation: sl-respirar 4s ease-in-out calc(var(--sl-atraso) + 1.9s) infinite alternate; }
+.sl-loop .sl-pulso { animation-iteration-count: infinite; }
+.sl-loop .sl-dado { animation: sl-trafegar 2.4s cubic-bezier(.45, 0, .3, 1) calc(var(--sl-atraso) + 2s + var(--i) * .8s) infinite; }
+.sl-loop .sl-bolinha-forma { animation: sl-receber 2.4s ease-out calc(var(--sl-atraso) + 2s + var(--i) * .8s) infinite; }
+
+@keyframes sl-balao-surge {
+  0% { opacity: 0; transform: scale(.55) rotate(-6deg); animation-timing-function: cubic-bezier(.2, .7, .3, 1); }
+  25% { opacity: 1; }
+  48% { transform: scale(1.07) rotate(1.2deg); animation-timing-function: ease-in-out; }
+  68% { transform: scale(.975) rotate(-.4deg); animation-timing-function: ease-in-out; }
+  85% { transform: scale(1.01) rotate(0deg); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes sl-acender { to { opacity: 0; } }
+@keyframes sl-reflexo {
+  0% { opacity: 0; transform: translateX(0); }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(560px); }
+}
+@keyframes sl-anel-gira {
+  0% { opacity: 0; transform: rotate(-160deg) scale(.45); }
+  30% { opacity: 1; }
+  100% { opacity: 1; transform: rotate(0deg) scale(1); }
+}
+@keyframes sl-tracar { to { stroke-dashoffset: 0; } }
+@keyframes sl-estalar {
+  0% { opacity: 0; transform: scale(0); animation-timing-function: cubic-bezier(.2, .8, .3, 1); }
+  20% { opacity: 1; }
+  50% { transform: scale(1.2); animation-timing-function: ease-in-out; }
+  72% { transform: scale(.94); animation-timing-function: ease-in-out; }
+  88% { transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes sl-pulsar {
+  0% { opacity: .55; transform: scale(1); stroke-width: 5; }
+  38% { opacity: 0; transform: scale(2.6); stroke-width: 1.5; }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+@keyframes sl-respirar { from { transform: scale(1); } to { transform: scale(1.025); } }
+@keyframes sl-trafegar {
+  0% { opacity: 0; transform: translate(0, 0) scale(.5); }
+  6% { opacity: 1; transform: translate(0, 0) scale(1); }
+  30% { opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1); }
+  34%, 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.4); }
+}
+@keyframes sl-receber {
+  0%, 28% { transform: scale(1); }
+  38% { transform: scale(1.075); }
+  54% { transform: scale(.99); }
+  64%, 100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-simbolo { animation: sl-aparecer-todo .4s ease-out both; }
+  .sl-simbolo * { animation: none !important; }
+  .sl-balao, .sl-anel-giro, .sl-bolinha, .sl-bolinha-forma, .sl-respiro { opacity: 1; transform: none; }
+  .sl-anel-traco, .sl-haste { stroke-dashoffset: 0; }
+  .sl-veu, .sl-reflexo, .sl-pulso, .sl-dado { opacity: 0; }
+}
+@keyframes sl-aparecer-todo { from { opacity: 0; } to { opacity: 1; } }
