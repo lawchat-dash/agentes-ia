@@ -1,4 +1,5 @@
 // Cliente da API do painel. Todas as chamadas passam pelo servidor Python (/api).
+import * as cachePersistente from "./cachePersistente";
 
 export class ErroApi extends Error {
   constructor(public status: number, mensagem: string) {
@@ -84,17 +85,64 @@ let geracao = 0;
 
 export function geracaoAtual(): number { return geracao; }
 export function ultimaResposta<T>(caminho: string): T | undefined { return ultimas.get(chaveDoPedido(caminho)) as T | undefined; }
+export function temResposta(caminho: string): boolean { return ultimas.has(chaveDoPedido(caminho)); }
 export function guardarResposta(caminho: string, dados: unknown, geracaoDoInicio: number): void {
   if (geracaoDoInicio !== geracao) return;
   const chave = chaveDoPedido(caminho);
   ultimas.delete(chave);                                   // reinsere no fim: o Map vira uma fila "mais recente por último"
   ultimas.set(chave, dados);
   if (ultimas.size > ULTIMAS_MAX) ultimas.delete(ultimas.keys().next().value as string);
+  cachePersistente.gravar(chave, caminho, dados);          // e no navegador, para a próxima abertura (ver cachePersistente.ts)
 }
 export function esquecerRespostas(): void {
   geracao += 1;
   ultimas.clear();
   recentes.clear();
+  cachePersistente.apagarTudo();
+}
+
+/**
+ * A sessão confirmou quem está logado (/eu): liga a cópia guardada no navegador para ESTE usuário e põe na memória as
+ * respostas dele que ainda valem (as telas abrem com elas na hora e conferem com o servidor por trás). Outro usuário
+ * que estava antes: a memória é zerada antes.
+ */
+let usuarioDoCache: string | null = null;
+export function ativarCacheDoUsuario(idUsuario: string): void {
+  if (usuarioDoCache !== idUsuario) {
+    geracao += 1;
+    ultimas.clear();
+    recentes.clear();
+  }
+  usuarioDoCache = idUsuario;
+  for (const [chave, dados] of cachePersistente.ativar(idUsuario)) {
+    if (!ultimas.has(chave)) ultimas.set(chave, dados);   // o que já está na memória é mais novo
+  }
+}
+
+/** Saiu da conta ou a sessão caiu: nada do usuário fica guardado (memória e navegador). */
+export function limparCacheDoUsuario(): void {
+  usuarioDoCache = null;
+  geracao += 1;
+  ultimas.clear();
+  recentes.clear();
+  cachePersistente.desativar();
+}
+window.addEventListener("agentesia:sair", limparCacheDoUsuario);
+
+/**
+ * Pedidos de tela que ainda não têm NADA para mostrar (sem cópia guardada): a tela de abertura espera eles acabarem,
+ * para o painel não aparecer com esqueleto. Quem já tem cópia confere por trás e não segura a abertura.
+ */
+let esperandoSemDado = 0;
+const ouvintesEspera = new Set<() => void>();
+export function marcarEsperaSemDado(delta: number): void {
+  esperandoSemDado = Math.max(0, esperandoSemDado + delta);
+  ouvintesEspera.forEach((f) => f());
+}
+export function esperasSemDado(): number { return esperandoSemDado; }
+export function assinarEsperas(f: () => void): () => void {
+  ouvintesEspera.add(f);
+  return () => { ouvintesEspera.delete(f); };
 }
 
 // POSTs que não mudam dado nenhum das telas: não apagam o que está guardado. /atendimento/entrar só gera o link de

@@ -7,7 +7,7 @@ import { ptBR } from "date-fns/locale";
 import {
   AlertOctagon, BellRing, BotOff, CheckCheck, ChevronRight, CirclePause, FileCheck2, FileText, Flag, Hand, ShieldAlert, UserCheck, X,
 } from "lucide-react";
-import { api, enviar } from "../api";
+import { api, enviar, geracaoAtual, guardarResposta, ultimaResposta } from "../api";
 import BellToggle from "@/components/reactbits/BellToggle";
 import "./centralNotificacoes.css";
 
@@ -46,11 +46,14 @@ function haQuanto(iso: string): string {
   } catch { return ""; }
 }
 
+const CAMINHO_SINO = "/central-notificacoes?limite=30";
+
 export function CentralNotificacoes({ escritorio, erros = 0, mostrarErros = false }: {
   escritorio: string; erros?: number; mostrarErros?: boolean;
 }) {
   const navegar = useNavigate();
-  const [dados, setDados] = useState<Resposta | null>(null);
+  // Abre com a cópia guardada (pré-carga da abertura ou abertura anterior) e confere com o servidor logo em seguida.
+  const [dados, setDados] = useState<Resposta | null>(() => ultimaResposta<Resposta>(CAMINHO_SINO) ?? null);
   const [aberto, setAberto] = useState(false);
   const [marcando, setMarcando] = useState(false);
   const botaoRef = useRef<HTMLButtonElement>(null);
@@ -58,12 +61,17 @@ export function CentralNotificacoes({ escritorio, erros = 0, mostrarErros = fals
   const [posicao, setPosicao] = useState<{ top: number; right: number } | null>(null);
 
   const carregar = useCallback(async () => {
-    try { setDados(await api<Resposta>("/central-notificacoes?limite=30")); } catch { /* sino fica como estava */ }
+    const geracao = geracaoAtual();
+    try {
+      const r = await api<Resposta>(CAMINHO_SINO);
+      guardarResposta(CAMINHO_SINO, r, geracao);
+      setDados(r);
+    } catch { /* sino fica como estava */ }
   }, []);
 
   // Busca ao abrir o painel do escritório, a cada 45 s e ao voltar para a aba.
   useEffect(() => {
-    setDados(null);
+    setDados(ultimaResposta<Resposta>(CAMINHO_SINO) ?? null);   // trocou de escritório: a cópia DELE (ou nada)
     void carregar();
     const t = window.setInterval(() => { if (document.visibilityState === "visible") void carregar(); }, INTERVALO_MS);
     const voltou = () => { if (document.visibilityState === "visible") void carregar(); };

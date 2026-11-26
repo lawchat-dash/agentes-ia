@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { PAPEIS_LAWCHAT, api, escolherEscritorio, escolherVisao, escritorioEscolhido, visaoEscolhida, type Catalogo, type Eu, type Visao } from "./api";
+import { PAPEIS_LAWCHAT, api, ativarCacheDoUsuario, escolherEscritorio, escolherVisao, escritorioEscolhido, visaoEscolhida, type Catalogo, type Eu, type Visao } from "./api";
 
 interface Sessao {
   eu: Eu | null;
@@ -36,6 +36,8 @@ export function ProvedorSessao({ children }: { children: ReactNode }) {
     }
     try {
       const [usuario, cat] = await Promise.all([api<Eu>("/eu"), api<Catalogo>("/catalogo")]);
+      // Antes de as telas abrirem: põe na memória as respostas guardadas DESTE usuário (abrem na hora, sem esqueleto).
+      ativarCacheDoUsuario(usuario.id);
       setEu(usuario);
       setCatalogo(cat);
       // Equipe LawChat: sem escritório escolhido, abre na própria conta LawChat.
@@ -67,6 +69,8 @@ export function ProvedorSessao({ children }: { children: ReactNode }) {
 
   const sair = useCallback(async () => {
     await api("/sair", { metodo: "POST" }).catch(() => undefined);
+    // Avisa todo o painel (cópias guardadas na memória, no navegador e no React Query são apagadas).
+    window.dispatchEvent(new Event("agentesia:sair"));
     escolherEscritorio(null);
     escolherVisao("lawchat");
     setVisao("lawchat");

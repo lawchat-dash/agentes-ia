@@ -8,6 +8,8 @@
   transition: opacity .65s cubic-bezier(.4, 0, .2, 1);
 }
 .tc-raiz.tc-saindo { opacity: 0; pointer-events: none; }
+/* Reabrir já logado: aparece inteira desde o primeiro quadro (sem esmaecer por cima da carga de entrada). */
+.tc-raiz.tc-de-cara { animation: none; }
 
 /* Fundo: gradiente CSS (fica sozinho quando não há WebGL) + canvas do shader por cima + véu para dar contraste. */
 .tc-fundo {

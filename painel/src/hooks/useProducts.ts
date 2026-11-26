@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, enviar } from "@/api";
+import { api, enviar, geracaoAtual, guardarResposta, ultimaResposta } from "@/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { resolveModelId } from "@/data/llmModels";
 import { Phone, Handshake, FileText, PenLine, RotateCcw, UserX, Hourglass, type LucideIcon } from "lucide-react";
@@ -156,16 +156,32 @@ const mapProdutoAtivado = (p: any) => ({
   updated_at: p.updated_at,
 });
 
+/**
+ * Lista de produtos com a mesma cópia guardada das telas (api.ts / cachePersistente.ts): abre na hora com a última
+ * resposta (pré-carga da abertura ou abertura anterior) e confere com o servidor por trás (initialDataUpdatedAt 0 =
+ * já nasce velha). A resposta do servidor também vai para a cópia.
+ */
+const listaDeProdutos = (caminho: string) => ({
+  queryFn: async () => {
+    const geracao = geracaoAtual();
+    const data = await api<any[]>(caminho);
+    guardarResposta(caminho, data, geracao);
+    return ((data ?? []) as any[]).map(mapProdutoAtivado);
+  },
+  initialData: () => {
+    const guardada = ultimaResposta<any[]>(caminho);
+    return Array.isArray(guardada) ? guardada.map(mapProdutoAtivado) : undefined;
+  },
+  initialDataUpdatedAt: 0,
+});
+
 /** Lista os produtos ativados da conta (fora da lixeira) */
 export const useMyProducts = () => {
   const { workspace } = useAuth();
   return useQuery({
     queryKey: ["my-products", workspace?.id],
     enabled: !!workspace?.id,
-    queryFn: async () => {
-      const data = await api<any[]>("/produtos-ativados?lixeira=0");
-      return ((data ?? []) as any[]).map(mapProdutoAtivado);
-    },
+    ...listaDeProdutos("/produtos-ativados?lixeira=0"),
   });
 };
 
@@ -175,10 +191,7 @@ export const useTrashedProducts = () => {
   return useQuery({
     queryKey: ["trashed-products", workspace?.id],
     enabled: !!workspace?.id,
-    queryFn: async () => {
-      const data = await api<any[]>("/produtos-ativados?lixeira=1");
-      return ((data ?? []) as any[]).map(mapProdutoAtivado);
-    },
+    ...listaDeProdutos("/produtos-ativados?lixeira=1"),
   });
 };
 

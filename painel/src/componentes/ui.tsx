@@ -2,12 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useId, useRef, useSt
 import { AlertTriangle, Check, CheckCircle2, Copy, Info, Inbox, KeyRound, XCircle } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { api, geracaoAtual, guardarResposta, ultimaResposta } from "../api";
+import { api, geracaoAtual, guardarResposta, marcarEsperaSemDado, ultimaResposta } from "../api";
 
 // --------------------------------------------------------------------------- carregar dados
 /**
- * GET de uma tela. Stale-while-revalidate: se a tela já foi aberta, mostra na hora a última resposta (guardada em
- * api.ts) e busca de novo por trás; `carregando` fica true enquanto busca. Qualquer escrita (POST/PUT/DELETE) apaga as
+ * GET de uma tela. Stale-while-revalidate: se a tela já foi aberta (nesta aba ou numa abertura anterior do painel, ver
+ * cachePersistente.ts), mostra na hora a última resposta (guardada em api.ts) e busca de novo por trás; `carregando`
+ * fica true enquanto busca. Sem cópia nenhuma, a tela de abertura espera esta busca (marcarEsperaSemDado). Qualquer escrita (POST/PUT/DELETE) apaga as
  * respostas guardadas. `guardar: false` para dado que não pode aparecer velho nem por um instante (saldo/extrato da
  * carteira, conversa aberta).
  */
@@ -20,6 +21,8 @@ export function useCarregar<T>(caminho: string | null, dependencias: unknown[] =
   // o dado para o estado delas esperam por ele, para não editar uma cópia velha.
   const [fresco, setFresco] = useState(false);
   const versao = useRef(0);
+  const dadosAgora = useRef(dados);
+  dadosAgora.current = dados;
 
   // Trocou o caminho (outro filtro, outro escritório) e já existe resposta guardada para ele: mostra na hora.
   const caminhoAnterior = useRef(caminho);
@@ -43,6 +46,9 @@ export function useCarregar<T>(caminho: string | null, dependencias: unknown[] =
     if (!caminho) return;
     const minha = ++versao.current;
     const geracao = geracaoAtual();
+    // Nada para mostrar ainda (nem a cópia guardada): a tela de abertura espera por esta busca.
+    const semDado = dadosAgora.current == null && !(guardar && ultimaResposta<T>(caminho) !== undefined);
+    if (semDado) marcarEsperaSemDado(1);
     setCarregando(true);
     try {
       const resposta = await api<T>(caminho);
@@ -52,6 +58,7 @@ export function useCarregar<T>(caminho: string | null, dependencias: unknown[] =
       if (minha === versao.current) setErro((e as Error).message);
     } finally {
       if (minha === versao.current) setCarregando(false);
+      if (semDado) marcarEsperaSemDado(-1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caminho, guardar, ...dependencias]);
