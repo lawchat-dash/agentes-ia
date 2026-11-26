@@ -136,7 +136,7 @@ const splitStyle = `
   .lcsplit-lista{list-style:none;padding:0;margin:26px 0 0;display:flex;flex-direction:column;gap:14px;max-width:440px}
   .lcsplit-lista li{display:flex;gap:12px;align-items:flex-start;font-size:.95rem;line-height:1.5;color:rgba(240,242,245,.78)}
   .lcsplit-lista b{color:#fff;font-weight:600}
-  .lcsplit-carrossel{margin:20px 0 0 -10px;width:calc(100% + 20px);max-width:480px}
+  .lcsplit-carrossel{margin:28px 0 36px -10px;width:calc(100% + 20px);max-width:480px}
   .lcsplit-carrossel .carousel-icon{width:36px;height:36px;border-radius:11px;background:rgba(0,188,51,.16);border:1px solid rgba(0,188,51,.3);color:var(--g1)}
   .lcsplit-carrossel .carousel-title{font-family:var(--fs);font-size:1.02rem;font-weight:600}
   .lcsplit-carrossel .carousel-description{font-size:.86rem}
@@ -307,10 +307,6 @@ function TelaEntrada({ comSenha }: { comSenha: boolean }) {
               <div className="lcsplit-carrossel">
                 <Carousel items={DESTAQUES} baseWidth="100%" aspectRatio={estreito ? 2.1 : 3.1} frame effect="slide" indicator="bars"
                           autoplay autoplayDelay={4200} pauseOnHover loop radius={18} gap={14} theme="dark" style={ESTILO_CARROSSEL} />
-              </div>
-              <div className="lcsplit-chat" aria-hidden>
-                <div className="lcsplit-bolha lead">Oi, sofri um acidente no trabalho e fiquei com sequela. Tenho direito?</div>
-                <div className="lcsplit-bolha ia" style={{ animationDelay: ".25s" }}>Sinto muito pelo acidente. Vou te ajudar a entender: o acidente aconteceu há quanto tempo?</div>
               </div>
             </div>
             <div className="lcsplit-rodape">
