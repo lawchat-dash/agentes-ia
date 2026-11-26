@@ -23,7 +23,7 @@ import folder3d from "@/assets/folder-3d.png";
 import { StatusToggle } from "@/components/ui/status-toggle";
 import { ButtonHoldAndRelease } from "@/components/ui/hold-and-release-button";
 import { AvisoFollowupDesligado } from "@/components/followup/AvisoFollowupDesligado";
-import { SeloSaude, TestarConexao, TipoNumero, useSaudeNumeros, type SaudeAgente } from "@/componentes/SaudeNumero";
+import { SeloSaude, TipoNumero, useSaudeNumeros, type SaudeAgente } from "@/componentes/SaudeNumero";
 import { FiltroNumero } from "@/componentes/FiltroNumero";
 import { useSessao } from "@/sessao";
 
@@ -632,7 +632,6 @@ const MeusProdutos = () => {
                       <div className="px-4 pt-3 pb-2 border-t border-border/60 flex items-center gap-1.5 flex-wrap">
                         <SeloSaude selo={semNumero ? { tipo: "sem_numero", minutos: null } : s!.selo} />
                         {!semNumero && <TipoNumero tipo={s!.tipo} aviso={s!.aviso_tipo} />}
-                        {!semNumero && s!.id_canal && <span className="ml-auto"><TestarConexao compacto idCanal={s!.id_canal} numero={p.numero_ia ?? undefined} /></span>}
                       </div>
                     );
                   })()}
@@ -870,7 +869,6 @@ const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => (
           <div className="px-4 py-2 border-t border-border/60 flex items-center gap-1.5 flex-wrap">
             <SeloSaude selo={a.selo} />
             {a.selo.tipo !== "sem_numero" && <TipoNumero tipo={a.tipo} aviso={a.aviso_tipo} />}
-            {a.id_canal && <TestarConexao compacto idCanal={a.id_canal} numero={a.numero_normalizado ?? undefined} className="ml-auto" />}
           </div>
           <nav aria-label={`Abrir ${a.nome}`} className="px-3 pb-2.5 pt-1 flex flex-wrap gap-1">
             {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
