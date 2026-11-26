@@ -7,6 +7,7 @@ import { TelaIntegracoes } from "./Integracoes";
 import { estiloDaCentral, estiloDoQuadro, estiloDoQuadroConfig } from "./Atendimento";
 import { abrirEmJanela, preabrirLawChat, recarregarLawChat, useVagaLawChat } from "../componentes/camadaLawChat";
 import { AcoesDoTopo, NomeDoEscritorio, telaDoPainel } from "../componentes/nomeEscritorio";
+import { BolinhaControleIA } from "../componentes/ControleIA";
 
 /** Minha Conta: os ajustes da conta na LawChat (abertos aqui dentro, já logados) + as integrações da IA. */
 export interface PaginaConta { codigo: string; rotulo: string; resumo: string; emoji: string; icone: LucideIcon; cor: string; fundo: string }
@@ -58,7 +59,8 @@ export function TelaChatbots() {
 export function TelaCentral() {
   const vaga = useRef<HTMLDivElement>(null);
   useVagaLawChat(vaga, "atendimento", "Central de Atendimento", estiloDaCentral);
-  return <div className="lc-tela-lawchat-cheia"><div ref={vaga} className="absolute inset-0" /></div>;
+  // Bolinha do Controle da IA: só enquanto a Central está na tela, presa na área dela.
+  return <div className="lc-tela-lawchat-cheia"><div ref={vaga} className="absolute inset-0" /><BolinhaControleIA area={vaga} /></div>;
 }
 
 /** Dentro de "Conta": as telas de Configurações da conta na LawChat, como abas (o menu lateral delas sai). */

@@ -37,6 +37,8 @@ const TelaRoteiro = lazy(() => import("./telas/Roteiros").then((m) => ({ default
 const TelaRoteiros = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiros })));
 const TelaMinhaConta = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaMinhaConta })));
 const TelaCrm = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCrm })));
+// Página-ponte do app "Controle da IA" na plataforma de atendimento: pública (usa o login do painel, se houver), sem menu.
+const PonteControleIA = lazy(() => import("./componentes/PonteControleIA"));
 const TelaCentral = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCentral })));
 const TelaChatbots = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaChatbots })));
 const TelaErros = lazy(() => import("./telas/Erros").then((m) => ({ default: m.TelaErros })));
@@ -215,7 +217,10 @@ window.addEventListener("agentesia:alterou", () => { consultas.invalidateQueries
 // Saiu da conta: nada do usuário anterior fica guardado.
 window.addEventListener("agentesia:sair", () => { consultas.clear(); });
 
-createRoot(document.getElementById("raiz")!).render(
+const naPonte = window.location.pathname.replace(/\/+$/, "") === "/controle-ia/ponte";
+createRoot(document.getElementById("raiz")!).render(naPonte ? (
+  <StrictMode><Suspense fallback={null}><PonteControleIA /></Suspense></StrictMode>
+) : (
   <StrictMode>
     <QueryClientProvider client={consultas}>
       <TooltipProvider delayDuration={200}>
@@ -229,5 +234,5 @@ createRoot(document.getElementById("raiz")!).render(
         <Toaster position="top-right" closeButton />
       </TooltipProvider>
     </QueryClientProvider>
-  </StrictMode>,
-);
+  </StrictMode>
+));

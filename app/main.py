@@ -243,6 +243,7 @@ from app.gestao.rotas_rascunho import api as api_rascunho; app.include_router(ap
 from app.gestao.rotas_roteiros import api as api_roteiros; app.include_router(api_roteiros)  # noqa: E402,E702  Ferramentas > Roteiros (áudios)
 from app.gestao.rotas_filtro import api as api_filtro; app.include_router(api_filtro)  # noqa: E402,E702  filtro de número por agente (teste)
 from app.gestao.rotas_execucoes import api as api_execucoes; app.include_router(api_execucoes)  # noqa: E402,E702  Superadmin > Execuções (cada turno da IA)
+from app.gestao.rotas_controle_ia import api as api_controle_ia; app.include_router(api_controle_ia)  # noqa: E402,E702  bolinha da IA na Central
 if os.environ.get("AGENTESIA_PAINEL_CRM_LIGADO", "").strip() == "1":
     # Painel padrão do CRM pela API interna da Helena (impersonate): desligado por padrão. Se um dia o recebimento de
     # webhooks virar um app separado, este router NÃO entra nele.
