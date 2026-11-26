@@ -1925,7 +1925,7 @@ def _followup_para_tela(bruto: dict[str, Any] | None) -> dict[str, Any]:
             "intervalo_minimo_min": c.intervalo_minimo_min, "etapas": list(c.etapas), "prompt": c.prompt,
             "por_etapa": c.por_etapa, "passos": [vars(p) for p in c.passos], "modelo_oficial": c.modelo_oficial,
             "desistir": {"ativo": c.desistir_ativo, "apos_horas": c.desistir_apos_horas, "nota": c.desistir_nota},
-            "modelo": c.modelo}
+            "modelo": c.modelo, "decidir": c.decidir}
     if (limites := regras._limites((bruto or {}).get("limites"))) is not None:
         tela["limites"] = limites            # quem ligou com o padrão novo: a tela devolve e os limites não somem
     return tela
@@ -2015,11 +2015,15 @@ async def previa_followup(id_agente: str, dados: PreviaFollowup, pedido: Request
     if passo.modo == "modelo":
         return {"mensagens": [f"[modelo aprovado: {config.modelo_oficial.get('nome') or 'escolha um modelo'}]"]}
     escritorio = await repo.escritorio(ctx.escritorio()) or {}
-    instrucao = passo.instrucao or regras.INSTRUCAO_PASSO_PADRAO.get(dados.passo, "Retomada breve e gentil.")
-    sistema = "\n\n".join(filter(None, [f"Você é {agente['nome']}, do escritório {escritorio.get('nome', '')}.", config.prompt,
-                                         config.por_etapa.get(dados.etapa or ""),
-                                         f"Tentativa {dados.passo + 1} de {len(config.passos)}. {instrucao}",
-                                         "Devolva de 1 a 3 mensagens curtas em 'mensagens'."]))
+    # O mesmo prompt do envio de verdade: o agente da etapa escreve com a voz dele (app/followup/agente.py).
+    from app.followup import agente as fagente
+    etapa = dados.etapa or next(iter(config.etapas), "") or ""
+    instrucao_etapa = await repo.pool.fetchval(
+        "select instrucao from agentesia_agente_etapas where id_agente = $1::uuid and codigo = $2", id_agente, etapa) if etapa else None
+    lead_exemplo = {"nome": "Maria", "nome_agente": agente.get("nome"), "escritorio": escritorio.get("nome", ""),
+                    "produto": agente.get("produto"), "config_agente": agente.get("config") or {},
+                    "config_escritorio": escritorio.get("config") or {}, "etapa": etapa, "instrucao_etapa": instrucao_etapa}
+    sistema = fagente.sistema_do_agente_do_lead(lead_exemplo, config, dados.passo, len(config.passos))
     conversa = ("lead: oi, sofri um acidente de moto ano passado\nvocê: Poxa, sinto muito. Ficou com alguma sequela ou limitação?\n"
                 "lead: fiquei com dor no joelho\nvocê: Entendi. Na época do acidente você trabalhava de carteira assinada?")
     modelo = pedido.app.state.laboratorios._modelo

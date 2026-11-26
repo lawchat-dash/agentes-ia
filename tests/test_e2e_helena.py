@@ -903,7 +903,7 @@ async def test_contrato_dados_confirmados_zapsign_link_e_assinatura(e2e: Cenario
     assert (lead["etapa"], lead["estado"], lead["motivo_estado"]) == ("contrato_assinado", "encerrado", "contrato_assinado")
     assert sum(t.startswith("✅ Assinatura confirmada!") for t in e2e.helena.textos()) == 1
     assert e2e.helena.cards[next(iter(e2e.helena.cards))] == "col-assinado"
-    assert any(n.startswith("📄 RESUMO DO CONTRATO ASSINADO") for n in e2e.helena.notas())
+    assert any(n.startswith("📄 Contrato Assinado!") for n in e2e.helena.notas())
     assert await e2e.pool.fetchval(
         "select count(*) from agentesia_acoes where id_lead = $1 and tipo = 'lembrar_assinatura' and situacao = 'pendente'",
         lead["id"]) == 0
@@ -956,7 +956,7 @@ async def test_helena_fora_tenta_de_novo_e_falha_vira_evento_e_nota(e2e: Cenario
     assert (falhou["situacao_envio"], falhou["erro"]) == ("falhou", "HTTP 500")
     assert falhou["texto_extraido"].startswith("[NÃO ENTREGUE ao lead]")
     assert await e2e.eventos("envio_falhou")
-    assert any(n.startswith("⚠️ Parte da resposta da IA não foi entregue") for n in e2e.helena.notas())
+    assert any(n.startswith("📭 Uma mensagem da IA não chegou ao lead") for n in e2e.helena.notas())
     # A próxima resposta da IA sabe que o lead não viu a parte que falhou.
     e2e.ia.etapa = lambda _s, _c: responde("Desculpe, minha mensagem anterior falhou. Como foi o acidente?")
     await e2e.chega(e2e.do_lead("??"))
@@ -974,7 +974,7 @@ async def test_conferencia_de_entrega_pega_failed_um_minuto_depois(e2e: Cenario)
     await e2e.rodar_fila()
     assert [m["situacao_envio"] for m in await e2e.mensagens() if m["autor"] == "ia"] == ["falhou", "falhou"]
     assert await e2e.eventos("envio_falhou")
-    assert sum(n.startswith("⚠️ Parte da resposta da IA não foi entregue") for n in e2e.helena.notas()) == 1
+    assert sum(n.startswith("📭 Uma mensagem da IA não chegou ao lead") for n in e2e.helena.notas()) == 1
 
 
 async def test_status_failed_da_helena_marca_a_mensagem_e_avisa(e2e: Cenario):
@@ -987,7 +987,7 @@ async def test_status_failed_da_helena_marca_a_mensagem_e_avisa(e2e: Cenario):
     assert (await e2e.chega(status))["motivo"] == "envio_falhou"
     assert (await e2e.chega(status))["motivo"] == "status_ja_registrado"
     assert [m for m in await e2e.mensagens() if m["autor"] == "ia"][0]["situacao_envio"] == "falhou"
-    assert sum(n.startswith("⚠️ Parte da resposta da IA não foi entregue") for n in e2e.helena.notas()) == 1
+    assert sum(n.startswith("📭 Uma mensagem da IA não chegou ao lead") for n in e2e.helena.notas()) == 1
 
 
 # ============================================================================ servidor de verdade (ciclo de vida)

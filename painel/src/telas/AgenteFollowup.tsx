@@ -10,6 +10,7 @@ interface Config {
   ativo: boolean; horario: { inicio: number; fim: number; dias: number[] }; intervalo_minimo_min: number; etapas: string[];
   prompt: string; por_etapa: Record<string, string>; passos: Passo[]; modelo_oficial: { id_modelo?: string; nome?: string };
   desistir: { ativo: boolean; apos_horas: number; nota: string }; modelo: string | null;
+  decidir?: boolean;   // o agente de follow-up decide antes (enviar, adiar se o lead pediu para esperar, não enviar)
 }
 interface Dados {
   config: Config; padrao: { prompt: string; cadencia: number[]; instrucoes: Record<string, string> };
@@ -63,7 +64,12 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
         acoes={<><Interruptor rotulo="Follow-up ligado" ligado={c.ativo} aoMudar={(v) => setC({ ...c, ativo: v })} />
           <button className="btn pri sm" onClick={salvar} disabled={ocupado}><Save />Salvar follow-up</button></>}>
         <p className="sec" style={{ margin: 0 }}>Quando o lead para de responder, a IA retoma a conversa no tempo de cada passo (contado a partir da última resposta dela).
-          Para sozinho se o lead responder, se alguém da equipe falar, se a etapa mudar ou se a IA for desligada.</p>
+          Quem escreve é o agente da etapa em que o lead está, com a voz dele. Para sozinho se o lead responder, se alguém da equipe falar,
+          se a etapa mudar ou se a IA for desligada.</p>
+        <div style={{ marginTop: 12 }}>
+          <Interruptor rotulo="O agente de follow-up decide antes de enviar (adia quando o lead pediu para esperar)"
+            ligado={c.decidir !== false} aoMudar={(v) => setC({ ...c, decidir: v })} />
+        </div>
       </Painel>
 
       <Painel titulo={<h3 style={{ display: "flex", gap: 10, alignItems: "center" }}>Resultados deste agente <span className="seg" style={{ marginLeft: "auto" }}>{[7, 30, 90].map((d) => (
