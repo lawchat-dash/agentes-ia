@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from app.cerebro import auxilio_acidente as aa
+from app.cerebro import resposta_curta
 from app.modelo import Chamada, Modelo
 
 if TYPE_CHECKING:
@@ -131,6 +132,7 @@ class Extracao:
     intencoes: dict[str, bool] = field(default_factory=dict)
     bruto: dict[str, Any] = field(default_factory=dict)
     chamadas: list[Chamada] = field(default_factory=list)
+    resolvidos: list[dict[str, Any]] = field(default_factory=list)  # fatos da resposta curta à última pergunta (código)
 
 
 def montar_conteudo(fatos_conhecidos: dict[str, Any], historico: list[dict[str, str]], novas: list[str],
@@ -243,4 +245,68 @@ async def extrair(
     textos_do_lead = novas + [m["texto"] for m in historico if m["autor"] == "lead"]
     extracao = conferir(resultado.dados, textos_do_lead, fatos_conhecidos, produto)
     extracao.chamadas = resultado.chamadas
+    pela_pergunta(extracao, historico, novas, fatos_conhecidos, produto)
+    return extracao
+
+
+def _chaves_do_produto(produto: "Produto") -> set[str]:
+    """Chaves que o extrator deste produto pode devolver (o enum do esquema)."""
+    try:
+        itens = produto.esquema_extrator()["properties"]["fatos"]["items"]["properties"]["chave"]
+        return set(itens.get("enum") or [])
+    except (KeyError, TypeError, AttributeError):
+        return set(aa.FATOS)
+
+
+def _chaves_travadas(produto: "Produto") -> set[str]:
+    from app.cerebro import catalogo
+
+    config = getattr(produto, "config", None) or {}
+    motivos = catalogo.motivos_de_desqualificar(config)
+    portao = [alt.partition("=")[0] for grupos in catalogo.portao_de_fatos(config).values()
+              for grupo in grupos for alt in grupo]
+    return resposta_curta.chaves_travadas(motivos, portao)
+
+
+def pela_pergunta(extracao: Extracao, historico: list[dict[str, str]], novas: list[str],
+                  fatos_conhecidos: dict[str, Any], produto: "Produto") -> Extracao:
+    """Liga a resposta do lead à última pergunta da IA, sem chamar IA (app/cerebro/resposta_curta.py).
+
+    B. Trava: fato que desqualifica, fato do portão e meses de demissão vindos do extrator de IA só ficam quando a
+       pergunta da IA antes da resposta (ou a própria mensagem do lead) fala daquele assunto; senão vão para os
+       rejeitados (motivo "fora_do_assunto", vira evento fato_sem_prova no turno).
+    A. Resposta curta ("Não", "sim", "4 meses") à última pergunta: o código acha o fato pela pergunta e grava com
+       trecho = resposta. Só a resposta (a mensagem inteira é "Não") vale mais que o extrator de IA para a mesma chave;
+       começo de mensagem ("Não, nunca tive") só preenche o que o extrator deixou vazio."""
+    travadas = _chaves_travadas(produto)
+    ficam: list[FatoExtraido] = []
+    for fato in extracao.fatos:
+        if fato.chave in travadas and resposta_curta.fora_do_assunto(fato.chave, fato.trecho, historico, novas, normalizar):
+            extracao.rejeitados.append({"chave": fato.chave, "valor": fato.valor, "trecho": fato.trecho,
+                                        "motivo": "fora_do_assunto",
+                                        "pergunta": resposta_curta.ultima_pergunta(historico)[-200:]})
+        else:
+            ficam.append(fato)
+    extracao.fatos = ficam
+    aceitas = _chaves_do_produto(produto)
+    # Respostas do roteiro fora do esquema do catálogo (auxilio_doenca sempre; aposentado, advogado e sequela com o portão
+    # desligado): o código anota o "Não" para a IA ver em DADOS JÁ INFORMADOS e não perguntar de novo.
+    extras = {c for c in resposta_curta.SO_DO_RESOLVEDOR if c not in aceitas and c in aa.FATOS}
+    for achado in resposta_curta.resolver(historico, novas, aceitas | extras, normalizar):
+        valor = (aa.validar_valor(achado.chave, achado.valor) if achado.chave in extras
+                 else produto.validar_valor(achado.chave, achado.valor))
+        if valor is None:
+            continue
+        do_extrator = next((f for f in extracao.fatos if f.chave == achado.chave), None)
+        if do_extrator is not None and (not achado.sozinha or do_extrator.valor == valor):
+            continue                                    # o extrator de IA já trouxe (ou a resposta não é só "não")
+        if do_extrator is not None:
+            extracao.fatos.remove(do_extrator)
+            extracao.rejeitados.append({"chave": do_extrator.chave, "valor": do_extrator.valor,
+                                        "trecho": do_extrator.trecho, "motivo": "resposta_curta_diz_outro"})
+        if fatos_conhecidos.get(achado.chave) == valor:
+            continue                                    # já sabíamos
+        extracao.fatos.append(FatoExtraido(achado.chave, valor, achado.trecho))
+        extracao.resolvidos.append({"chave": achado.chave, "valor": valor, "trecho": achado.trecho,
+                                    "pergunta": resposta_curta.ultima_pergunta(historico)[-200:]})
     return extracao

@@ -90,17 +90,18 @@ def montar_ficha(lead: Any, fatos: dict[str, Any] | None, etapa: str | None, mot
     fatos = {k: v for k, v in (fatos or {}).items() if not str(k).startswith("_") and v not in (None, "", [], {})}
     nome = _campo(lead, "nome", "nome_contato") or fatos.get("nome") or fatos.get("nome_completo") or "sem nome"
     beneficio = _campo(lead, "beneficio", "produto")
-    linhas = [f"📋 Ficha do caso: {_rotulo_motivo(motivo)}",
-              f"Lead: {str(nome)[:80]}" + (f" | Benefício: {str(beneficio)[:60]}" if beneficio else "")
+    # Em blocos separados por linha em branco e um fato por linha: na nota da LawChat fica fácil de ler.
+    linhas = [f"📋 Ficha do caso: {_rotulo_motivo(motivo)}", "",
+              f"👤 Lead: {str(nome)[:80]}" + (f" | Benefício: {str(beneficio)[:60]}" if beneficio else "")
               + f" | Etapa: {etapa or '-'}"]
     confirmados = [f"{_rotulo_fato(k)}: {_valor(k, v)}" for k, v in fatos.items()
                    if k not in FORA_DA_FICHA and k not in ("nome",) and not isinstance(v, (dict, list))]
     if confirmados:
-        linhas.append("Já respondeu: " + "; ".join(confirmados))
+        linhas += ["", "✅ Já respondeu:"] + [f"• {c}" for c in confirmados]
     if faltando:
-        linhas.append("Falta descobrir: " + ", ".join(dict.fromkeys(_rotulo_fato(str(f)) if str(f) in ROTULOS_FATO
-                                                                   else str(f) for f in faltando)))
+        linhas += ["", "❓ Falta descobrir: " + ", ".join(dict.fromkeys(_rotulo_fato(str(f)) if str(f) in ROTULOS_FATO
+                                                                      else str(f) for f in faltando))]
     if ultima_pergunta_ia:
-        linhas.append("Última pergunta da IA: " + re.sub(r"\s+", " ", str(ultima_pergunta_ia)).strip()[:200])
+        linhas += ["", "💬 Última pergunta da IA: " + re.sub(r"\s+", " ", str(ultima_pergunta_ia)).strip()[:200]]
     texto = "\n".join(linhas)
     return texto if len(texto) <= LIMITE else texto[:LIMITE - 1].rstrip() + "…"

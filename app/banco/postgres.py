@@ -141,6 +141,12 @@ def _reset_do_pool() -> Any:
     return None if os.environ.get("AGENTESIA_BANCO_RESET", "").strip() == "1" else _sem_reset
 
 
+async def _ao_abrir_conexao(conexao: Any) -> None:
+    """Cada conexão nova do pool conta as idas ao banco do turno em andamento (app/tempos.py, resposta["tempos"])."""
+    from app import tempos
+    conexao.add_query_logger(tempos.contar_ida)
+
+
 class RepositorioPostgres:
     def __init__(self, pool: asyncpg.Pool, midia_pendente: bool = False, telefone_chave: bool = False) -> None:
         self._pool = pool
@@ -154,7 +160,7 @@ class RepositorioPostgres:
         ficava preso para sempre. AGENTESIA_BANCO_TIMEOUT_S (padrão 10) e AGENTESIA_BANCO_COMANDO_S (padrão 15).
         conferir=True confere as migrações essenciais e falha na hora se faltar alguma."""
         pool = await asyncpg.create_pool(url, min_size=1, max_size=max_conexoes, statement_cache_size=0,
-                                         reset=_reset_do_pool(),
+                                         reset=_reset_do_pool(), init=_ao_abrir_conexao,
                                          timeout=_segundos_do_env("AGENTESIA_BANCO_TIMEOUT_S", 10),
                                          command_timeout=_segundos_do_env("AGENTESIA_BANCO_COMANDO_S", 15))
         repo = cls(pool)
@@ -247,11 +253,17 @@ class RepositorioPostgres:
         return self._canal(await self._pool.fetchrow("select * from agentesia_canais where id = $1::uuid", id_canal))
 
     async def agente_do_canal(self, id_canal):
-        linha = await self._pool.fetchrow("select * from agentesia_agentes where id_canal = $1::uuid", id_canal)
+        # Agente e etapas numa ida só (antes eram duas em fila).
+        linha = await self._pool.fetchrow(
+            """select a.*, coalesce((select json_agg(json_build_object(
+                         'id', e.id, 'codigo', e.codigo, 'principal', e.principal, 'instrucao', e.instrucao,
+                         'modelo', e.modelo) order by e.ordem)
+                       from agentesia_agente_etapas e where e.id_agente = a.id), '[]'::json) as _etapas
+               from agentesia_agentes a where a.id_canal = $1::uuid""", id_canal)
         if not linha:
             return None
-        etapas = await self._pool.fetch(
-            "select * from agentesia_agente_etapas where id_agente = $1 order by ordem", linha["id"])
+        etapas = linha["_etapas"]
+        etapas = json.loads(etapas) if isinstance(etapas, str) else list(etapas or [])
         return Agente(
             id=str(linha["id"]), id_escritorio=str(linha["id_escritorio"]), id_canal=str(linha["id_canal"]),
             nome=linha["nome"], produto=linha["produto"], situacao=linha["situacao"], modo=linha["modo"],
@@ -491,9 +503,9 @@ class RepositorioPostgres:
     async def comeco_da_conversa(self, id_lead, *, janela=40, limite=60, corte=600) -> dict:
         """Ficha guardada e as antigas fora da janela que ainda não entraram nela (para o prompt): as `limite` mais
         recentes, logo antes da janela, mais antiga primeiro. `pendentes` conta todas, não só as do corte."""
-        ficha = await self._pool.fetchrow(
-            "select resumo, ate_id_mensagem from agentesia_lead_resumo where id_lead = $1::uuid", id_lead)
-        linhas = await self._antigas_sem_resumo(id_lead, janela, limite, corte, recentes=True)
+        ficha, linhas = await asyncio.gather(
+            self._pool.fetchrow("select resumo, ate_id_mensagem from agentesia_lead_resumo where id_lead = $1::uuid", id_lead),
+            self._antigas_sem_resumo(id_lead, janela, limite, corte, recentes=True))
         return {"resumo": ficha["resumo"] if ficha else "", "ate_id_mensagem": _texto(ficha["ate_id_mensagem"]) if ficha else None,
                 "antigas": [{"autor": l["autor"], "texto": l["texto"]} for l in linhas],
                 "pendentes": int(linhas[0]["pendentes"]) if linhas else 0}
@@ -533,6 +545,23 @@ class RepositorioPostgres:
         return {l["chave"]: json.loads(l["valor"]) if isinstance(l["valor"], str) else l["valor"] for l in linhas}
 
     async def gravar_fatos(self, *, lead, id_turno, fatos) -> None:
+        chaves = [f["chave"] for f in fatos]
+        if fatos and len(set(chaves)) == len(chaves):
+            # Caso comum (cada chave uma vez): uma ida só, na mesma transação implícita do comando. Antes eram 2 idas por
+            # fato + begin/commit. Mesma conta de antes: a versão antiga recebe substituido_em = now() do mesmo comando
+            # em que a nova nasce (criado_em = now()), o que o desfazer_turno usa.
+            await self._pool.execute(
+                """with antigos as (
+                     update agentesia_lead_fatos set substituido_em = now()
+                      where id_lead = $2::uuid and chave = any($4::text[]) and substituido_em is null returning id)
+                   insert into agentesia_lead_fatos (id_escritorio, id_lead, chave, valor, trecho, fonte, id_turno)
+                   select $1::uuid, $2::uuid, n.chave, n.valor, n.trecho, n.fonte, $3::uuid
+                     from unnest($4::text[], $5::jsonb[], $6::text[], $7::text[]) as n(chave, valor, trecho, fonte)
+                    where (select count(*) from antigos) >= 0""",
+                lead.id_escritorio, lead.id, id_turno, chaves,
+                [json.dumps(f["valor"], ensure_ascii=False) for f in fatos], [f.get("trecho") for f in fatos],
+                [f.get("fonte") or "extrator" for f in fatos])
+            return
         async with self._pool.acquire() as conexao, conexao.transaction():
             for fato in fatos:
                 await conexao.execute(
@@ -600,7 +629,8 @@ class RepositorioPostgres:
             json.dumps(resposta, ensure_ascii=False, default=str) if resposta is not None else None)
 
     async def fatos_do_sistema(self, id_lead) -> dict:
-        linha = await self._pool.fetchrow(
+        # As duas leituras vão juntas (a da releitura da assinatura só é usada sem contrato assinado).
+        linha, linha_ia = await asyncio.gather(self._pool.fetchrow(
             """select nullif(btrim(coalesce(ct.nome, ''), ' ''"'), '') as nome, ct.telefone_normalizado, l.criado_em, l.origem,
                       et.codigo as etapa,
                       (select row(k.situacao, k.versao, k.link, k.gerado_em, coalesce(k.lead_assinou_em, k.assinado_em))
@@ -608,7 +638,7 @@ class RepositorioPostgres:
                         and k.situacao in ('gerado', 'assinado') order by (k.situacao = 'assinado') desc, k.versao desc limit 1) as contrato
                from agentesia_leads l join agentesia_contatos ct on ct.id = l.id_contato
                left join agentesia_agente_etapas et on et.id = l.id_etapa
-               where l.id = $1::uuid""", id_lead)
+               where l.id = $1::uuid""", id_lead), self._ultima_linha_da_assinatura(id_lead))
         if not linha:
             return {}
         from app.cerebro.contexto import texto_do_contrato
@@ -623,11 +653,6 @@ class RepositorioPostgres:
         if contrato is None or contrato[0] != "assinado":
             # Última releitura do documento na ZapSign (já assinei, lembrete, consulta, aviso): abriu? travou? cancelado?
             # A linha vem pronta de app/contrato/assinatura.linha_para_ia, para a IA responder sem inventar.
-            linha_ia = await self._pool.fetchval(
-                """select a.resultado->>'linha_ia' from agentesia_acoes a
-                   where a.id_lead = $1::uuid and a.situacao = 'feita' and a.resultado ? 'linha_ia'
-                     and a.tipo in ('verificar_assinatura', 'lembrar_assinatura', 'reenviar_link')
-                   order by a.atualizado_em desc limit 1""", id_lead)
             if linha_ia:
                 fatos["assinatura do contrato (sistema)"] = linha_ia.removeprefix("ASSINATURA DO CONTRATO (sistema) ")
         origem = linha["origem"] if isinstance(linha["origem"], dict) else json.loads(linha["origem"] or "{}")
@@ -636,6 +661,13 @@ class RepositorioPostgres:
             fatos["veio de anúncio"] = " · ".join(x for x in (origem.get("titulo") or origem.get("campanha"),
                                                               PRODUTOS.get(origem.get("produto", "")) if origem.get("produto") not in (None, "nao_sei") else None) if x)
         return fatos
+
+    async def _ultima_linha_da_assinatura(self, id_lead) -> str | None:
+        return await self._pool.fetchval(
+            """select a.resultado->>'linha_ia' from agentesia_acoes a
+               where a.id_lead = $1::uuid and a.situacao = 'feita' and a.resultado ? 'linha_ia'
+                 and a.tipo in ('verificar_assinatura', 'lembrar_assinatura', 'reenviar_link')
+               order by a.atualizado_em desc limit 1""", id_lead)
 
     async def marcar_resposta(self, id_lead, quando) -> None:
         await self._pool.execute("update agentesia_leads set responder_apos = $2 where id = $1::uuid", id_lead, quando)

@@ -21,6 +21,7 @@ from app.banco.tipos import Agente, Canal, Escritorio, Lead, Repositorio
 from app.canal import filtro
 from app.canal.helena import ClienteHelena, ErroHelena, Evento, ler_webhook, normalizar_telefone
 from app import automacoes
+from app import tempos
 from app import consumo
 from app import memoria
 from app import midia as midias
@@ -61,6 +62,8 @@ class Atendimento:
         self._descartes: dict[str, int] = {}               # turnos descartados seguidos por mensagem nova, por lead
         self._falhas_ia: dict[str, int] = {}               # falhas passageiras da IA seguidas, por lead
         self._prazos_gravados: dict[str, datetime] = {}    # último responder_apos que este processo gravou, por lead
+        self._fundo: set[asyncio.Task[None]] = set()       # notas e extras em segundo plano (não atrasam o lead)
+        self._preparo_do_envio: dict[str, tuple[Any, float | None]] = {}   # por turno: (canal, token), resposta pronta
         # Novas tentativas depois de falha passageira da IA. Com o modelo falso (testes e demonstração), a falha é
         # roteiro que acabou: não repete.
         from app.modelo import ModeloFalso
@@ -73,6 +76,9 @@ class Atendimento:
 
         id_escritorio_esperado vem da URL do webhook de cada escritório: a conta da mensagem tem de ser dele.
         """
+        # Relógio da espera: conta da CHEGADA do webhook. Antes contava do fim da recepção (≈17 idas ao banco depois),
+        # e o lead esperava o delay + o tempo da recepção.
+        chegada = (asyncio.get_running_loop().time(), agora())
         evento = ler_webhook(corpo)
         if evento.classe == "rastreio" and not (evento.origem and evento.numero_lead):
             return {"feito": "ignorado", "motivo": "rastreio_sem_dados"}
@@ -96,7 +102,7 @@ class Atendimento:
         if not escritorio:
             return {"feito": "ignorado", "motivo": "conta_nao_cadastrada"}
         try:
-            return await self._receber_do_escritorio(escritorio, evento)
+            return await self._receber_do_escritorio(escritorio, evento, chegada)
         except Exception:
             # Banco caiu no meio (pool, timeout, reinício): desfaz a marca de recebido e devolve o erro (HTTP 500), para o
             # reenvio da Helena valer. Sem isso a mensagem do lead sumia de vez: o reenvio caía em 'repetido'.
@@ -135,7 +141,8 @@ class Atendimento:
             await self._nota_de_problema(escritorio, lead, "envio_falhou", motivo, inteiro=True)
         return {"feito": "status", "motivo": "envio_falhou", "id_lead": id_lead}
 
-    async def _receber_do_escritorio(self, escritorio: Escritorio, evento: Evento) -> dict[str, Any]:
+    async def _receber_do_escritorio(self, escritorio: Escritorio, evento: Evento,
+                                     chegada: tuple[float, datetime] | None = None) -> dict[str, Any]:
         canal = await self.repo.canal_por_numero(escritorio.id, evento.numero_canal or "")
         if not canal:
             await self._evento(escritorio.id, None, None, "canal_nao_cadastrado", "aviso", "cadastro",
@@ -192,15 +199,18 @@ class Atendimento:
         decisao = filtro.decidir(evento, filtro.Regras.de(escritorio.config, agente.config if agente else None),
                                  self._rajada, agora())
         espera = self._tempo_de_espera(escritorio, agente, lead, evento) if decisao.responder else 0.0
+        relogio, chegou_em = chegada or (asyncio.get_running_loop().time(), agora())
         if decisao.responder:
             # Logo depois de gravar: se o processo cair daqui em diante, retomar_pendentes ainda acha a mensagem.
-            await self._marcar_resposta(lead.id, agora() + timedelta(seconds=espera))
-        await self.repo.atualizar_lead(lead.id, ultima_mensagem_lead_em=evento.enviada_em)
-        await self.repo.cancelar_followups(lead.id, "lead_respondeu")
+            await self._marcar_resposta(lead.id, chegou_em + timedelta(seconds=espera))
+        # Independentes entre si: juntas (uma ida ao banco de espera em vez de três).
+        _, _, primeiro = await self._juntos(
+            self.repo.atualizar_lead(lead.id, ultima_mensagem_lead_em=evento.enviada_em),
+            self.repo.cancelar_followups(lead.id, "lead_respondeu"),
+            self._primeiro_contato(lead, antes_de=id_mensagem) if agente else self._nada(False))
         # Card e etiqueta SDR na PRIMEIRA mensagem do lead, não só na criação da linha: o lead aberto pela atendente
         # ou por API (campanha) já existe quando o contato responde. A fila é idempotente (chave {id_lead}:lead_novo).
-        if agente and await self._primeiro_contato(lead, antes_de=id_mensagem) \
-                and self._vira_card(escritorio, agente, evento, decisao.motivo):
+        if agente and primeiro and self._vira_card(escritorio, agente, evento, decisao.motivo):
             await self._lead_novo(escritorio, agente, lead)       # card e etiqueta na chegada, sem esperar a IA
         if not decisao.responder:
             if decisao.pausar_lead and lead.estado == "ativo":
@@ -215,7 +225,8 @@ class Atendimento:
         if self._precisa_ler_midia(evento):
             await self._marcar_midia_pendente(id_mensagem)
             self._ler_em_segundo_plano(id_mensagem, lead, agente, evento)
-        self._agendar(lead.id, espera)
+        # O prazo conta da chegada: o tempo da recepção já gasto sai da espera (assinatura de _agendar inalterada).
+        self._agendar(lead.id, max(0.0, espera - (asyncio.get_running_loop().time() - relogio)))
         return {"feito": "agendado", "id_lead": lead.id, "espera_s": espera}
 
     async def _marcar_midia_pendente(self, id_mensagem: str) -> None:
@@ -340,11 +351,12 @@ class Atendimento:
                                  evento: Evento) -> dict[str, Any]:
         """Grava a fala, cancela o follow-up e pausa a IA de uma vez. Se falhar, nada fica pela metade:
         evento crítico 'pausa_falhou' (vai para a central da LawChat) e o reenvio do webhook volta a valer."""
+        pausa = self._pausa_por_humano(lead, agente)
         try:
             id_mensagem = await self.repo.registrar_fala_do_atendente(
                 lead=lead, tipo=evento.tipo, texto=evento.texto, texto_extraido=evento.texto_extraido,
                 url_midia=evento.url_midia, enviada_em=evento.enviada_em or agora(), id_externo=evento.id_externo,
-                pausa=self._pausa_por_humano(lead, agente), motivo_followup="equipe_falou")
+                pausa=pausa, motivo_followup="equipe_falou")
         except Exception as erro:
             log.exception("falha ao registrar a fala do atendente no lead %s", lead.id)
             try:
@@ -356,6 +368,14 @@ class Atendimento:
             except Exception:
                 log.exception("falha ao registrar o evento pausa_falhou do lead %s", lead.id)
             return {"feito": "erro", "motivo": "pausa_falhou", "id_lead": lead.id}
+        if pausa and not (lead.estado == "pausado" and lead.motivo_estado == "humano_assumiu"):
+            # Primeira fala da equipe que pausa a IA (pausa só renovada não repete): nota interna em segundo plano.
+            volta = pausa.get("pausado_ate")
+            texto = (self.NOTA_PAUSA_HUMANO.format(hora=self._hora(escritorio, volta)) if volta
+                     else self.NOTA_PAUSA_HUMANO_SEM_VOLTA)
+            self._em_segundo_plano("nota_pausa_humano", self._nota_interna(
+                escritorio, lead, f"{lead.id}:nota:pausa_humano:{id_mensagem or self._carimbo()}", texto),
+                escritorio, lead, None)
         if id_mensagem and self._precisa_ler_midia(evento, de_quem="atendente"):
             # Áudio, imagem ou vídeo da equipe: lido depois da pausa, sem segurar o webhook (o n8n transcrevia o áudio e
             # descrevia a imagem). Assim a IA sabe o que a atendente disse quando a conversa voltar para ela.
@@ -494,9 +514,30 @@ class Atendimento:
                                    "critico", "lawchat", "Erro inesperado ao processar o turno.")
 
     async def aguardar_esperas(self) -> None:
-        """Só para testes: espera todos os turnos agendados terminarem."""
-        while tarefas := [t for t in self._esperas.values() if not t.done()]:
+        """Só para testes: espera todos os turnos agendados (e as notas em segundo plano) terminarem."""
+        while tarefas := [t for t in [*self._esperas.values(), *self._fundo] if not t.done()]:
             await asyncio.gather(*tarefas, return_exceptions=True)
+
+    @staticmethod
+    async def _juntos(*aguardaveis: Any) -> list[Any]:
+        """asyncio.gather que espera TODOS terminarem antes de subir o primeiro erro: nada fica rodando solto depois de
+        uma falha (o desfazer do turno, por exemplo, só roda com as gravações paradas)."""
+        resultados = await asyncio.gather(*aguardaveis, return_exceptions=True)
+        for resultado in resultados:
+            if isinstance(resultado, BaseException):
+                raise resultado
+        return list(resultados)
+
+    @staticmethod
+    async def _nada(valor: Any = None) -> Any:
+        return valor
+
+    def _em_segundo_plano(self, nome: str, passo: Any, escritorio: Escritorio, lead: Lead, id_turno: str | None) -> None:
+        """Extra que não pode atrasar o lead nem derrubar nada (nota interna): roda como tarefa; a falha vira log e
+        evento (_passo_seguro), nunca some calada. O desligamento (encerrar) espera estas tarefas também."""
+        tarefa = asyncio.create_task(self._passo_seguro(nome, passo, escritorio, lead, id_turno))  # type: ignore[arg-type]
+        self._fundo.add(tarefa)
+        tarefa.add_done_callback(self._fundo.discard)
 
     # ------------------------------------------------------------------ turno
     # Reserva do lead no banco enquanto o turno roda (renovada antes do envio).
@@ -546,10 +587,13 @@ class Atendimento:
         trava = self._travas.setdefault(id_lead, asyncio.Lock())
         async with trava:
             if modo != "laboratorio":
-                if not await self.repo.reservar_lead(id_lead, self.RESERVA_S):
+                # A reserva e a leitura do prazo vão juntas (uma ida ao banco de espera em vez de duas).
+                reservou, falta = await self._juntos(self.repo.reservar_lead(id_lead, self.RESERVA_S),
+                                                     self._falta_para_responder(id_lead))
+                if not reservou:
                     self._agendar(id_lead, 15)
                     return None
-                if (falta := await self._falta_para_responder(id_lead)) > 1:
+                if falta > 1:
                     # O lead ainda está escrevendo (a mensagem nova pode ter chegado por outro servidor): espera o prazo.
                     await self.repo.liberar_lead(id_lead)
                     self._agendar(id_lead, falta)
@@ -567,8 +611,9 @@ class Atendimento:
                         break
             finally:
                 if modo != "laboratorio":
-                    await self.repo.liberar_lead(id_lead)
-                    if not await self.repo.mensagens_pendentes(id_lead) and id_lead not in self._prazos:
+                    _, restantes = await self._juntos(self.repo.liberar_lead(id_lead),
+                                                      self.repo.mensagens_pendentes(id_lead))
+                    if not restantes and id_lead not in self._prazos:
                         await self._marcar_resposta(id_lead, None)
             return saida
 
@@ -622,6 +667,7 @@ class Atendimento:
         O que for cortado vira 'turno_interrompido' na varredura do próximo servidor."""
         vivas = [t for t in self._esperas.values() if not t.done()]
         vivas += [t for tarefas in self._midias.values() for t in tarefas if not t.done()]
+        vivas += [t for t in self._fundo if not t.done()]
         if not vivas:
             return
         feitas, restantes = await asyncio.wait(vivas, timeout=teto_s)
@@ -691,23 +737,47 @@ class Atendimento:
 
     # ------------------------------------------------------------------ turno
     async def _um_turno(self, id_lead: str, modo: str | None, pode_descartar: bool) -> tuple[cerebro.Saida | None, bool]:
-        await self._esperar_midias(id_lead)          # arquivo do lead lido antes de a IA responder
-        lead = await self.repo.lead(id_lead)
-        if not lead:
-            return None, False
-        pendentes = await self.repo.mensagens_pendentes(id_lead)
-        if not pendentes:
-            return None, False
-        escritorio = await self.repo.escritorio(lead.id_escritorio)
-        agente = await self.repo.agente_do_canal(lead.id_canal)
-        assert escritorio is not None
-        if modo != "laboratorio":
-            if await self._adiar_pela_midia(lead, agente, pendentes):
-                return None, False
-            pendentes = await self.repo.mensagens_pendentes(id_lead) or pendentes   # textos lidos agora
-            lead = await self._reparar_etapa(lead, agente)
+        """Um turno, medido: a duração de cada passo e as idas ao banco vão em resposta["tempos"] (app/tempos.py)."""
+        _medicao, ficha = tempos.comecar()
+        try:
+            return await self._um_turno_medido(id_lead, modo, pode_descartar)
+        finally:
+            tempos.terminar(ficha)
 
-        lead = await self._religar_se_venceu(lead)
+    async def _um_turno_medido(self, id_lead: str, modo: str | None,
+                               pode_descartar: bool) -> tuple[cerebro.Saida | None, bool]:
+        with tempos.passo("esperar_midias"):
+            await self._esperar_midias(id_lead)          # arquivo do lead lido antes de a IA responder
+        with tempos.passo("carregar_contexto"):
+            # Leituras independentes juntas: cada ida ao banco custa ~200 ms em produção.
+            lead, pendentes = await self._juntos(self.repo.lead(id_lead), self.repo.mensagens_pendentes(id_lead))
+            if not lead or not pendentes:
+                return None, False
+            escritorio, agente = await self._juntos(self.repo.escritorio(lead.id_escritorio),
+                                                    self.repo.agente_do_canal(lead.id_canal))
+            assert escritorio is not None
+            historico: list[Any] | None = None
+            if modo != "laboratorio":
+                if await self._adiar_pela_midia(lead, agente, pendentes):
+                    return None, False
+                # Releitura das pendentes (textos lidos agora), reparo da etapa e o histórico do turno, juntos. O histórico
+                # serve à conferência "a equipe falou por último" (as 20 últimas) e ao prompt (as 40).
+                relidas, lead, historico = await self._juntos(
+                    self.repo.mensagens_pendentes(id_lead), self._reparar_etapa(lead, agente), self.repo.historico(id_lead))
+                pendentes = relidas or pendentes
+
+            pausa_antes = lead.motivo_estado if lead.estado == "pausado" else None
+            lead = await self._religar_se_venceu(lead)
+        if pausa_antes == "humano_assumiu" and lead.estado == "ativo":
+            # A pausa do atendente acabou e a IA volta sozinha: nota interna (segundo plano, não atrasa a resposta).
+            self._em_segundo_plano("nota_ia_voltou", self._nota_interna(
+                escritorio, lead, f"{lead.id}:nota:ia_voltou:{self._carimbo()}", self.NOTA_IA_VOLTOU), escritorio, lead, None)
+        return await self._um_turno_decidir(escritorio, agente, lead, pendentes, historico, modo, pode_descartar)
+
+    async def _um_turno_decidir(self, escritorio: Escritorio, agente: Agente | None, lead: Lead, pendentes: list[Any],
+                                historico: list[Any] | None, modo: str | None,
+                                pode_descartar: bool) -> tuple[cerebro.Saida | None, bool]:
+        id_lead = lead.id
         if modo != "laboratorio" and lead.estado == "pausado" and lead.motivo_estado == "desativada_pela_equipe" \
                 and lead.pausado_ate:
             # IA desligada pela equipe até um horário: a mensagem fica guardada e a IA responde quando o prazo acabar
@@ -731,13 +801,22 @@ class Atendimento:
                 self._agendar(id_lead, max(1.0, (abre_em - agora()).total_seconds()))
                 return None, False
         if modo != "laboratorio" and lead.estado == "ativo" and not fora_do_horario \
-                and await self._equipe_falou_por_ultimo(id_lead, pendentes):
+                and await self._equipe_falou_por_ultimo(id_lead, pendentes, historico):
             fora_do_horario = "equipe_respondeu"     # guardadas na desativação e já respondidas pela equipe: silêncio
-        id_turno = await self.repo.abrir_turno(lead=lead, modo=modo, etapa_antes=etapa.codigo if etapa else None)
+        abrir = self.repo.abrir_turno(lead=lead, modo=modo, etapa_antes=etapa.codigo if etapa else None)
+        preparo: dict[str, Any] | None = None
+        if self._por_que_nao_atende(escritorio, agente, lead, etapa, modo) or fora_do_horario:
+            id_turno = await abrir                   # a IA não atende: nada mais a ler
+        else:
+            # Abre o turno e, junto, confere o saldo e lê o que o prompt precisa (fatos, ficha, base, contrato). Erro de
+            # leitura fica guardado e sobe dentro do turno aberto (mesmo caminho de antes: turno fecha como 'erro').
+            with tempos.passo("carregar_contexto"):
+                assert agente is not None
+                id_turno, preparo = await self._juntos(abrir, self._ler_para_o_turno(escritorio, agente, lead, historico))
         ids_lote = [m.id for m in pendentes]
         try:
             return await self._turno_aberto(escritorio, agente, lead, etapa, modo, fora_do_horario, pendentes, ids_lote,
-                                            id_turno, pode_descartar)
+                                            id_turno, pode_descartar, preparo=preparo)
         except Exception as erro:
             # Erro inesperado (dado ruim, bug, banco): o turno fecha como 'erro', as mensagens saem da fila (sem laço a
             # cada minuto pagando IA) e a equipe recebe evento e nota para responder manualmente.
@@ -770,12 +849,13 @@ class Atendimento:
 
     async def _turno_aberto(self, escritorio: Escritorio, agente: Agente | None, lead: Lead, etapa: Any, modo: str,
                             fora_do_horario: str | None, pendentes: list[Any], ids_lote: list[str], id_turno: str,
-                            pode_descartar: bool) -> tuple[cerebro.Saida | None, bool]:
+                            pode_descartar: bool, preparo: dict[str, Any] | None = None
+                            ) -> tuple[cerebro.Saida | None, bool]:
         id_lead = lead.id
         # Primeira conferência: a IA pode atender este lead?
         motivo = self._por_que_nao_atende(escritorio, agente, lead, etapa, modo) or fora_do_horario
         if not motivo:                               # vale também no modo teste: teste também gasta
-            motivo = await self._conferir_consumo(escritorio)
+            motivo = self._valor(preparo["consumo"]) if preparo else await self._conferir_consumo(escritorio)
         if motivo:
             await self.repo.marcar_no_turno(ids_lote, id_turno)
             await self.repo.fechar_turno(id_turno, situacao="silencio", motivo=motivo,
@@ -790,29 +870,34 @@ class Atendimento:
             return None, False
         assert agente is not None and etapa is not None
 
-        entrada = await self._montar_entrada(escritorio, agente, lead, etapa.codigo, pendentes)
+        with tempos.passo("carregar_contexto"):
+            entrada = await self._montar_entrada(escritorio, agente, lead, etapa.codigo, pendentes, lidos=preparo)
         try:
-            saida = await asyncio.wait_for(cerebro.processar(self.modelo, entrada), timeout=self._teto_do_turno())
+            with tempos.passo("ia_total"):           # extrator + auditor + agente (+ correção), detalhados no cérebro
+                saida = await asyncio.wait_for(cerebro.processar(self.modelo, entrada), timeout=self._teto_do_turno())
         except asyncio.TimeoutError:
             # A IA pendurou (conexão lenta): falha do modelo, pelo mesmo caminho das outras (evento e nota).
             saida = cerebro._falha(cerebro.Saida(etapa_antes=entrada.etapa, etapa_depois=entrada.etapa,
                                                  fatos_depois=dict(entrada.fatos)),
                                    "turno", ErroModelo("sem_conexao", f"a IA passou de {self._teto_do_turno():.0f} s"))
-        await self._depois_da_busca(agente, entrada, saida)     # custo do embedding da consulta entra no consumo
-        self._classificar_falha_da_ia(saida)
-        if saida.situacao == "respondido" and not saida.mensagens and not saida.estado_lead:
-            saida.eventos.append({"tipo": "resposta_vazia", "gravidade": "erro", "responsavel": "lawchat",
-                                  "descricao": "A IA devolveu uma resposta vazia.", "detalhe": {}})
-        await self.repo.gravar_chamadas(id_escritorio=escritorio.id, id_turno=id_turno, chamadas=saida.chamadas)
+        pronta_em = asyncio.get_running_loop().time()      # a resposta existe: a pausa de digitação conta daqui
+        with tempos.passo("conferencia"):
+            await self._depois_da_busca(agente, entrada, saida)     # custo do embedding da consulta entra no consumo
+            self._classificar_falha_da_ia(saida)
+            if saida.situacao == "respondido" and not saida.mensagens and not saida.estado_lead:
+                saida.eventos.append({"tipo": "resposta_vazia", "gravidade": "erro", "responsavel": "lawchat",
+                                      "descricao": "A IA devolveu uma resposta vazia.", "detalhe": {}})
+            # As chamadas pagas são gravadas junto da segunda conferência (chegou mensagem nova? o atendente assumiu? a
+            # etapa mudou?): três idas ao banco ao mesmo tempo.
+            _, agora_pendentes, lead_agora = await self._juntos(
+                self.repo.gravar_chamadas(id_escritorio=escritorio.id, id_turno=id_turno, chamadas=saida.chamadas),
+                self.repo.mensagens_pendentes(id_lead), self.repo.lead(id_lead))
         self._consumo.somar(escritorio.id, sum(c.custo_usd or 0 for c in saida.chamadas))
 
         if await self._tentar_de_novo_depois(escritorio, lead, id_turno, saida, modo):
             return None, False
         self._formato_invalido(entrada, saida)              # B3: fora do formato vira mensagem fixa + equipe
 
-        # Segunda conferência, antes de enviar: chegou mensagem nova? o atendente assumiu? a etapa mudou?
-        agora_pendentes = await self.repo.mensagens_pendentes(id_lead)
-        lead_agora = await self.repo.lead(id_lead)
         if lead_agora and lead_agora.estado != "ativo":
             await self.repo.marcar_no_turno(ids_lote, id_turno)
             await self._fechar(id_turno, saida, "descartado", "estado_mudou:" + (lead_agora.motivo_estado or lead_agora.estado))
@@ -834,24 +919,30 @@ class Atendimento:
         # Grava o que o turno decidiu e envia.
         self._descartes.pop(id_lead, None)
         self._falhas_ia.pop(id_lead, None)
-        await self.repo.marcar_no_turno(ids_lote, id_turno)
-        await self._limitar_trocas(entrada, lead, saida)     # B7: no máximo 4 trocas da IA por lead em 24 h
+        with tempos.passo("gravacoes"):
+            await self._juntos(self.repo.marcar_no_turno(ids_lote, id_turno),
+                               self._limitar_trocas(entrada, lead, saida))   # B7: no máximo 4 trocas da IA por lead em 24 h
         if saida.estado_lead == "pausado":
             self._por_ficha(agente, entrada, saida)         # B2: ficha do caso em toda passagem para humano
         saida.contexto["partes_entregues"] = 0
         try:
-            return await self._gravar_e_enviar(escritorio, agente, lead, etapa, modo, entrada, saida, id_turno)
+            return await self._gravar_e_enviar(escritorio, agente, lead, etapa, modo, entrada, saida, id_turno,
+                                               pronta_em=pronta_em)
         except Exception:
             if not saida.contexto.get("partes_entregues") and not saida.contexto.get("envio_feito"):
                 await self._desfazer_turno(escritorio, lead, id_turno, saida)
             raise
 
     async def _gravar_e_enviar(self, escritorio: Escritorio, agente: Agente, lead: Lead, etapa: Any, modo: str,
-                               entrada: cerebro.Entrada, saida: cerebro.Saida, id_turno: str
-                               ) -> tuple[cerebro.Saida | None, bool]:
+                               entrada: cerebro.Entrada, saida: cerebro.Saida, id_turno: str,
+                               pronta_em: float | None = None) -> tuple[cerebro.Saida | None, bool]:
         id_lead = lead.id
+        # Gravações antes do envio (fatos, troca de etapa, renovação da reserva) e as leituras do envio (canal, token),
+        # todas juntas: elas correm enquanto a pausa de digitação da 1ª parte já conta (pronta_em). Uma falha em fatos ou
+        # etapa ainda impede o envio (o turno é desfeito com tudo parado: _juntos espera todas terminarem).
+        escritas: list[Any] = []
         if saida.fatos_novos:
-            await self.repo.gravar_fatos(lead=lead, id_turno=id_turno, fatos=saida.fatos_novos)
+            escritas.append(self.repo.gravar_fatos(lead=lead, id_turno=id_turno, fatos=saida.fatos_novos))
         campos: dict[str, Any] = {}
         nova_etapa = agente.etapa(saida.etapa_depois)
         if saida.etapa_depois != saida.etapa_antes:
@@ -862,23 +953,45 @@ class Atendimento:
                                       "descricao": f"O agente não tem a etapa {saida.etapa_depois}.", "detalhe": {}})
         if "id_etapa" in campos:
             # A troca de etapa é gravada antes do envio: um reinício no meio do envio não volta o lead para a etapa antiga.
-            await self.repo.atualizar_lead(lead.id, id_etapa=campos.pop("id_etapa"))
+            escritas.append(self.repo.atualizar_lead(lead.id, id_etapa=campos.pop("id_etapa")))
             trocou_etapa = True
         else:
             trocou_etapa = False
+        if not saida.mensagens:
+            with tempos.passo("gravacoes"):
+                await self._juntos(*escritas)
         if saida.estado_lead:
             campos.update(estado=saida.estado_lead, motivo_estado=saida.motivo_estado, pausado_ate=None)
 
         if saida.mensagens:
+            # A frase de entrada de outro agente ("Maravilha!…") sai sempre sozinha, numa mensagem só dela.
+            papeis_cfg = ((agente.config.get("catalogo") or {}).get("papeis") or {})
+            saida.mensagens = formatador.isolar_frases(
+                saida.mensagens, [str((c or {}).get("mensagem_troca") or "") for c in papeis_cfg.values() if isinstance(c, dict)])
+            # Tamanho das mensagens escolhido no agente (Curtas/Médias/Longas/Uma só): reparte os textos nesse tamanho.
+            tamanho = int(agente.config.get("caracteres_por_mensagem") or 0)
+            if tamanho > 0:
+                saida.mensagens = formatador.redividir(saida.mensagens, tamanho)
             # Teto de balões por turno (agente.config["max_baloes"], padrão 5): 9 balões de até 8 s parecem robô.
+            # Com tamanho escolhido, juntar nunca passa desse tamanho (pode sobrar balão: conteúdo nunca é cortado).
             saida.mensagens = formatador.juntar_excedente(
-                saida.mensagens, teto=int(agente.config.get("max_baloes") or formatador.TETO_DE_BALOES))
-            if modo != "laboratorio" and (renovar := getattr(self.repo, "renovar_reserva", None)):
-                try:
-                    await renovar(id_lead, self.RESERVA_S)   # o envio (pausas de digitação) não deixa a reserva vencer
-                except Exception:
-                    log.exception("falha ao renovar a reserva do lead %s", id_lead)
-            completo, entregues = await self._enviar(escritorio, agente, lead, id_turno, saida, modo)
+                saida.mensagens, teto=int(agente.config.get("max_baloes") or formatador.TETO_DE_BALOES),
+                limite=tamanho if tamanho > 0 else formatador.LIMITE_DO_BALAO_JUNTADO)
+            if modo != "laboratorio" and getattr(self.repo, "renovar_reserva", None):
+                escritas.append(self._renovar_reserva(id_lead))  # o envio (pausas de digitação) não deixa a reserva vencer
+            de_verdade = modo != "laboratorio" and self.helena is not None
+            with tempos.passo("gravacoes"):
+                _, canal, token = await self._juntos(
+                    self._juntos(*escritas), self.repo.canal(lead.id_canal),
+                    self._token_helena(escritorio) if de_verdade else self._nada(None))
+            # Canal e token já lidos e o instante da resposta pronta vão por fora da assinatura de _enviar (os testes
+            # trocam _enviar por uma função com a assinatura antiga).
+            self._preparo_do_envio[id_turno] = ((canal, token), pronta_em)
+            try:
+                with tempos.passo("envio"):
+                    completo, entregues = await self._enviar(escritorio, agente, lead, id_turno, saida, modo)
+            finally:
+                self._preparo_do_envio.pop(id_turno, None)
             if entregues:
                 campos["ultima_resposta_ia_em"] = agora()
             elif trocou_etapa:
@@ -905,29 +1018,86 @@ class Atendimento:
                                   "detalhe": {"de": saida.etapa_antes, "para": saida.etapa_depois,
                                               "origem": catalogo_ctx.get("origem_destino") or "ia",
                                               "id_turno": id_turno, "motivo": saida.motivo}})
-        # Depois do envio: cada passo isolado (um que falha não impede os outros nem o fechamento do turno).
-        await self._passo_seguro("contrato", self._acoes_do_contrato(escritorio, agente, lead, id_turno, saida, modo),
-                                 escritorio, lead, id_turno)
-        await self._passo_seguro("automacoes", self._automacoes(escritorio, agente, lead, id_turno, entrada, saida, modo),
-                                 escritorio, lead, id_turno)
+        # Depois do envio: cada passo isolado (um que falha não impede os outros nem o fechamento do turno) e todos ao
+        # mesmo tempo (antes, um atrás do outro: ~25 idas ao banco em fila). Continuam dentro do turno, com o lead
+        # reservado: um follow-up agendado depois da próxima mensagem do lead (que cancela os follow-ups) seria errado.
+        def seguro(nome: str, passo: Any) -> Any:
+            return self._passo_seguro(nome, passo, escritorio, lead, id_turno)
+
+        passos = [seguro("contrato", self._acoes_do_contrato(escritorio, agente, lead, id_turno, saida, modo)),
+                  seguro("automacoes", self._automacoes(escritorio, agente, lead, id_turno, entrada, saida, modo))]
         if saida.mensagens and modo != "laboratorio":
             # O relógio do follow-up começa na última resposta da IA.
-            await self._passo_seguro("followup", self.repo.agendar_followup(lead.id, agora()), escritorio, lead, id_turno)
+            passos.append(seguro("followup", self.repo.agendar_followup(lead.id, agora())))
             # 20+ mensagens antigas fora da janela sem resumo: refaz a ficha pela fila (não atrasa nem derruba nada).
-            await self._passo_seguro("resumo", memoria.pedir_resumo_se_preciso(
-                self.repo, id_escritorio=escritorio.id, id_lead=lead.id, id_turno=id_turno, comeco=entrada.comeco_conversa),
-                escritorio, lead, id_turno)
-        await self._passo_seguro("lacuna", self._registrar_lacuna(escritorio, agente, lead, id_turno, saida),
-                                 escritorio, lead, id_turno)
-        await self._passo_seguro("eventos", self.repo.gravar_eventos(
-            id_escritorio=escritorio.id, id_lead=lead.id, id_turno=id_turno, eventos=saida.eventos), escritorio, lead, id_turno)
+            passos.append(seguro("resumo", memoria.pedir_resumo_se_preciso(
+                self.repo, id_escritorio=escritorio.id, id_lead=lead.id, id_turno=id_turno, comeco=entrada.comeco_conversa)))
+        passos.append(seguro("lacuna", self._registrar_lacuna(escritorio, agente, lead, id_turno, saida)))
+        notas = []
         for evento in saida.eventos:
             if self._automacao_ja_anota(agente, evento["tipo"], saida.etapa_depois):
                 continue                                 # a nota configurada pelo escritório já vai: sem nota dobrada
             ficha_do_caso = saida.ficha if self._e_passagem(evento["tipo"]) else None
-            await self._nota_de_problema(escritorio, lead, evento["tipo"], evento.get("descricao") or "", ficha=ficha_do_caso)
+            notas.append((evento["tipo"], evento.get("descricao") or "", ficha_do_caso))
+
+        async def eventos_e_notas() -> None:
+            # Os eventos antes das notas: a nota repetida conta as ocorrências do problema na tabela de eventos.
+            await seguro("eventos", self.repo.gravar_eventos(
+                id_escritorio=escritorio.id, id_lead=lead.id, id_turno=id_turno, eventos=saida.eventos))
+            await asyncio.gather(*(self._nota_de_problema(escritorio, lead, tipo, descricao, ficha=ficha)
+                                   for tipo, descricao, ficha in notas))
+        passos.append(eventos_e_notas())
+        if modo != "laboratorio" and saida.contexto.get("partes_entregues") \
+                and not any(m.get("autor") == "você" for m in entrada.historico):
+            # Primeira resposta da IA a este lead (lead novo ou número de teste zerado): nota interna, uma vez por lead.
+            passos.append(seguro("nota_atendimento_iniciado", self._nota_interna(
+                escritorio, lead, f"{lead.id}:nota:atendimento_iniciado",
+                self._texto_atendimento_iniciado(escritorio, agente, entrada, saida))))
+        with tempos.passo("pos_envio"):
+            await asyncio.gather(*passos)            # cada um já se protege (_passo_seguro / _nota_de_problema)
         await self._fechar(id_turno, saida, saida.situacao, saida.motivo)
         return saida, False
+
+    async def _renovar_reserva(self, id_lead: str) -> None:
+        try:
+            await self.repo.renovar_reserva(id_lead, self.RESERVA_S)     # type: ignore[attr-defined]
+        except Exception:
+            log.exception("falha ao renovar a reserva do lead %s", id_lead)
+
+    # ------------------------------------------------------------------ notas internas do atendimento
+    NOTA_ATENDIMENTO_INICIADO = "🤖 Atendimento iniciado pelo agente {agente} às {hora}"
+    NOTA_PAUSA_HUMANO = "🙋 IA pausada: alguém da equipe entrou no atendimento. Ela volta a responder às {hora}"
+    NOTA_PAUSA_HUMANO_SEM_VOLTA = "🙋 IA pausada: alguém da equipe entrou no atendimento. Ela só volta quando a equipe religar"
+    NOTA_IA_VOLTOU = "🤖 IA voltou a atender"
+
+    @staticmethod
+    def _carimbo() -> str:
+        return agora().strftime("%Y%m%d%H%M%S%f")
+
+    @staticmethod
+    def _hora(escritorio: Escritorio, quando: datetime) -> str:
+        """HH:MM no fuso do escritório (padrão: Brasília)."""
+        from app.notificacoes import fuso
+        return quando.astimezone(fuso(escritorio.config.get("fuso") or "America/Sao_Paulo")).strftime("%H:%M")
+
+    def _texto_atendimento_iniciado(self, escritorio: Escritorio, agente: Agente, entrada: cerebro.Entrada,
+                                    saida: cerebro.Saida) -> str:
+        codigo = saida.etapa_antes or entrada.etapa
+        if agente.produto == "catalogo":
+            from app.cerebro import catalogo
+            etapa = catalogo.NOMES.get(codigo, codigo)
+        else:
+            etapa = next((e.nome for e in getattr(entrada.produto, "etapas", []) if e.codigo == codigo), codigo)
+        nome = f"{agente.nome} ({etapa})" if etapa and etapa != agente.nome else agente.nome
+        return self.NOTA_ATENDIMENTO_INICIADO.format(agente=nome, hora=self._hora(escritorio, agora()))
+
+    async def _nota_interna(self, escritorio: Escritorio, lead: Lead, chave: str, texto: str) -> None:
+        """Nota interna no atendimento da Helena, pela fila (mesmo caminho das notas de aviso): não gasta IA e a chave
+        única impede a nota repetida. Sem atendimento aberto na Helena não há onde anotar."""
+        if not lead.id_sessao_helena:
+            return
+        await self.repo.enfileirar_acoes(id_escritorio=escritorio.id, id_lead=lead.id, id_turno=None, acoes=[
+            {"tipo": "nota", "chave_unica": chave, "dados": {"texto": texto}}])
 
     async def _passo_seguro(self, nome: str, passo: Any, escritorio: Escritorio, lead: Lead, id_turno: str) -> None:
         """Roda um passo depois do envio sem deixar a falha dele derrubar o resto do turno."""
@@ -1090,10 +1260,12 @@ class Atendimento:
         )
         if not gatilhos:
             return
+        config_crm, avisos = await self._juntos(self.repo.config_crm(escritorio.id),
+                                                self.repo.eventos_com_aviso(escritorio.id))
         acoes = automacoes.montar_acoes(
-            agente.config, await self.repo.config_crm(escritorio.id), gatilhos,
+            agente.config, config_crm, gatilhos,
             id_lead=lead.id, id_turno=id_turno, contexto=f"Motivo: {saida.motivo}" if saida.motivo else "",
-            avisos=await self.repo.eventos_com_aviso(escritorio.id),
+            avisos=avisos,
         )
         await self.repo.enfileirar_acoes(id_escritorio=escritorio.id, id_lead=lead.id, id_turno=id_turno, acoes=acoes)
         saida.contexto["automacoes"] = {"gatilhos": gatilhos, "acoes": [a["tipo"] for a in acoes]}
@@ -1345,11 +1517,15 @@ class Atendimento:
             lead.estado, lead.motivo_estado, lead.pausado_ate = "ativo", None, None
         return lead
 
-    async def _equipe_falou_por_ultimo(self, id_lead: str, pendentes: list[Any]) -> bool:
-        """A equipe respondeu depois da última mensagem do lead que espera resposta (guardada durante a desativação)."""
+    async def _equipe_falou_por_ultimo(self, id_lead: str, pendentes: list[Any],
+                                       historico: list[Any] | None = None) -> bool:
+        """A equipe respondeu depois da última mensagem do lead que espera resposta (guardada durante a desativação).
+        historico: o do turno (40 últimas, já lido); as 20 últimas dele são exatamente historico(id_lead, 20)."""
         ultima_do_lead = max((m.enviada_em for m in pendentes if m.enviada_em), default=None)
         if ultima_do_lead is None:
             return False
+        if historico is not None:
+            return any(m.autor == "humano" and m.enviada_em and m.enviada_em > ultima_do_lead for m in historico[-20:])
         try:
             historico = await self.repo.historico(id_lead, 20)
         except Exception:
@@ -1395,8 +1571,14 @@ class Atendimento:
         usada = agente.etapa(etapa.codigo)
         return ((usada.instrucao if usada else None) or "").strip()
 
+    async def _ler_base(self, agente: Agente) -> tuple[Any, Any]:
+        """Trechos indexados e documentos ainda sem índice do agente, juntos."""
+        trechos, sem_indice = await self._juntos(self.repo.trechos_do_agente(agente.id),
+                                                 self.repo.documentos_do_agente(agente.id))
+        return trechos, sem_indice
+
     async def _conhecimento(self, agente: Agente, pendentes: list[Any], historico: list[Any],
-                            papel: str | None = None) -> dict[str, Any]:
+                            papel: str | None = None, lidos_base: Any = None) -> dict[str, Any]:
         """Base de conhecimento do turno (docs/BASE_DE_CONHECIMENTO.md): o que é pequeno fica fixo no sistema; a busca
         pela fala nova do lead começa aqui, como tarefa, e roda junto do extrator (o turno espera em "_busca")."""
         from app import conhecimento as base
@@ -1404,8 +1586,11 @@ class Atendimento:
 
         config = dict(agente.config.get("conhecimento") or {})
         try:
-            trechos = await self.repo.trechos_do_agente(agente.id)      # escopo: agente (= escritório + produto)
-            sem_indice = await self.repo.documentos_do_agente(agente.id)
+            if lidos_base is None:
+                lidos_base = await self._ler_base(agente)               # escopo: agente (= escritório + produto)
+            if isinstance(lidos_base, BaseException):
+                raise lidos_base
+            trechos, sem_indice = lidos_base
             real = self.vetorizador is not None and not getattr(self.vetorizador, "falso", False)
             preparo = indice.preparar(config, papel, indexados=trechos, sem_indice=sem_indice,
                                       modelo_vetor=getattr(self.vetorizador, "modelo", None) if real else None)
@@ -1453,9 +1638,37 @@ class Atendimento:
         except Exception:                            # noqa: BLE001 - a lacuna nunca derruba o turno
             log.warning("falha ao registrar a pergunta sem resposta", exc_info=True)
 
+    async def _ler_para_o_turno(self, escritorio: Escritorio, agente: Agente, lead: Lead,
+                                historico: list[Any] | None, consumo: bool = True) -> dict[str, Any]:
+        """Tudo o que o turno lê do banco antes da IA, ao mesmo tempo (antes: ~9 idas em fila). Cada resultado pode ser
+        a exceção da leitura: quem usa decide (_valor sobe o erro; a base cai no conhecimento da config, como antes)."""
+        funcoes = agente.config.get("funcoes") or {}
+        nomes = ("consumo", "historico", "fatos", "fatos_sistema", "comeco", "base", "obrigatorios")
+        resultados = await asyncio.gather(
+            self._conferir_consumo(escritorio) if consumo else self._nada(None),
+            self._nada(historico) if historico is not None else self.repo.historico(lead.id),
+            self.repo.fatos_vigentes(lead.id),
+            self.repo.fatos_do_sistema(lead.id),
+            memoria.ler_comeco(self.repo, lead.id),
+            self._ler_base(agente),
+            self._obrigatorios_do_contrato(escritorio, agente) if funcoes.get("contrato_zapsign") else self._nada(None),
+            return_exceptions=True)
+        for resultado in resultados:
+            if isinstance(resultado, asyncio.CancelledError):
+                raise resultado
+        return dict(zip(nomes, resultados))
+
+    @staticmethod
+    def _valor(resultado: Any) -> Any:
+        if isinstance(resultado, BaseException):
+            raise resultado
+        return resultado
+
     async def _montar_entrada(self, escritorio: Escritorio, agente: Agente, lead: Lead,
-                              etapa: str, pendentes: list[Any]) -> cerebro.Entrada:
-        historico = await self.repo.historico(lead.id)
+                              etapa: str, pendentes: list[Any], lidos: dict[str, Any] | None = None) -> cerebro.Entrada:
+        if lidos is None:
+            lidos = await self._ler_para_o_turno(escritorio, agente, lead, None, consumo=False)
+        historico = self._valor(lidos["historico"])
         modelos = agente.config.get("modelos", {})
         produto = produtos.carregar(agente.produto, agente.config)
         etapa_atual = agente.etapa(etapa)
@@ -1464,7 +1677,7 @@ class Atendimento:
             agente=agente.nome,
             etapa=etapa,
             novas=[m.para_a_ia() for m in pendentes if m.para_a_ia()] or ["(mensagem vazia)"],
-            fatos=await self.repo.fatos_vigentes(lead.id),
+            fatos=self._valor(lidos["fatos"]),
             historico=[{"autor": "você" if m.autor == "ia" else ("atendente" if m.autor == "humano" else m.autor),
                         "texto": m.para_a_ia()} for m in historico if m.para_a_ia()],
             instrucoes={e.codigo: e.instrucao for e in agente.etapas},
@@ -1474,12 +1687,13 @@ class Atendimento:
             mensagens_fixas=agente.config.get("mensagens_fixas", {}),
             modelo_extrator=modelos.get("extrator") or self.config.modelo_padrao,
             conhecimento=await self._conhecimento(agente, pendentes, historico, papel=(
-                etapa if agente.produto != "catalogo" or etapa in produto.papeis else produto.etapa_inicial())),
-            fatos_sistema=await self.repo.fatos_do_sistema(lead.id),
-            comeco_conversa=await memoria.ler_comeco(self.repo, lead.id),
+                etapa if agente.produto != "catalogo" or etapa in produto.papeis else produto.etapa_inicial()),
+                lidos_base=lidos["base"]),
+            fatos_sistema=self._valor(lidos["fatos_sistema"]),
+            comeco_conversa=self._valor(lidos["comeco"]),
             temperatura=agente.config.get("temperatura") if agente.produto == "catalogo" else None,
             enriquecer=self._enriquecer_por_cep if (agente.config.get("funcoes") or {}).get("buscar_cep") else None,
-            obrigatorios_contrato=await self._obrigatorios_do_contrato(escritorio, agente)
+            obrigatorios_contrato=self._valor(lidos["obrigatorios"])
                                   if (agente.config.get("funcoes") or {}).get("contrato_zapsign") else None,
             modelo_auditor=None if (self.config.modelo_falso or agente.config.get("auditor") is False)
                            else (modelos.get("auditor") or os.environ.get("AGENTESIA_MODELO_AUDITOR", "gpt-6-luna")),
@@ -1489,16 +1703,37 @@ class Atendimento:
         )
 
     async def _enviar(self, escritorio: Escritorio, agente: Agente, lead: Lead, id_turno: str,
-                      saida: cerebro.Saida, modo: str) -> tuple[bool, int]:
+                      saida: cerebro.Saida, modo: str, lidos: tuple[Any, str | None] | None = None,
+                      pronta_em: float | None = None) -> tuple[bool, int]:
         """Envia cada parte. Uma parte que falha não para as outras. Devolve (completo, partes entregues); completo é False quando o envio parou porque
         o lead saiu da IA (atendente assumiu entre uma parte e outra).
 
         Token: só o do próprio escritório (integração e, como reserva, a coluna antiga; a mesma fonte do Executor e
         do follow-up). Sem token não há envio nem nota possível: evento de cadastro (vai para a central) e as partes
-        ficam gravadas como 'falhou'. O token global do .env só vale no modo de laboratório (AGENTESIA_MODO_LAB=1)."""
-        canal = await self.repo.canal(lead.id_canal)
+        ficam gravadas como 'falhou'. O token global do .env só vale no modo de laboratório (AGENTESIA_MODO_LAB=1).
+
+        lidos: (canal, token) já lidos junto das gravações do turno. pronta_em: instante (relógio do loop) em que a
+        resposta ficou pronta; a pausa de digitação da 1ª parte conta dali (o tempo das gravações entra nela)."""
         de_verdade = modo != "laboratorio" and self.helena is not None
-        token = await self._token_helena(escritorio) if de_verdade else None
+        if lidos is None and id_turno in self._preparo_do_envio:
+            lidos, pronta_em = self._preparo_do_envio[id_turno]
+        if lidos is None:
+            canal, token = await self._juntos(self.repo.canal(lead.id_canal),
+                                              self._token_helena(escritorio) if de_verdade else self._nada(None))
+        else:
+            canal, token = lidos
+        relogio = asyncio.get_running_loop()
+        gravando: list[asyncio.Future[Any]] = []             # gravação de cada parte, enquanto a próxima "digita"
+        primeira = [True]
+
+        async def pausar(parte: dict[str, Any]) -> None:
+            # Pausa de digitação. A da 1ª parte conta de quando a resposta ficou pronta: as gravações do turno já
+            # gastaram parte dela (o lead não espera as duas coisas uma depois da outra).
+            espera = float(parte.get("espera_s", 0))
+            if primeira[0] and pronta_em is not None:
+                espera = max(0.0, espera - (relogio.time() - pronta_em))
+            primeira[0] = False
+            await asyncio.sleep(espera)
         if de_verdade and not token:
             saida.eventos.append({"tipo": "escritorio_sem_token_helena", "gravidade": "erro", "responsavel": "cadastro",
                                   "descricao": "O escritório não tem token da Helena cadastrado: a resposta da IA não foi "
@@ -1523,7 +1758,7 @@ class Atendimento:
                 # digitação acontece primeiro e o lead é relido antes de cada parte. As partes que faltam não são
                 # gravadas como mensagem (o lead não as viu; situacao_envio não tem 'cancelada') e ficam no contexto.
                 if self.digitar:
-                    await asyncio.sleep(float(parte.get("espera_s", 0)))
+                    await pausar(parte)
                 ja_esperou = True
                 atual = await self.repo.lead(lead.id)
                 if atual and atual.estado != "ativo":
@@ -1544,11 +1779,12 @@ class Atendimento:
                     if not lead.id_sessao_helena:
                         raise ErroHelena("lead sem atendimento aberto")
                     if self.digitar and not ja_esperou:
-                        await asyncio.sleep(float(parte.get("espera_s", 0)))
+                        await pausar(parte)
                     id_externo = await self.helena.enviar(           # type: ignore[union-attr]
                         token=token, id_sessao=lead.id_sessao_helena,
                         id_canal=canal.id_canal_helena if canal else None, texto=texto, url_arquivo=url,
                     )
+                    tempos.marcar("primeira_parte_enviada")
                 except asyncio.CancelledError:
                     raise
                 except Exception as falha:              # ErroHelena e qualquer outro: uma parte nunca para as outras
@@ -1581,15 +1817,13 @@ class Atendimento:
                 extraido = "[NÃO ENTREGUE ao lead] " + (texto if texto is not None else f"mídia {url or parte.get('chave')}")
             else:
                 extraido = None if texto is not None else f"[mídia enviada: {url or parte.get('chave')}]"
-            try:
-                await self.repo.gravar_mensagem(
-                    lead=lead, autor="ia", tipo="texto" if texto is not None else self.tipo_da_midia(url),
-                    texto=texto, texto_extraido=extraido,
-                    url_midia=url, enviada_em=agora(), id_externo=id_externo, id_turno=id_turno,
-                    situacao_envio=situacao, erro=erro,
-                )
-            except Exception:
-                log.exception("falha ao gravar a parte enviada no turno %s", id_turno)
+            # A gravação da parte corre enquanto a próxima parte "digita" (enviada_em é o de agora: a ordem fica certa).
+            gravando.append(asyncio.ensure_future(self._gravar_parte(
+                lead=lead, autor="ia", tipo="texto" if texto is not None else self.tipo_da_midia(url),
+                texto=texto, texto_extraido=extraido,
+                url_midia=url, enviada_em=agora(), id_externo=id_externo, id_turno=id_turno,
+                situacao_envio=situacao, erro=erro,
+            )))
             if situacao in ("enviada", "pendente"):           # 'pendente' = talvez enviada (sem confirmação)
                 entregues += 1
                 # B7: o turno que quebrar depois daqui não é desfeito (o lead já ouviu parte da resposta).
@@ -1600,6 +1834,8 @@ class Atendimento:
                     # A Helena e o WhatsApp baixam o arquivo antes de entregar: sem esta pausa, o texto seguinte chegava
                     # antes do vídeo (o n8n esperava depois de cada envio e 10 s depois do vídeo de apresentação).
                     await asyncio.sleep(self._espera_depois_da_midia(url, parte, agente))
+        if gravando:
+            await asyncio.gather(*gravando)                  # cada uma já registra a própria falha
         if enviadas:
             # O envio é assíncrono (a Helena só diz que entrou na fila): 1 min depois, a fila confere a entrega e
             # transforma FAILED em 'falhou' + envio_falhou + nota (mídia apagada, URL renomeada...).
@@ -1610,6 +1846,12 @@ class Atendimento:
             except Exception:                                # conferir é um extra: nunca derruba o turno
                 log.exception("falha ao agendar a conferência de entrega do turno %s", id_turno)
         return not interrompido, entregues
+
+    async def _gravar_parte(self, **campos: Any) -> None:
+        try:
+            await self.repo.gravar_mensagem(**campos)
+        except Exception:
+            log.exception("falha ao gravar a parte enviada no turno %s", campos.get("id_turno"))
 
     ATRASO_CONFERIR_ENTREGA_S = 60
     JANELA_DO_ECO_MIN = 15                                # eco de parte sem confirmação: até 15 min depois
@@ -1708,6 +1950,8 @@ class Atendimento:
             "sinais": saida.sinais, "intencoes": saida.intencoes,
             "estado_lead": saida.estado_lead, "motivo_estado": saida.motivo_estado, "ficha": saida.ficha,
         }
+        if (medicao := tempos.atual()) is not None:
+            resposta["tempos"] = medicao.como_dict()       # duração de cada passo e idas ao banco do turno
         await self.repo.fechar_turno(id_turno, situacao=situacao, motivo=motivo, etapa_depois=saida.etapa_depois,
                                      contexto=saida.contexto, resposta=resposta)
 

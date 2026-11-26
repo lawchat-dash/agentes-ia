@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
+from app import tempos
 from app.cerebro import agente, auditor, base_conhecimento, contexto, extrator, formatador, travas
 from app.cerebro import auxilio_acidente as aa
 from app.cerebro.produto import AuxilioAcidente, Produto
@@ -133,6 +134,12 @@ def _fixa(entrada: Entrada, chave: str) -> list[dict[str, Any]]:
     return formatador.formatar([{"tipo": "texto", "texto": texto}])
 
 
+async def _esperar_base(entrada: Entrada) -> Any:
+    """Resultado da busca na base (já rodando junto do extrator); o tempo de espera entra em "tempos"."""
+    with tempos.passo("espera_base"):
+        return await base_conhecimento.resolver(entrada)
+
+
 async def processar(modelo: Modelo, entrada: Entrada) -> Saida:
     """Roda o turno. Erro inesperado (fora de ErroModelo) sobe com as chamadas já pagas em `erro.chamadas`, para o
     pipeline gravar o custo antes de fechar o turno como erro."""
@@ -156,10 +163,11 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
 
     # 1. Extrator: o que o lead disse de novo.
     try:
-        extracao = await extrator.extrair(
-            modelo, nome_modelo=entrada.modelo_extrator, fatos_conhecidos=entrada.fatos,
-            historico=entrada.historico, novas=entrada.novas, produto=produto, agora=agora,
-        )
+        with tempos.passo("extrator"):
+            extracao = await extrator.extrair(
+                modelo, nome_modelo=entrada.modelo_extrator, fatos_conhecidos=entrada.fatos,
+                historico=entrada.historico, novas=entrada.novas, produto=produto, agora=agora,
+            )
     except ErroModelo as erro:
         saida.chamadas.extend(getattr(erro, "chamadas", []))
         return _falha(saida, "extrator", erro)
@@ -187,6 +195,12 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
             "fato_sem_prova", "aviso", "lawchat",
             f"Fato descartado ({rejeitado['motivo']}): {rejeitado.get('chave')}", fato=rejeitado,
         ))
+    for resolvido in extracao.resolvidos:
+        # Resposta curta ("Não") ligada pelo código à última pergunta da IA (extrator.pela_pergunta).
+        saida.eventos.append(_evento(
+            "fato_pela_pergunta", "info", "lawchat",
+            f"Resposta curta à última pergunta gravada como {resolvido['chave']} = {resolvido['valor']}", fato=resolvido,
+        ))
 
     # 2. Pedidos do lead que encerram ou passam a conversa, sem chamar o agente.
     for intencao, estado in (("pediu_para_parar", "encerrado"), ("engano", "encerrado"), ("pediu_humano", "pausado")):
@@ -199,8 +213,9 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
         return barreira
     if extracao.sinais:
         from app.cerebro.sinais import partes_do_auditor
-        validos, mensagem = await _auditar_sinais(modelo, entrada, extracao.sinais, saida,
-                                                  partes_do_auditor(getattr(produto, "beneficio", None)) if catalogo else None)
+        with tempos.passo("auditor"):
+            validos, mensagem = await _auditar_sinais(modelo, entrada, extracao.sinais, saida,
+                                                      partes_do_auditor(getattr(produto, "beneficio", None)) if catalogo else None)
         saida.sinais = validos
         if validos:
             saida.estado_lead, saida.motivo_estado = "pausado", "sinal:" + ",".join(validos)
@@ -227,7 +242,7 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
         instrucao=entrada.instrucoes.get(passo.etapa), produto=produto, conhecimento=entrada.conhecimento,
     )
     sistema = _com_comeco_da_conversa(sistema, entrada)
-    bloco_base = base_conhecimento.bloco(await base_conhecimento.resolver(entrada))   # busca já rodou junto do extrator
+    bloco_base = base_conhecimento.bloco(await _esperar_base(entrada))   # busca já rodou junto do extrator
     correcao: list[str] | None = [LINHA_FORA_DO_TEMA] if saida.contexto.get("barreira") == "fora_do_tema" else None
     mensagens: list[dict[str, str]] = []
     aprovado = False
@@ -240,11 +255,12 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
             fatos_sistema=entrada.fatos_sistema, agora=agora, base=bloco_base,
         )
         try:
-            resposta = await agente.responder(
-                modelo, nome_modelo=entrada.modelo_etapa, esforco=entrada.esforco_etapa,
-                sistema=sistema, conteudo=conteudo,
-                esquema=base_conhecimento.com_base(agente.ESQUEMA, entrada.conhecimento),
-            )
+            with tempos.passo("agente" if _tentativa == 0 else "agente_correcao"):
+                resposta = await agente.responder(
+                    modelo, nome_modelo=entrada.modelo_etapa, esforco=entrada.esforco_etapa,
+                    sistema=sistema, conteudo=conteudo,
+                    esquema=base_conhecimento.com_base(agente.ESQUEMA, entrada.conhecimento),
+                )
         except ErroModelo as erro:
             saida.chamadas.extend(getattr(erro, "chamadas", []))
             return _falha(saida, "etapa", erro)
@@ -358,7 +374,7 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     # A data com a hora vai no conteúdo, não no sistema: o sistema fica igual entre turnos e entra no cache do provedor.
     linhas = [contexto.linha_de_hoje(agora), "", "CONVERSA ATÉ AQUI (mais antiga primeiro):"]
     linhas += [f"{m['autor']}: {m['texto']}" for m in entrada.historico[-60:]] or ["(nenhuma)"]
-    if bloco_base := base_conhecimento.bloco(await base_conhecimento.resolver(entrada)):   # busca rodou junto do extrator
+    if bloco_base := base_conhecimento.bloco(await _esperar_base(entrada)):   # busca rodou junto do extrator
         linhas.append("\n" + bloco_base)
     # Mídias que este turno pode mandar: só as do roteiro (sistema do papel, regras, objeções, base) e de config.midias.
     permitidas = catalogo.midias_permitidas(sistema, bloco_base, config=produto.config)
@@ -393,12 +409,13 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     for _tentativa in range(2):
         conteudo = "\n".join(linhas) + ("\n\nCORRIJA: " + " ".join(correcao) if correcao else "")
         try:
-            resultado = await modelo.gerar(papel="etapa", sistema=sistema, conteudo=conteudo,
-                                           esquema=base_conhecimento.com_base(catalogo.esquema(destinos, acoes, notificacoes),
-                                                                              entrada.conhecimento),
-                                           modelo=entrada.modelo_etapa,
-                                           esforco=entrada.esforco_etapa,
-                                           **({"temperatura": entrada.temperatura} if entrada.temperatura is not None else {}))
+            with tempos.passo("agente" if _tentativa == 0 else "agente_correcao"):
+                resultado = await modelo.gerar(papel="etapa", sistema=sistema, conteudo=conteudo,
+                                               esquema=base_conhecimento.com_base(catalogo.esquema(destinos, acoes, notificacoes),
+                                                                                  entrada.conhecimento),
+                                               modelo=entrada.modelo_etapa,
+                                               esforco=entrada.esforco_etapa,
+                                               **({"temperatura": entrada.temperatura} if entrada.temperatura is not None else {}))
         except ErroModelo as erro:
             saida.chamadas.extend(getattr(erro, "chamadas", []))
             # A 2ª chamada (a da CORRIJA) falhou no provedor: uma 1ª resposta sem erro e só com trava leve (que nunca
@@ -517,6 +534,7 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         saida.eventos.append(_evento("midia_repetida", "info", "lawchat",
                                      "A IA ia reenviar uma mídia que o lead já recebeu; a mídia não foi enviada de novo.",
                                      etapa=etapa))
+    mensagens = _sem_pergunta_ja_respondida(entrada, saida, mensagens, destino, etapa)
     mensagens, demais = catalogo.limitar_audios(mensagens)
     if demais:
         saida.eventos.append(_evento("audios_demais", "aviso", "lawchat",
@@ -571,6 +589,60 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         # O papel novo só fala na próxima mensagem do lead: a marca faz a primeira resposta dele usar as boas-vindas.
         _gravar_controle(saida, MARCA_BOAS_VINDAS, saida.etapa_depois)
     return saida
+
+
+_PERGUNTA = re.compile(r"[^?.!\n]*\?")
+
+
+def _perguntas_respondidas(historico: list[dict[str, str]], novas: list[str]) -> list[str]:
+    """Perguntas (normalizadas) que a IA já fez e que o lead respondeu depois (alguma mensagem dele veio em seguida,
+    no histórico ou no lote novo)."""
+    from app.cerebro.extrator import normalizar
+
+    respondidas: list[str] = []
+    lead_depois = bool(novas)
+    for mensagem in reversed(historico):
+        if mensagem.get("autor") == "lead":
+            lead_depois = True
+        elif mensagem.get("autor") == "você" and lead_depois:
+            respondidas += [p for p in (normalizar(q) for q in _PERGUNTA.findall(str(mensagem.get("texto") or ""))) if p]
+    return respondidas
+
+
+def _sem_pergunta_ja_respondida(entrada: Entrada, saida: Saida, mensagens: list[dict[str, Any]], destino: str,
+                                etapa: str) -> list[dict[str, Any]]:
+    """Balão da IA cujas perguntas todas repetem (quase igual) uma pergunta que ela já fez e o lead já respondeu sai
+    antes do envio ("Você recebeu auxílio-doença na época do acidente? Você comentou que não recebeu."), com evento.
+    Só quando sobra outro balão com pergunta (ou a passagem): o lead nunca fica sem o próximo passo. Com o lead pedindo
+    para repetir ou explicar, a repetição é o certo e fica."""
+    from app.cerebro.extrator import normalizar
+
+    if _PEDE_ESCLARECIMENTO.search(normalizar(" ".join(entrada.novas))):
+        return mensagens
+    respondidas = _perguntas_respondidas(entrada.historico, entrada.novas)
+    if not respondidas:
+        return mensagens
+
+    def repete(pergunta: str) -> bool:
+        return len(pergunta) >= 15 and any(
+            difflib.SequenceMatcher(None, pergunta, antiga).ratio() > 0.85
+            or (len(antiga) >= 20 and (antiga in pergunta or pergunta in antiga)) for antiga in respondidas)
+
+    repetidos = []
+    for indice, m in enumerate(mensagens):
+        perguntas = [normalizar(q) for q in _PERGUNTA.findall(str(m.get("texto") or ""))] if m["tipo"] == "texto" else []
+        if perguntas and all(repete(p) for p in perguntas):
+            repetidos.append(indice)
+    if not repetidos:
+        return mensagens
+    restantes = [m for i, m in enumerate(mensagens) if i not in repetidos]
+    if not any(m["tipo"] == "texto" for m in restantes) or not (
+            destino or any(m["tipo"] == "texto" and "?" in str(m.get("texto") or "") for m in restantes)):
+        return mensagens
+    saida.eventos.append(_evento("pergunta_ja_respondida", "info", "lawchat",
+                                 "A IA ia repetir uma pergunta que o lead já respondeu; o balão não foi enviado.",
+                                 etapa=etapa, textos=[str(mensagens[i].get("texto") or "")[:200] for i in repetidos]))
+    return restantes
 
 
 def _destinos_permitidos(entrada: Entrada, produto: Any, saida: Saida, etapa: str, brutos: list[str],

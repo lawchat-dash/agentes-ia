@@ -73,8 +73,9 @@ _LINK = re.compile(r"https?://|www\.", re.IGNORECASE)
 
 
 def _fixa(parte: dict[str, object], ultima_pergunta: bool) -> bool:
-    """Parte que não se junta a outra: mídia, link (fica sozinho para o WhatsApp mostrar a prévia) e a pergunta final."""
-    if parte.get("tipo") != "texto":
+    """Parte que não se junta a outra: mídia, link (fica sozinho para o WhatsApp mostrar a prévia), a frase de entrada
+    de outro agente (marcada "fixa") e a pergunta final."""
+    if parte.get("tipo") != "texto" or parte.get("fixa"):
         return True
     texto = str(parte.get("texto") or "")
     return bool(_LINK.search(texto)) or ultima_pergunta
@@ -125,12 +126,36 @@ def redividir(partes: list[dict[str, object]], limite: int) -> list[dict[str, ob
 
     for parte in partes:
         texto = str(parte.get("texto") or "")
-        if parte.get("tipo") != "texto" or _LINK.search(texto):
+        if parte.get("tipo") != "texto" or _LINK.search(texto) or parte.get("fixa"):
             fechar()
             saida.append(parte)
         else:
             bloco.append(texto)
     fechar()
+    return saida
+
+
+def _sem_espaco(texto: str) -> str:
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def isolar_frases(partes: list[dict[str, object]], frases: list[str]) -> list[dict[str, object]]:
+    """A frase de entrada de outro agente ("Maravilha! Nós podemos te ajudar…") sai SEMPRE sozinha, numa mensagem só
+    dela, e não se junta a outra depois. O texto antes e depois dela vira mensagem própria."""
+    frases = [f for f in (_sem_espaco(str(x or "")) for x in frases) if len(f) >= 12 and "{{" not in f]
+    if not frases:
+        return partes
+    saida: list[dict[str, object]] = []
+    for parte in partes:
+        texto = _sem_espaco(str(parte.get("texto") or ""))
+        achada = next((f for f in sorted(frases, key=len, reverse=True) if parte.get("tipo") == "texto" and f in texto), None)
+        if not achada:
+            saida.append(parte)
+            continue
+        antes, _, depois = texto.partition(achada)
+        for pedaco, fixa in ((antes.strip(), False), (achada, True), (depois.strip(), False)):
+            if pedaco:
+                saida.append({**parte, "texto": pedaco, "espera_s": tempo_de_digitacao(pedaco), **({"fixa": True} if fixa else {})})
     return saida
 
 

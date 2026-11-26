@@ -45,7 +45,7 @@ async def test_track_grava_a_origem_sem_pausar_e_a_mensagem_e_respondida():
     outro = {"pageUtm": {**TRACK["pageUtm"], "campaign": "bpc"}}
     await atendimento.receber(webhook("", tipo="TRACK", track=outro))
     assert repo.origens[lead.id]["campanha"] == "auxilio-acidente-mg"
-    assert len([a for a in repo.acoes if a["tipo"] == "nota"]) == 1
+    assert len([a for a in repo.acoes if a["tipo"] == "nota" and not a["chave_unica"].endswith(":nota:atendimento_iniciado")]) == 1   # fora a de início
 
 
 @pytest.mark.skipif(not URL, reason="sem AGENTESIA_TESTE_PG_URL")

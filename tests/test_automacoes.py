@@ -70,7 +70,8 @@ async def test_pipeline_poe_as_acoes_na_fila():
     await atendimento.receber(webhook("oi"))
     await atendimento.aguardar_esperas()
     def crm():                                           # sem a conferência de entrega (fila própria, fora do CRM)
-        return [a for a in repo.acoes if a["tipo"] != "conferir_entrega"]
+        # sem a nota interna "atendimento iniciado" (pipeline, fora das automações)
+        return [a for a in repo.acoes if a["tipo"] != "conferir_entrega" and not a["chave_unica"].endswith(":nota:atendimento_iniciado")]
     assert [a["tipo"] for a in crm()] == ["mover_card", "etiquetar"]             # lead novo
     await atendimento.receber(webhook("caí, 2023, sim, carteira, não, não"))
     await atendimento.aguardar_esperas()

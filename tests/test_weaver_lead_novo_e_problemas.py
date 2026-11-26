@@ -57,7 +57,8 @@ async def test_um_lead_um_card_mesmo_com_a_automacao_da_primeira_resposta():
     await atendimento.aguardar_esperas()
     assert helena.enviadas                                               # a IA respondeu: o gatilho lead_novo rodou
     assert list(repo.turnos.values())[-1]["contexto"]["automacoes"]["gatilhos"] == ["lead_novo"]
-    crm = lambda: [a for a in repo.acoes if a["tipo"] != "conferir_entrega"]   # noqa: E731 (sem a conferência de entrega)
+    crm = lambda: [a for a in repo.acoes if a["tipo"] != "conferir_entrega"   # noqa: E731 (sem a conferência de entrega
+                   and not a["chave_unica"].endswith(":nota:atendimento_iniciado")]                     # nem a nota interna de atendimento iniciado)
     assert [a["tipo"] for a in crm()] == ["mover_card", "etiquetar"]   # e não duplicou nada
     assert crm()[1]["dados"]["adicionar"] == ["Novo"]
     await atendimento.receber(webhook("oi de novo"))                     # lead que já existe: nada de card novo

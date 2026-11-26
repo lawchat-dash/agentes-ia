@@ -84,7 +84,7 @@ async def test_aviso_do_sinal_nao_duplica_com_automacoes():
     config = {"funcoes": {"avisos": True}, "automacoes": {"sinal:nao_sabe_ler": {"nota": "Ligar para o lead."}}}
     repo = await _turno_com_sinal(config, {"sinal:nao_sabe_ler"})
     assert [a["dados"]["evento"] for a in repo.acoes if a["tipo"] == "preparar_aviso"] == ["sinal:nao_sabe_ler"]
-    assert [a["tipo"] for a in repo.acoes if a["tipo"] == "nota"] == ["nota"]
+    assert [a["tipo"] for a in repo.acoes if a["tipo"] == "nota" and not a["chave_unica"].endswith(":nota:atendimento_iniciado")] == ["nota"]
 
 
 async def test_sem_funcao_de_avisos_nao_avisa():
