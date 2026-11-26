@@ -7,6 +7,19 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./estilo.css";
 import "./estilo-navegacao.css";
+
+// Depois de um deploy, uma aba aberta antes ainda pede os arquivos da versão antiga (que não existem mais) ao abrir
+// uma tela: a página ficava em branco. Quando isso acontece, recarrega uma vez para pegar a versão nova.
+function recarregarParaVersaoNova() {
+  try {
+    const ultima = Number(sessionStorage.getItem("agentesia_recarga_versao") || 0);
+    if (Date.now() - ultima < 30_000) return false;
+    sessionStorage.setItem("agentesia_recarga_versao", String(Date.now()));
+  } catch { /* sem sessionStorage: recarrega mesmo assim */ }
+  window.location.reload();
+  return true;
+}
+window.addEventListener("vite:preloadError", (e) => { if (recarregarParaVersaoNova()) e.preventDefault(); });
 import { enviar } from "./api";
 import { Estrutura } from "./componentes/Estrutura";
 import { Alerta, Carregando, Modal, ProvedorAvisos, useAcao } from "./componentes/ui";
