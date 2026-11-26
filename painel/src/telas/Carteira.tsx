@@ -28,7 +28,7 @@ const SITUACAO_RECARGA: Record<string, string> = { pendente: "warn", paga: "ok",
 
 export function TelaCarteira() {
   const { escritorio } = useSessao();
-  const carteira = useCarregar<Carteira>("/carteira", [escritorio]);
+  const carteira = useCarregar<Carteira>("/carteira", [escritorio]); // mostra o da última visita e atualiza por trás (escrita apaga a cópia)
   const [dias, setDias] = useState(30);
   const [detalhe, setDetalhe] = useState(false);
   const consumo = useCarregar<Consumo>(`/carteira/consumo?dias=${dias}${detalhe ? "&detalhe=1" : ""}`, [escritorio, dias, detalhe]);

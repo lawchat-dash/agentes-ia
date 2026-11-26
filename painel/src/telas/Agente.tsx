@@ -14,7 +14,7 @@ export function TelaAgente() {
   const [busca] = useSearchParams();
   const navegar = useNavigate();
   const { escritorio, admin } = useSessao();
-  const { dados: agente, erro, setDados, recarregar } = useCarregar<Agente>(`/agentes/${id}`, [escritorio]);
+  const { dados: agente, erro, setDados, recarregar, fresco } = useCarregar<Agente>(`/agentes/${id}`, [escritorio]);
   const { ocupado, executar } = useAcao();
 
   if (!agente) return <Carregando erro={erro} />;
@@ -68,7 +68,8 @@ export function TelaAgente() {
         texto={<>{atual.descricao} <Situacao valor={agente.situacao} /> {agente.situacao === "ativo" && <Situacao valor={agente.modo} />}</>}
         acoes={atual.chave === "ativacao" ? salvarComoModelo : undefined} />
       {busca.get("criado") && <div style={{ marginBottom: 16 }}><Alerta tipo="ok"><b>Agente criado.</b> Agora ajuste as instruções, ligue as funções, teste no Laboratório e ative.</Alerta></div>}
-      <div key={atual.chave} className="passo-corpo">
+      {/* As abas copiam o agente para os formulários delas: esperam o dado do servidor (não a cópia guardada da última visita). */}
+      {!fresco ? <Carregando erro={erro} /> : <div key={atual.chave} className="passo-corpo">
         {atual.chave === "ativacao" && <AbaGeral agente={agente} aoSalvar={setDados} />}
         {atual.chave === "instrucoes" && <AbaInstrucoes agente={agente} aoSalvar={recarregar} />}
         {atual.chave === "conhecimento" && <AbaConhecimento agente={agente} aoSalvar={setDados} />}
@@ -77,7 +78,7 @@ export function TelaAgente() {
         {atual.chave === "followup" && <AbaFollowup agente={agente} />}
         {atual.chave === "laboratorio" && <AbaLaboratorio agente={agente} />}
         {atual.chave === "historico" && <AbaHistorico agente={agente} />}
-      </div>
+      </div>}
     </>
   );
 }

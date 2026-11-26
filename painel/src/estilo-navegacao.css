@@ -389,8 +389,8 @@
 .lc-marca-logo { flex: none; width: 30px; height: 31px; object-fit: contain; display: block; }
 
 /* Busca rápida (Ctrl K): centralizada na tela, campo sem caixa verde. */
-.busca-ov { align-items: flex-start; justify-content: center; }
-.busca-caixa { margin: 14vh auto auto; width: min(600px, calc(100% - 32px)); border-radius: 16px; overflow: hidden; }
+.busca-ov { align-items: center; justify-content: center; }
+.busca-caixa { margin: auto; width: min(600px, calc(100% - 32px)); max-height: min(560px, calc(100dvh - 48px)); display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; }
 .busca-campo { padding: 14px 16px; }
 .busca-campo input, .busca-campo input:focus, .busca-campo input:focus-visible { border: 0 !important; outline: 0 !important; box-shadow: none !important; padding: 0; height: auto; background: transparent; font-size: 15px; }
 
@@ -527,12 +527,11 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
   .lc-mt-lista a:hover { background: #f2f4f7; color: #101828; }
   .lc-mt-lista a.on { background: #e3f7e8; color: #067a2b; font-weight: 600; }
   .lc-mt-lista a.on svg { color: #00a32c; }
-  /* Topo estreito: tira os textos menos importantes para caber. */
-  .lc-topo .lc-busca span, .lc-topo .lc-busca kbd { display: none; }
-  .lc-topo .lc-busca { width: 40px; padding: 0; justify-content: center; }
+  /* Busca com o texto "Buscar em tudo" e o Ctrl K (só some nas telas estreitas, logo abaixo). */
 }
 @media (min-width: 821px) and (max-width: 1360px) {
   .lc-topo-marca b, .lc-saldo-rot, .lc-saldo-barra { display: none; }
+  .lc-topo .lc-busca kbd { display: none; }
   .lc-menu-topo > .lc-mt-item, .lc-mt-grupo > button { padding: 0 9px; font-size: 13.5px; }
 }
 @media (min-width: 821px) and (max-width: 1180px) {

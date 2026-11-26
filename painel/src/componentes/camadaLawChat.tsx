@@ -78,6 +78,7 @@ const CAMINHOS: Record<string, string> = {
  * abrem direto no endereço dela, aproveitando a sessão. "Recarregar" de uma tela faz um login novo, se precisar.
  */
 let origemLawChat: string | null = null;
+let ultimaCaixa: { width: number; height: number } | null = null;
 let loginPronto = false;
 
 export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | null; escondida: boolean }) {
@@ -132,13 +133,18 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
 
   if (!escritorio) return null;
   const caixa = atual?.caixa;
+  // Tamanho de guarda: as telas escondidas ficam no MESMO tamanho em que aparecem (a última vaga vista ou a área
+  // útil da janela). Antes ficavam em 1200×800 e, ao aparecer, a LawChat se redesenhava e mostrava por um instante o
+  // que fica cortado (cabeçalho, avisos).
+  if (caixa && caixa.width > 0) ultimaCaixa = { width: caixa.width, height: caixa.height };
+  const guarda = ultimaCaixa ?? { width: Math.max(800, window.innerWidth - 32), height: Math.max(500, window.innerHeight - 100) };
   return (
     <>
       {Object.values(quadros).map((q) => {
         const visivel = !escondida && atual?.codigo === q.codigo && caixa && caixa.width > 0;
         const posicao: CSSProperties = visivel
           ? { position: "fixed", left: caixa.left, top: caixa.top, width: caixa.width, height: caixa.height, zIndex: 25 }
-          : { position: "fixed", left: -10000, top: 0, width: 1200, height: 800, visibility: "hidden", pointerEvents: "none" };
+          : { position: "fixed", left: -20000, top: 0, width: guarda.width, height: guarda.height, visibility: "hidden", pointerEvents: "none" };
         return (
           <div key={q.codigo} className="lc-quadro-lawchat" style={posicao} aria-hidden={!visivel}>
             {q.url && !q.erro && (

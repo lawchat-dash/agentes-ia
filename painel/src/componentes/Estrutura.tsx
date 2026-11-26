@@ -173,6 +173,12 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
     grupos.push({ titulo: "Menu", itens });
   }
   const todosItens = grupos.flatMap((g) => g.itens.map((i) => ({ ...i, grupo: g.titulo })));
+  // Busca (Ctrl K): também as telas de dentro de CRM, Apps e Ajustes (o grupo aparece ao lado de cada uma).
+  const itensDaBusca: Item[] = todosItens.flatMap((i) => {
+    const grupo = GRUPOS_DO_MENU[i.para];
+    if (!grupo) return [{ ...i, grupo: "Menu" }];
+    return grupo.filhos.map((f) => ({ para: f.para, rotulo: f.rotulo, icone: f.icone, grupo: i.rotulo }));
+  });
   const subtitulo = lawchat && !impersonando ? "Equipe LawChat" : impersonando ? nomeEscritorio : eu?.nome_escritorio ?? "";
 
   // Busca, avisos, Admin, ajuda e a foto: na barra do topo e também na faixa da Central de Atendimento.
@@ -198,7 +204,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
 
   return (<>
     <CamadaLawChat escritorio={escritorio || null} escondida={false} />
-        {busca && createPortal(<BuscaRapida itens={todosItens} aoFechar={() => setBusca(false)} />, document.body)}
+        {busca && createPortal(<BuscaRapida itens={itensDaBusca} aoFechar={() => setBusca(false)} />, document.body)}
         {ajuda && (
           <Modal titulo="Ajuda rápida" aoFechar={() => setAjuda(false)} rodape={<><span className="sp" /><button className="btn pri" onClick={() => setAjuda(false)}>Entendi</button></>}>
             <div className="form">
