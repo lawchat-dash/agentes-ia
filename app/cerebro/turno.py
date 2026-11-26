@@ -213,6 +213,8 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
         from app.cerebro import sinais as sinais_catalogo
         papel = entrada.etapa if entrada.etapa in produto.papeis else produto.etapa_inicial()
         extracao.sinais = sinais_catalogo.ordenar([s for s in extracao.sinais if s in produto.sinais_do_papel(papel)])
+    if catalogo:
+        _dados_da_crianca_pela_pergunta(entrada, produto, extracao, saida)
     saida.fatos_novos = [asdict(f) for f in extracao.fatos]
     saida.fatos_rejeitados = extracao.rejeitados
     saida.sinais, saida.intencoes = extracao.sinais, extracao.intencoes
@@ -1924,3 +1926,52 @@ def _lead_confirmou_dados(entrada: Entrada, saida: Saida) -> bool:
     if confirmou and dados and entrada.fatos.get(MARCA_DADOS_CONFIRMADOS) != assinatura:
         _gravar_controle(saida, MARCA_DADOS_CONFIRMADOS, assinatura)
     return confirmou
+
+
+# ---------------------------------------------------------------------------- contrato do BPC infantil
+# Rodada real (26/11): a mãe respondeu "Qual o nome completo do seu filho?" e o extrator gravou o nome da criança em
+# nome_completo (de quem ASSINA); a filiação da mãe não foi gravada e o contrato entrou em laço de correção. No fluxo
+# da Karina (n8n) quem assina é sempre quem conversa e a criança vai em campos próprios ("Qual o nome completo do(a)
+# menor?", "filiação do(a) menor", "filiação da mae"). Aqui o código usa a ÚLTIMA PERGUNTA DA IA para decidir de quem é o
+# dado: pergunta sobre o filho/a criança -> campos _menor; pergunta sobre "seus pais"/"sua filiação" -> campos sem _menor.
+_SOBRE_A_CRIANCA = re.compile(r"\b(filh[oa]s?|crian[çc]a|menor|beb[eê]|dele|dela|do\(a\)|da\(o\))\b", re.I)
+_SOBRE_QUEM_FALA = re.compile(r"\b(seu|sua|voc[eê]|seus pais|sua m[aã]e|seu pai)\b", re.I)
+_TROCA_PARA_O_MENOR = {"nome_completo": "nome_menor", "cpf": "cpf_menor", "nacionalidade": "nacionalidade_menor",
+                       "naturalidade": "naturalidade_menor", "filiacao": "filiacao_menor"}
+_TROCA_PARA_QUEM_ASSINA = {v: k for k, v in _TROCA_PARA_O_MENOR.items() if k != "nome_completo"}
+
+
+def _ultima_pergunta_da_ia(entrada: Entrada) -> str:
+    for mensagem in reversed(entrada.historico or []):
+        if mensagem.get("autor") != "lead" and "?" in str(mensagem.get("texto") or ""):
+            return str(mensagem.get("texto") or "")
+    return ""
+
+
+def _dados_da_crianca_pela_pergunta(entrada: Entrada, produto: Any, extracao: Any, saida: Saida) -> None:
+    from app.cerebro import catalogo
+
+    if catalogo.familia_do_produto(getattr(produto, "config", {})) != "bpc_infantil":
+        return
+    pergunta = _ultima_pergunta_da_ia(entrada)
+    trecho_da_pergunta = pergunta.split("?")[-2] if pergunta.count("?") >= 1 else pergunta
+    sobre_crianca = bool(_SOBRE_A_CRIANCA.search(trecho_da_pergunta))
+    # "seus pais" com "do seu filho" na mesma pergunta é sobre a criança: a criança ganha.
+    sobre_quem_fala = bool(_SOBRE_QUEM_FALA.search(trecho_da_pergunta)) and not sobre_crianca
+    nome_menor = str(entrada.fatos.get("nome_menor") or "").strip().lower()
+    for fato in extracao.fatos:
+        destino = None
+        if sobre_crianca and fato.chave in _TROCA_PARA_O_MENOR:
+            destino = _TROCA_PARA_O_MENOR[fato.chave]
+        elif sobre_quem_fala and fato.chave in _TROCA_PARA_QUEM_ASSINA:
+            destino = _TROCA_PARA_QUEM_ASSINA[fato.chave]
+        elif fato.chave == "nome_completo" and nome_menor and str(fato.valor or "").strip().lower() == nome_menor:
+            # O nome da criança (já gravado) não pode virar o nome de quem assina.
+            destino = "descartar"
+        if not destino:
+            continue
+        saida.eventos.append(_evento("dado_do_contrato_realocado", "info", "lawchat",
+                                     f"{fato.chave} → {destino} pela última pergunta da IA (contrato do BPC infantil).",
+                                     pergunta=trecho_da_pergunta[-160:]))
+        fato.chave = destino
+    extracao.fatos = [f for f in extracao.fatos if f.chave != "descartar"]
