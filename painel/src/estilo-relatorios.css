@@ -33,13 +33,10 @@
 }
 
 /* ------------------------------------------------------------ fundo próprio da área dos Relatórios */
-/* Só enquanto a tela de Relatórios está aberta (classe posta por useFundoRelatorios). Gelo claro com um brilho verde-
-   azulado no topo: valoriza os cartões coloridos sem tirar contraste. */
+/* Só enquanto a tela de Relatórios está aberta (classe posta por useFundoRelatorios). Gelo claro liso, sem brilho
+   colorido no topo (pedido do dono). */
 .rl-fundo-ativo .lc-conteudo {
-  background:
-    radial-gradient(1200px 420px at 18% -8%, rgba(52, 211, 107, 0.16), transparent 62%),
-    radial-gradient(900px 380px at 92% 0%, rgba(56, 189, 248, 0.16), transparent 60%),
-    linear-gradient(180deg, #f3f8fb 0%, #eef4f8 45%, #edf2f7 100%);
+  background: linear-gradient(180deg, #f3f6f9 0%, #eef2f6 100%);
 }
 
 /* cartões: elevação suave no hover */
