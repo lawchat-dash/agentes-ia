@@ -200,6 +200,9 @@ const BUILD_STEPS = [
   { label: "Finalizando o provisionamento", Icon: Rocket },
 ];
 
+/** Temperatura padrão e indicada para atendimento jurídico (segue o roteiro sem soar robótica). */
+const TEMPERATURA_INDICADA = 0.5;
+
 /** Opções de "Tamanho das mensagens" (caracteres por balão). 0 = o padrão do sistema (~320). */
 const TAMANHOS_MSG = [
   { valor: 160, rotulo: "Curtas", resumo: "até ~160 caracteres", baloes: 4, largura: 10 },
@@ -284,7 +287,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [selectedModel, setSelectedModel] = useState(resolveModelId(editData?.selectedModel));
   const [byok, setByok] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const [temperature, setTemperature] = useState([editData?.temperature ?? 0.7]);
+  const [temperature, setTemperature] = useState([editData?.temperature ?? TEMPERATURA_INDICADA]);
   const [responseDelay, setResponseDelay] = useState<number>(editData?.responseDelay ?? 10); // segundos
   const [charsMsg, setCharsMsg] = useState<number>(editData?.charsMsg ?? 0); // caracteres por mensagem (0 = padrão)
   const [humanPause, setHumanPause] = useState<number>(editData?.humanPause ?? 30); // minutos (-1 = nunca)
@@ -892,8 +895,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         before: editData.numeroIa || "—", after: selectedWhatsapp || "—" },
       { key: "modelo", label: "Modelo de IA", changed: selectedModel !== editData.selectedModel,
         before: modelName(editData.selectedModel), after: modelName(selectedModel) },
-      { key: "comportamento", label: "Comportamento", changed: (temperature[0] !== (editData.temperature ?? 0.7)) || (humanPause !== (editData.humanPause ?? 30)) || (schedule24 !== (editData.schedule24 ?? true)) || (responseDelay !== (editData.responseDelay ?? 10)),
-        before: comportamentoStr(editData.temperature ?? 0.7, editData.responseDelay ?? 10, editData.humanPause ?? 30, editData.schedule24 ?? true),
+      { key: "comportamento", label: "Comportamento", changed: (temperature[0] !== (editData.temperature ?? TEMPERATURA_INDICADA)) || (humanPause !== (editData.humanPause ?? 30)) || (schedule24 !== (editData.schedule24 ?? true)) || (responseDelay !== (editData.responseDelay ?? 10)),
+        before: comportamentoStr(editData.temperature ?? TEMPERATURA_INDICADA, editData.responseDelay ?? 10, editData.humanPause ?? 30, editData.schedule24 ?? true),
         after: comportamentoStr(temperature[0], responseDelay, humanPause, schedule24) },
       { key: "faq", label: "FAQ", changed: norm(faqItems) !== norm(editData.faqItems),
         before: ePlural((editData.faqItems ?? []).length, "pergunta", "perguntas"), after: ePlural(faqItems.length, "pergunta", "perguntas") },
@@ -1717,18 +1720,26 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                 <Card className="p-6 lc-card">
                   <div className="flex items-center justify-between gap-3">
                     <Label className="text-sm font-semibold text-[#101828]">Temperatura (criatividade da resposta)</Label>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ color: catC1, backgroundColor: `${catC1}14` }}>{temperature[0].toFixed(1)}</span>
+                    <span className="flex items-center gap-1.5">
+                      {Math.abs(temperature[0] - TEMPERATURA_INDICADA) < 0.05
+                        ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#e3f7e8] text-[#067a2b]">✓ Indicada</span>
+                        : <button type="button" onClick={() => setTemperature([TEMPERATURA_INDICADA])} className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-[#c6f0d2] text-[#067a2b] hover:bg-[#ecfdf3]">Usar a indicada (0.5)</button>}
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ color: catC1, backgroundColor: `${catC1}14` }}>{temperature[0].toFixed(1)}</span>
+                    </span>
                   </div>
                   <p className="text-xs text-[#667085] mt-1 leading-relaxed">
                     Controla o quanto o agente "improvisa" ao responder. Quanto <strong>mais baixo</strong>, mais ele segue o roteiro ao pé da letra
                     (respostas previsíveis e consistentes, sempre parecidas). Quanto <strong>mais alto</strong>, mais ele varia as palavras e soa
-                    natural, porém aumenta a chance de fugir do script e inventar coisas. Para a maioria dos atendimentos, deixe por volta de <strong>0.7</strong>.
+                    natural, porém aumenta a chance de fugir do script e inventar coisas. A indicada para atendimento jurídico é <strong>0.5</strong>.
                   </p>
                   <div className="mt-4">
                     <div style={{ ["--primary" as any]: hexToHsl(catC1) }}>
                       <Slider value={temperature} onValueChange={setTemperature} min={0} max={2} step={0.1} />
                     </div>
-                    <div className="flex justify-between text-[11px] text-muted-foreground mt-2">
+                    <div className="relative h-4 mt-1" aria-hidden>
+                      <span className="absolute -translate-x-1/2 text-[10px] font-bold text-[#067a2b]" style={{ left: `${(TEMPERATURA_INDICADA / 2) * 100}%` }}>▲ 0.5 indicada</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground mt-1">
                       <span>Mais previsível (segue o roteiro)</span>
                       <span>Mais criativo (improvisa)</span>
                     </div>

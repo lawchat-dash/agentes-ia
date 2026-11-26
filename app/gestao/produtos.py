@@ -476,7 +476,7 @@ async def ver_ativado(id_ativado: str, pedido: Request, ctx: Contexto = Depends(
         config = json.loads(agente["config"]) if agente and isinstance(agente["config"], str) else (agente["config"] if agente else {}) or {}
         if agente:
             comportamento = {"id": produto["id_agente"], "modelo": (config.get("modelos") or {}).get("etapa") or "gpt-4.1-mini",
-                             "temperatura": config.get("temperatura", 0.7), "delay_s": config.get("espera_s", 10),
+                             "temperatura": config.get("temperatura", 0.5), "delay_s": config.get("espera_s", 10),
                              "caracteres_msg": int(config.get("caracteres_por_mensagem") or 0),
                              "pausa_min": -1 if config.get("pausa_sem_volta") else agente["minutos_pausa_humano"],
                              "id_canal": str(agente["id_canal"]) if agente["id_canal"] else None}
@@ -641,7 +641,7 @@ class Ativar(BaseModel):
     pausa_min: int = 30
     # Tamanho das mensagens da IA (caracteres por balão): 0 = padrão (~320); 160 curtas, 600 longas, 2000 uma só.
     caracteres_msg: int = 0
-    temperatura: float = 0.7
+    temperatura: float = 0.5  # indicada (padrão)
     modelo: str = "gpt-4.1-mini"
     ativar_imediatamente: bool = True
     periodo_graca_ativo: bool = False
