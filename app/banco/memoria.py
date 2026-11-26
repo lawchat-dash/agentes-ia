@@ -341,16 +341,37 @@ class RepositorioMemoria:
     async def responder_apos(self, id_lead):
         return self.__dict__.get("esperas", {}).get(id_lead)
 
-    async def fechar_turnos_interrompidos(self, minutos=10) -> list[dict]:
+    async def fechar_turnos_interrompidos(self, minutos=10, orfao_s=20) -> list[dict]:
         from datetime import timedelta
-        limite = datetime.now().astimezone() - timedelta(minutes=minutos)
+        agora_ = datetime.now().astimezone()
+        reservas = self.__dict__.setdefault("reservas", {})
         fechados = []
         for id_turno, turno in self.turnos.items():
-            if turno["situacao"] == "processando" and turno["iniciado_em"] < limite:
-                turno.update(situacao="erro", motivo="turno_interrompido")
-                lead = self.leads.get(turno["id_lead"])
-                fechados.append({"id_turno": id_turno, "id_lead": turno["id_lead"],
-                                 "id_escritorio": lead.id_escritorio if lead else None})
+            if turno["situacao"] != "processando":
+                continue
+            reserva = reservas.get(turno["id_lead"])
+            orfao = (turno.get("modo") != "laboratorio" and turno["id_lead"] is not None
+                     and turno["iniciado_em"] < agora_ - timedelta(seconds=orfao_s) and not (reserva and reserva > agora_))
+            if not (orfao or turno["iniciado_em"] < agora_ - timedelta(minutes=minutos)):
+                continue
+            turno.update(situacao="erro", motivo="turno_interrompido")
+            lead = self.leads.get(turno["id_lead"])
+            msgs = self.mensagens.get(turno["id_lead"], [])
+            enviadas = sum(1 for m in msgs if m.autor == "ia" and m.id_turno == id_turno)
+            devolvidas = 0
+            if not enviadas:
+                for m in msgs:
+                    if m.autor == "lead" and m.id_turno == id_turno:
+                        m.id_turno, devolvidas = None, devolvidas + 1
+            pendentes = [m for m in msgs if m.autor == "lead" and m.id_turno is None]
+            novas = sum(1 for m in pendentes if getattr(m, "registrada_em", None) is None
+                        or m.registrada_em > turno["iniciado_em"]) - devolvidas
+            if pendentes:
+                esperas = self.__dict__.setdefault("esperas", {})
+                esperas[turno["id_lead"]] = min(esperas.get(turno["id_lead"]) or agora_, agora_)
+            fechados.append({"id_turno": id_turno, "id_lead": turno["id_lead"],
+                             "id_escritorio": lead.id_escritorio if lead else None,
+                             "enviadas": enviadas, "devolvidas": devolvidas, "novas": max(0, novas)})
         return fechados
 
     async def liberar_lead(self, id_lead) -> None:

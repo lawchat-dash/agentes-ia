@@ -40,6 +40,7 @@ const TelaCrm = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: 
 const TelaCentral = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCentral })));
 const TelaChatbots = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaChatbots })));
 const TelaErros = lazy(() => import("./telas/Erros").then((m) => ({ default: m.TelaErros })));
+const TelaExecucoes = lazy(() => import("./telas/Execucoes").then((m) => ({ default: m.TelaExecucoes })));
 const TelaHistorico = lazy(() => import("./telas/Historico").then((m) => ({ default: m.TelaHistorico })));
 const TelaInicio = lazy(() => import("./telas/Inicio").then((m) => ({ default: m.TelaInicio })));
 const TelaIntegracoes = lazy(() => import("./telas/Integracoes").then((m) => ({ default: m.TelaIntegracoes })));
@@ -93,7 +94,7 @@ const TITULOS: [RegExp, string][] = [
   [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus agentes"],
   [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos à equipe"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
   [/^\/admin\/escritorios/, "LawChat › Escritórios"], [/^\/admin\/equipe/, "LawChat › Equipe"], [/^\/admin\/modelos/, "LawChat › Modelos de agente"],
-  [/^\/admin\/produtos\/./, "LawChat › Produtos › Editar"], [/^\/admin\/produtos/, "LawChat › Produtos (catálogo)"], [/^\/admin\/erros/, "LawChat › Erros"], [/^\/admin\/followup/, "LawChat › Follow-up"],
+  [/^\/admin\/produtos\/./, "LawChat › Produtos › Editar"], [/^\/admin\/produtos/, "LawChat › Produtos (catálogo)"], [/^\/admin\/erros/, "LawChat › Erros"], [/^\/admin\/execucoes/, "LawChat › Execuções"], [/^\/admin\/followup/, "LawChat › Follow-up"],
 ];
 
 function Titulo() {
@@ -185,6 +186,8 @@ function ComEstrutura() {
           <Route path="/admin/modelos" element={<TelaModelos />} />
           <Route path="/admin/modelos/:id" element={<TelaModelo />} />
           <Route path="/admin/erros" element={<TelaErros todos />} />
+          <Route path="/admin/execucoes" element={<TelaExecucoes />} />
+          <Route path="/admin/execucoes/:id" element={<TelaExecucoes />} />
           <Route path="/admin/cobranca" element={<TelaAdminCobranca />} />
           <Route path="/admin/followup" element={<TelaAdminFollowup />} />
           <Route path="/admin/produtos" element={<AdminProdutos />} />

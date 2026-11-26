@@ -85,9 +85,24 @@ async def test_metodos_de_robustez_do_repositorio():
         id_turno = await repo.abrir_turno(lead=lead, modo="producao", etapa_antes="sdr")
         await pool.execute("update agentesia_turnos set iniciado_em = now() - interval '30 minutes' where id = $1::uuid", id_turno)
         fechados = await repo.fechar_turnos_interrompidos(10)
-        assert {"id_turno": id_turno, "id_escritorio": str(b["esc"]), "id_lead": lead.id} in fechados
+        assert {"id_turno": id_turno, "id_escritorio": str(b["esc"]), "id_lead": lead.id} in [
+            {k: f[k] for k in ("id_turno", "id_escritorio", "id_lead")} for f in fechados]
         assert await pool.fetchval("select situacao from agentesia_turnos where id = $1::uuid", id_turno) == "erro"
         assert id_turno not in [f["id_turno"] for f in await repo.fechar_turnos_interrompidos(10)]   # só uma vez
+
+        # Turno órfão (deploy cortou): 40 s, lead sem reserva viva, mensagem do lead presa e nada da IA enviado.
+        await repo.liberar_lead(lead.id)
+        await repo.marcar_resposta(lead.id, None)
+        orfao = await repo.abrir_turno(lead=lead, modo="producao", etapa_antes="sdr")
+        await repo.marcar_no_turno([id_msg], orfao)
+        await pool.execute("update agentesia_turnos set iniciado_em = now() - interval '40 seconds' where id = $1::uuid", orfao)
+        await repo.reservar_lead(lead.id, 90)                                   # dono vivo: não mexe
+        assert orfao not in [f["id_turno"] for f in await repo.fechar_turnos_interrompidos(10)]
+        await repo.liberar_lead(lead.id)                                        # dono morreu
+        [item] = [f for f in await repo.fechar_turnos_interrompidos(10) if f["id_turno"] == orfao]
+        assert item["enviadas"] == 0 and item["devolvidas"] == 1
+        assert [m.id for m in await repo.mensagens_pendentes(lead.id)] == [id_msg]  # volta para a fila
+        assert await repo.responder_apos(lead.id) is not None                   # e a IA responde já
     finally:
         await repo.fechar()
 

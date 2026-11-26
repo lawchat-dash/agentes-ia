@@ -687,16 +687,43 @@ class RepositorioPostgres:
     async def responder_apos(self, id_lead):
         return await self._pool.fetchval("select responder_apos from agentesia_leads where id = $1::uuid", id_lead)
 
-    async def fechar_turnos_interrompidos(self, minutos=10) -> list[dict]:
-        """Turnos 'processando' há mais de `minutos` (o processo caiu no meio): viram 'erro'. O returning garante que
-        só um servidor fecha (e avisa) cada turno."""
-        linhas = await self._pool.fetch(
-            """update agentesia_turnos set situacao = 'erro', motivo = 'turno_interrompido', concluido_em = now()
-               where situacao = 'processando' and concluido_em is null
-                 and iniciado_em < now() - make_interval(mins => $1)
-               returning id, id_escritorio, id_lead""", int(minutos))
-        return [{"id_turno": str(l["id"]), "id_escritorio": str(l["id_escritorio"]), "id_lead": _texto(l["id_lead"])}
-                for l in linhas]
+    async def fechar_turnos_interrompidos(self, minutos=10, orfao_s=20) -> list[dict]:
+        """Turnos 'processando' cujo processo morreu no meio (deploy, queda): viram 'erro'. Morto = o lead não tem mais
+        reserva viva (o processo vivo renova a reserva a cada 30 s) e o turno tem mais de `orfao_s`; ou o turno tem
+        mais de `minutos` de qualquer jeito. O returning garante que só um servidor fecha (e avisa) cada turno.
+
+        Se nenhuma resposta da IA saiu nesse turno, as mensagens do lead voltam para a fila (a IA responde de novo,
+        junto com o que o lead mandou nesse meio tempo) e o prazo de resposta vira agora."""
+        async with self._pool.acquire() as con, con.transaction():
+            linhas = await con.fetch(
+                """update agentesia_turnos t set situacao = 'erro', motivo = 'turno_interrompido', concluido_em = now()
+                   from agentesia_turnos t0 left join agentesia_leads l on l.id = t0.id_lead
+                   where t.id = t0.id and t.situacao = 'processando' and t.concluido_em is null
+                     and (t.iniciado_em < now() - make_interval(mins => $1)
+                          or (t.modo is distinct from 'laboratorio' and t.id_lead is not null
+                              and t.iniciado_em < now() - make_interval(secs => $2)
+                              and (l.processando_ate is null or l.processando_ate < now())))
+                   returning t.id, t.id_escritorio, t.id_lead, t.iniciado_em""", int(minutos), float(orfao_s))
+            fechados = []
+            for l in linhas:
+                item = {"id_turno": str(l["id"]), "id_escritorio": str(l["id_escritorio"]), "id_lead": _texto(l["id_lead"]),
+                        "enviadas": 0, "devolvidas": 0, "novas": 0}
+                if l["id_lead"] is not None:
+                    item["enviadas"] = int(await con.fetchval(
+                        "select count(*) from agentesia_mensagens where id_turno = $1 and autor = 'ia'", l["id"]) or 0)
+                    if not item["enviadas"]:
+                        item["devolvidas"] = len(await con.fetch(
+                            """update agentesia_mensagens set id_turno = null
+                               where id_turno = $1 and autor = 'lead' returning id""", l["id"]))
+                    item["novas"] = int(await con.fetchval(
+                        """select count(*) from agentesia_mensagens where id_lead = $1 and autor = 'lead'
+                             and id_turno is null and registrada_em > $2""", l["id_lead"], l["iniciado_em"]) or 0)
+                    await con.execute(
+                        """update agentesia_leads set responder_apos = least(coalesce(responder_apos, now()), now())
+                           where id = $1 and exists (select 1 from agentesia_mensagens m where m.id_lead = $1
+                                                     and m.autor = 'lead' and m.id_turno is null)""", l["id_lead"])
+                fechados.append(item)
+        return fechados
 
     async def liberar_lead(self, id_lead) -> None:
         await self._pool.execute("update agentesia_leads set processando_ate = null where id = $1::uuid", id_lead)

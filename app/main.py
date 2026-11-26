@@ -137,7 +137,7 @@ async def _ciclo(app: FastAPI):
                     await app.state.atendimento.retomar_pendentes()
                 except Exception:
                     log.exception("falha ao retomar respostas pendentes")
-                await asyncio.sleep(60)
+                await asyncio.sleep(30)        # turno cortado por deploy é retomado em até ~30 s
 
         tarefa_esperas = asyncio.create_task(retomar_esperas())
 
@@ -193,7 +193,7 @@ async def _ciclo(app: FastAPI):
                              return_exceptions=True)
         # Turnos em andamento terminam (até 30 s) antes de fechar o banco; o que for cortado vira 'turno_interrompido'.
         try:
-            await app.state.atendimento.encerrar(teto_s=float(os.environ.get("AGENTESIA_DESLIGAR_TETO_S", "30")))
+            await app.state.atendimento.encerrar(teto_s=float(os.environ.get("AGENTESIA_DESLIGAR_TETO_S", "8")))
         except Exception:
             log.exception("falha ao encerrar os turnos em andamento")
         for cliente in (http, getattr(app.state.atendimento.helena, "_http", None),
@@ -242,6 +242,7 @@ app.include_router(api_contrato)                      # contratos do lead e prom
 from app.gestao.rotas_rascunho import api as api_rascunho; app.include_router(api_rascunho)  # noqa: E402,E702  testar o rascunho e versões
 from app.gestao.rotas_roteiros import api as api_roteiros; app.include_router(api_roteiros)  # noqa: E402,E702  Ferramentas > Roteiros (áudios)
 from app.gestao.rotas_filtro import api as api_filtro; app.include_router(api_filtro)  # noqa: E402,E702  filtro de número por agente (teste)
+from app.gestao.rotas_execucoes import api as api_execucoes; app.include_router(api_execucoes)  # noqa: E402,E702  Superadmin > Execuções (cada turno da IA)
 if os.environ.get("AGENTESIA_PAINEL_CRM_LIGADO", "").strip() == "1":
     # Painel padrão do CRM pela API interna da Helena (impersonate): desligado por padrão. Se um dia o recebimento de
     # webhooks virar um app separado, este router NÃO entra nele.

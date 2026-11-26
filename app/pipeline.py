@@ -63,6 +63,7 @@ class Atendimento:
         self._falhas_ia: dict[str, int] = {}               # falhas passageiras da IA seguidas, por lead
         self._prazos_gravados: dict[str, datetime] = {}    # último responder_apos que este processo gravou, por lead
         self._fundo: set[asyncio.Task[None]] = set()       # notas e extras em segundo plano (não atrasam o lead)
+        self._reservados: set[str] = set()                 # leads com reserva deste processo (soltas ao desligar)
         self._preparo_do_envio: dict[str, tuple[Any, float | None]] = {}   # por turno: (canal, token), resposta pronta
         # Novas tentativas depois de falha passageira da IA. Com o modelo falso (testes e demonstração), a falha é
         # roteiro que acabou: não repete.
@@ -540,8 +541,10 @@ class Atendimento:
         tarefa.add_done_callback(self._fundo.discard)
 
     # ------------------------------------------------------------------ turno
-    # Reserva do lead no banco enquanto o turno roda (renovada antes do envio).
-    RESERVA_S = 300
+    # Reserva do lead no banco enquanto o turno roda: curta e renovada a cada RENOVAR_S pelo próprio turno. Se o
+    # processo morrer (deploy, queda), ela vence em segundos e outro servidor retoma o lead.
+    RESERVA_S = 90
+    RENOVAR_S = 30.0
     # Motivos de falha da IA que costumam passar sozinhos: o turno é refeito depois (60 s e 300 s) antes de desistir.
     FALHAS_PASSAGEIRAS = ("provedor_fora_do_ar", "sem_conexao", "limite_de_uso")
     ESPERAS_NOVA_TENTATIVA_S = (60.0, 300.0)
@@ -599,6 +602,11 @@ class Atendimento:
                     self._agendar(id_lead, falta)
                     return None
             saida: cerebro.Saida | None = None
+            batimento: asyncio.Task[None] | None = None
+            if modo != "laboratorio":
+                self._reservados.add(id_lead)
+                if getattr(self.repo, "renovar_reserva", None):
+                    batimento = asyncio.create_task(self._manter_reserva(id_lead))
             try:
                 for tentativa in range(self.config.max_reprocessos + 1):
                     pode_descartar = tentativa < self.config.max_reprocessos \
@@ -610,6 +618,9 @@ class Atendimento:
                         self._agendar(id_lead, falta)        # mensagem nova de outro servidor: responde no prazo dela
                         break
             finally:
+                if batimento is not None:
+                    batimento.cancel()
+                self._reservados.discard(id_lead)
                 if modo != "laboratorio":
                     _, restantes = await self._juntos(self.repo.liberar_lead(id_lead),
                                                       self.repo.mensagens_pendentes(id_lead))
@@ -653,14 +664,32 @@ class Atendimento:
         for item in interrompidos:                   # o update com returning garante: só um servidor avisa
             try:
                 await self._evento(item["id_escritorio"], item["id_lead"], item["id_turno"], "turno_interrompido", "erro",
-                                   "lawchat", "O turno da IA foi interrompido no meio (reinício ou queda do servidor): "
-                                              "a resposta pode ter saído pela metade. Confira a conversa.")
-                lead = await self.repo.lead(item["id_lead"])
-                escritorio = await self.repo.escritorio(item["id_escritorio"]) if lead else None
-                if lead and escritorio:
-                    await self._nota_de_problema(escritorio, lead, "envio_falhou", "turno_interrompido")
+                                   "lawchat", self.texto_do_corte(item))
+                if item.get("enviadas", 1):              # parte da resposta saiu: a equipe confere a conversa
+                    lead = await self.repo.lead(item["id_lead"])
+                    escritorio = await self.repo.escritorio(item["id_escritorio"]) if lead else None
+                    if lead and escritorio:
+                        await self._nota_de_problema(escritorio, lead, "envio_falhou", "turno_interrompido")
             except Exception:
                 log.exception("falha ao avisar o turno interrompido %s", item.get("id_turno"))
+
+    @staticmethod
+    def texto_do_corte(item: dict[str, Any]) -> str:
+        """Texto do erro 'turno_interrompido' na tela de Erros: o que aconteceu, o que já saiu e o que a IA vai fazer."""
+        partes = ["O servidor reiniciou (deploy ou queda) no meio da resposta da IA."]
+        if item.get("enviadas", 1):
+            partes.append("Parte da resposta já tinha saído e pode ter ficado pela metade: confira a conversa.")
+        else:
+            partes.append("Nenhuma mensagem da IA tinha saído: ela responde de novo agora, sozinha.")
+        if item.get("novas"):
+            partes.append(f"O lead mandou {item['novas']} mensagem(ns) nesse meio tempo: entram na resposta.")
+        return " ".join(partes)
+
+    async def _manter_reserva(self, id_lead: str) -> None:
+        """Batimento do turno: renova a reserva do lead enquanto o turno roda (a IA pode levar minutos)."""
+        while True:
+            await asyncio.sleep(self.RENOVAR_S)
+            await self._renovar_reserva(id_lead)
 
     async def encerrar(self, teto_s: float = 30.0) -> None:
         """Desligamento: espera os turnos e leituras de mídia em andamento terminarem (até `teto_s`) e cancela o resto.
@@ -669,6 +698,7 @@ class Atendimento:
         vivas += [t for tarefas in self._midias.values() for t in tarefas if not t.done()]
         vivas += [t for t in self._fundo if not t.done()]
         if not vivas:
+            await self._soltar_reservas()
             return
         feitas, restantes = await asyncio.wait(vivas, timeout=teto_s)
         for tarefa in restantes:
@@ -676,6 +706,19 @@ class Atendimento:
         if restantes:
             await asyncio.gather(*restantes, return_exceptions=True)
             log.warning("desligamento: %d tarefa(s) de atendimento cortadas no meio", len(restantes))
+        await self._soltar_reservas()
+
+    async def _soltar_reservas(self) -> None:
+        """Desligando: solta as reservas que este processo ainda segura, para o servidor novo retomar esses leads em
+        segundos (e não esperar a reserva vencer). O turno cortado vira 'turno_interrompido' na varredura dele."""
+        for id_lead in list(self._reservados):
+            try:
+                await self.repo.liberar_lead(id_lead)
+                if await self.repo.mensagens_pendentes(id_lead):
+                    await self.repo.marcar_resposta(id_lead, agora())
+            except Exception:
+                log.exception("desligamento: falha ao soltar a reserva do lead %s", id_lead)
+        self._reservados.clear()
 
     # ------------------------------------------------------------------ mídia pendente (banco)
     MIDIA_RECENTE_S = 60.0                            # marca mais nova que isto: outro servidor pode estar lendo
