@@ -248,6 +248,8 @@ function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim
         ) : <p className="text-[12.5px] text-white/60">Sem consumo nos últimos 30 dias para medir a autonomia.</p>}
       </div>
 
+      <BarrasDoHeroi p={p} dias={dias} />
+
       <div className="mt-auto grid gap-3 pt-4 sm:grid-cols-3">
         <MiniCartao icone={<Target />} rotulo="Custo médio por lead" valor={rs(cpl.valor_brl)}
           nota={cpl.valor_brl == null ? "ainda sem leads atendidos" : cpl.estimativa ? "estimativa pelo modelo de IA" : cpl.fonte === "historico_90d" ? "nos últimos 90 dias" : nomePeriodo(dias)} />
@@ -942,6 +944,37 @@ function Kpi({ icone, cor, rotulo, valor, nota, extra, pequeno }: { icone: React
 }
 
 /** Mini linha do KPI "Créditos usados". */
+/** Gasto por dia dentro do cartão do saldo (últimos 14 pontos do período): preenche o meio do cartão com algo útil. */
+function BarrasDoHeroi({ p, dias }: { p: PainelConsumo; dias: number }) {
+  const serie = useMemo(() => preencherSerie(p, dias).slice(-14), [p, dias]);
+  const max = Math.max(0, ...serie.map((s) => s.valor_brl));
+  const total = serie.reduce((t, s) => t + s.valor_brl, 0);
+  const porHora = p.granularidade === "hora";
+  return (
+    <div className="mt-5 rounded-2xl border border-white/10 bg-white/[.04] p-4">
+      <div className="flex items-baseline justify-between gap-3 text-[12.5px] text-white/70">
+        <span>Gasto {porHora ? "por hora" : "por dia"} · {porHora ? "últimas 24 h" : `últimos ${serie.length} dias`}</span>
+        <b className="font-bold text-white">{reais(total)}</b>
+      </div>
+      {max > 0 ? (
+        <div className="mt-3 flex h-[64px] items-end gap-[5px]" role="img" aria-label={`Gasto ${porHora ? "por hora" : "por dia"}`}>
+          {serie.map((s, i) => (
+            <div key={i} className="group relative flex-1" style={{ height: "100%" }} title={`${s.rotulo}: ${reais(s.valor_brl)}`}>
+              <div className="absolute bottom-0 w-full rounded-[4px] bg-[#3ddc6f]/80 transition-colors group-hover:bg-[#5ee38a]"
+                style={{ height: `${Math.max(s.valor_brl > 0 ? 6 : 2, (s.valor_brl / max) * 100)}%`, opacity: s.valor_brl > 0 ? 1 : .25 }} />
+            </div>
+          ))}
+        </div>
+      ) : <p className="mt-3 text-[12.5px] text-white/55">Sem gasto nesse intervalo.</p>}
+      {max > 0 && (
+        <div className="mt-1.5 flex justify-between text-[10.5px] text-white/45">
+          <span>{serie[0]?.rotulo}</span><span>{serie[serie.length - 1]?.rotulo}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MiniLinha({ valores }: { valores: number[] }) {
   if (valores.length < 2) return null;
   const max = Math.max(...valores) || 1;
