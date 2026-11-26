@@ -4,6 +4,8 @@ Cliente (gestor; a LawChat também, olhando o escritório):
   GET  /api/carteira                         saldo, bônus do mês, plano e consumo do mês em R$
   GET  /api/carteira/estado                  todos os papéis: a IA está pausada por saldo? (sem valores para o atendente)
   GET  /api/carteira/consumo?dias=30         por dia, agente, etapa e função em R$ (detalhe=1: + chamadas e tokens)
+  GET  /api/carteira/painel?dias=30          tela Créditos: totais, série, por função, por agente (R$, conversas, contratos), créditos
+  GET  /api/carteira/conversas?dias=30&ordem=custo|recente|tokens   conversas que mais gastaram / histórico (telefone mascarado)
   GET  /api/carteira/extrato                 movimentos do livro
   GET  /api/carteira/recargas                pedidos de recarga
   POST /api/carteira/recargas                "Pedir recarga" (aviso para a LawChat; sem pagamento online por enquanto)
@@ -20,6 +22,8 @@ from __future__ import annotations
 import asyncio
 
 import json
+import os
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -151,6 +155,247 @@ async def consumo_da_carteira(pedido: Request, dias: int = 30, detalhe: bool = F
             f.pop("tokens", None)
     return {"dias": dias, "total_brl": round(sum(d["valor_brl"] or 0 for d in por_dia), 2), "por_dia": por_dia,
             "por_agente": por_agente, "por_etapa": por_etapa, "por_funcao": por_funcao}
+
+
+# ---------------------------------------------------------------------------- tela "Créditos & Consumo"
+# Tudo em R$ cobrado (cobranca <> 'isenta'), só do escritório da sessão. Conversa = lead com consumo no período.
+_CACHE_PAINEL = CacheCurto(30)
+_FILTRO_PERIODO = ("c.id_escritorio = $1::uuid and c.cobranca <> 'isenta' "
+                   "and c.criado_em >= now() - make_interval(hours => $2)")
+
+
+def _horas(dias: int) -> int:
+    """24h, 7d, 30d, 90d (até 366 dias)."""
+    return max(1, min(int(dias), 366)) * 24
+
+
+def mascarar_telefone(numero: str | None) -> str | None:
+    """5521987654321 -> (21) 9****-4321. Nunca manda o número inteiro para a tela de consumo."""
+    digitos = "".join(ch for ch in (numero or "") if ch.isdigit())
+    if len(digitos) < 8:
+        return None
+    if digitos.startswith("55") and len(digitos) >= 12:
+        digitos = digitos[2:]
+    ddd, resto = (digitos[:2], digitos[2:]) if len(digitos) >= 10 else ("", digitos)
+    oculto = resto[0] + "*" * max(0, len(resto) - 5) + "-" + resto[-4:]
+    return f"({ddd}) {oculto}" if ddd else oculto
+
+
+@api.get("/carteira/painel")
+async def painel_de_consumo(pedido: Request, dias: int = 30, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """Tudo o que a tela Créditos precisa numa ida: totais, série no tempo, por função, por agente (gasto, conversas,
+    contratos), comparativos, média diária e os créditos que entraram (recargas e bônus). Guardado por 30 s."""
+    pool = _pool(pedido)
+    await _exigir_007(pool)
+    horas = _horas(dias)
+    return await _CACHE_PAINEL.obter((id(pedido.app), ctx.escritorio(), horas),
+                                     lambda: _painel_de_consumo(pool, ctx.escritorio(), horas))
+
+
+async def _painel_de_consumo(pool: Any, esc: str, horas: int) -> dict[str, Any]:
+    f = _FILTRO_PERIODO
+    por_hora = horas <= 24
+    grao = (f"date_trunc('hour', c.criado_em at time zone '{FUSO}')::text" if por_hora
+            else f"(c.criado_em at time zone '{FUSO}')::date::text")
+    (totais, serie, por_funcao, por_agente, semanas, creditos, por_mes, carteira) = await asyncio.gather(
+        # Contrato do período = assinado no período, de um lead que teve consumo no período.
+        pool.fetchrow(
+            f"""with base as (select c.* from agentesia_chamadas_ia c where {f})
+                select coalesce(sum(custo_brl), 0)::float8 as creditos_brl, count(*)::int as chamadas,
+                       coalesce(sum(tokens_entrada), 0)::bigint as tokens_entrada,
+                       coalesce(sum(tokens_saida), 0)::bigint as tokens_saida,
+                       coalesce(sum(tokens_cache), 0)::bigint as tokens_cache,
+                       count(distinct id_lead)::int as conversas,
+                       (select count(distinct k.id_lead) from agentesia_contratos k
+                         where k.id_escritorio = $1::uuid and k.situacao = 'assinado'
+                           and k.assinado_em >= now() - make_interval(hours => $2)
+                           and k.id_lead in (select b.id_lead from base b where b.id_lead is not null))::int as contratos
+                from base""", esc, horas),
+        pool.fetch(
+            f"""select {grao} as quando, sum(c.custo_brl)::float8 as valor_brl,
+                       sum(c.tokens_entrada + c.tokens_saida)::bigint as tokens, count(distinct c.id_lead)::int as conversas
+                from agentesia_chamadas_ia c where {f} group by 1 order by 1""", esc, horas),
+        pool.fetch(
+            f"""select c.papel, sum(c.custo_brl)::float8 as valor_brl, count(*)::int as chamadas,
+                       sum(c.tokens_entrada + c.tokens_saida)::bigint as tokens
+                from agentesia_chamadas_ia c where {f} group by 1 order by 2 desc""", esc, horas),
+        pool.fetch(
+            f"""with base as (select c.id_agente, c.id_lead, c.custo_brl, c.tokens_entrada + c.tokens_saida as tokens
+                                from agentesia_chamadas_ia c where {f})
+                select b.id_agente, coalesce(a.nome, 'Sem agente') as agente, sum(b.custo_brl)::float8 as valor_brl,
+                       sum(b.tokens)::bigint as tokens, count(*)::int as chamadas,
+                       count(distinct b.id_lead)::int as conversas,
+                       (select count(distinct k.id_lead) from agentesia_contratos k
+                         where k.id_escritorio = $1::uuid and k.situacao = 'assinado'
+                           and k.assinado_em >= now() - make_interval(hours => $2)
+                           and k.id_lead in (select b2.id_lead from base b2
+                                              where b2.id_agente is not distinct from b.id_agente and b2.id_lead is not null))::int as contratos
+                from base b left join agentesia_agentes a on a.id = b.id_agente
+                group by b.id_agente, a.nome order by valor_brl desc""", esc, horas),
+        pool.fetchrow(
+            """select coalesce(sum(c.custo_brl) filter (where c.criado_em >= now() - interval '7 days'), 0)::float8 as ultimos_7,
+                      coalesce(sum(c.custo_brl) filter (where c.criado_em < now() - interval '7 days'
+                                                     and c.criado_em >= now() - interval '14 days'), 0)::float8 as anteriores_7,
+                      coalesce(sum(c.custo_brl) filter (where c.criado_em >= now() - interval '30 days'), 0)::float8 as ultimos_30,
+                      min(c.criado_em) as primeiro_consumo
+               from agentesia_chamadas_ia c
+               where c.id_escritorio = $1::uuid and c.cobranca <> 'isenta' and c.criado_em >= now() - interval '30 days'""", esc),
+        pool.fetch(
+            """select m.tipo, count(*)::int as quantidade, coalesce(sum(m.valor_brl), 0)::float8 as valor_brl
+               from agentesia_carteira_movimentos m
+               where m.id_escritorio = $1::uuid and m.valor_brl > 0 and m.tipo in ('recarga', 'bonus_plano', 'bonus_manual', 'estorno', 'ajuste')
+                 and m.criado_em >= now() - make_interval(hours => $2)
+               group by 1""", esc, horas),
+        pool.fetch(
+            f"""select to_char(m.criado_em at time zone '{FUSO}', 'YYYY-MM') as mes,
+                       coalesce(sum(m.valor_brl) filter (where m.tipo = 'recarga'), 0)::float8 as recargas_brl,
+                       coalesce(sum(m.valor_brl) filter (where m.tipo in ('bonus_plano', 'bonus_manual')), 0)::float8 as bonus_brl
+                from agentesia_carteira_movimentos m
+                where m.id_escritorio = $1::uuid and m.valor_brl > 0 and m.tipo in ('recarga', 'bonus_plano', 'bonus_manual')
+                  and m.criado_em >= date_trunc('month', now() at time zone '{FUSO}') - interval '11 months'
+                group by 1 order by 1""", esc),
+        _carteira(pool, esc))
+    t = _linha(totais) or {}
+    total = round(t.get("creditos_brl") or 0, 6)
+    conversas, contratos = t.get("conversas") or 0, t.get("contratos") or 0
+    funcoes = _linhas(por_funcao)
+    for linha in funcoes:
+        linha["nome"] = NOMES_PAPEL.get(linha["papel"], linha["papel"])
+    agentes = _linhas(por_agente)
+    for a in agentes:
+        a["custo_por_conversa_brl"] = round(a["valor_brl"] / a["conversas"], 4) if a["conversas"] else None
+        a["custo_por_contrato_brl"] = round(a["valor_brl"] / a["contratos"], 2) if a["contratos"] else None
+        a["conversao_pct"] = round(a["contratos"] / a["conversas"] * 100, 1) if a["conversas"] else None
+        a["participacao_pct"] = round(a["valor_brl"] / total * 100, 1) if total else 0.0
+        a["custo_por_lead_brl"] = a["custo_por_conversa_brl"]
+    sem = _linha(semanas) or {}
+    # Média por dia: dos últimos 30 dias, contando só a partir do primeiro consumo (escritório novo não fica subestimado).
+    media_dia = None
+    if sem.get("primeiro_consumo") and sem.get("ultimos_30"):
+        primeiro = sem["primeiro_consumo"]
+        if isinstance(primeiro, str):
+            primeiro = datetime.fromisoformat(primeiro)
+        dias_com_dado = max(1.0, min(30.0, (datetime.now(timezone.utc) - primeiro).total_seconds() / 86400))
+        media_dia = round(sem["ultimos_30"] / dias_com_dado, 4)
+    entradas = {l["tipo"]: l for l in _linhas(creditos)}
+    por_lead = await _custo_por_lead(pool, esc, total, conversas, carteira.get("markup"))
+    disponivel = max(0.0, carteira.get("disponivel_brl") or 0.0)
+    por_lead["leads_com_saldo"] = int(disponivel / por_lead["valor_brl"] + 1e-9) if por_lead["valor_brl"] else None
+    return {
+        "custo_por_lead": por_lead,
+        "dias": horas // 24, "granularidade": "hora" if por_hora else "dia",
+        "carteira": {k: carteira.get(k) for k in ("disponivel_brl", "saldo_brl", "bonus_brl", "bonus_do_mes_brl", "bonus_usado_pct",
+                                                  "consumo_mes_brl", "modo", "bloqueado", "pausado_por_saldo", "plano", "mes")},
+        "totais": {"creditos_brl": total, "chamadas": t.get("chamadas") or 0,
+                   "tokens": (t.get("tokens_entrada") or 0) + (t.get("tokens_saida") or 0),
+                   "tokens_entrada": t.get("tokens_entrada") or 0, "tokens_saida": t.get("tokens_saida") or 0,
+                   "tokens_cache": t.get("tokens_cache") or 0, "conversas": conversas, "contratos": contratos,
+                   "custo_por_conversa_brl": round(total / conversas, 4) if conversas else None,
+                   "custo_por_contrato_brl": round(total / contratos, 2) if contratos else None,
+                   "conversao_pct": round(contratos / conversas * 100, 1) if conversas else None},
+        "serie": _linhas(serie), "por_funcao": funcoes, "por_agente": agentes,
+        "comparativo": {"ultimos_7_brl": sem.get("ultimos_7") or 0.0, "anteriores_7_brl": sem.get("anteriores_7") or 0.0,
+                        "ultimos_30_brl": sem.get("ultimos_30") or 0.0},
+        "media_dia_brl": media_dia,
+        "creditos": {
+            "recargas_brl": (entradas.get("recarga") or {}).get("valor_brl", 0.0),
+            "recargas": (entradas.get("recarga") or {}).get("quantidade", 0),
+            "bonus_brl": sum((entradas.get(k) or {}).get("valor_brl", 0.0) for k in ("bonus_plano", "bonus_manual")),
+            "bonus": sum((entradas.get(k) or {}).get("quantidade", 0) for k in ("bonus_plano", "bonus_manual")),
+            "outros_brl": sum((entradas.get(k) or {}).get("valor_brl", 0.0) for k in ("estorno", "ajuste")),
+            "por_mes": _linhas(por_mes)},
+    }
+
+
+MINIMO_REFERENCIA = {"escritorios": 3, "leads": 20}   # abaixo disso a média da plataforma não é confiável
+
+
+async def _custo_por_lead(pool: Any, esc: str, total: float, conversas: int, markup_escritorio: float | None) -> dict[str, Any]:
+    """Custo médio por lead (conversa) em R$ cobrado, na ordem:
+      periodo          - do próprio escritório no período escolhido (dado real);
+      historico_90d    - do próprio escritório nos últimos 90 dias (dado real, outro período);
+      referencia_modelo- estimativa: média real da plataforma por lead com o mesmo modelo dos agentes do escritório
+                         (custo real em R$ × o markup DESTE escritório), só com >= 3 escritórios e >= 20 leads;
+      None             - sem base: a tela diz que ainda não dá para estimar (nada inventado)."""
+    if conversas and total > 0:
+        return {"valor_brl": round(total / conversas, 4), "fonte": "periodo", "estimativa": False}
+    linha = await pool.fetchrow(
+        """select coalesce(sum(custo_brl), 0)::float8 as valor, count(distinct id_lead)::int as leads
+           from agentesia_chamadas_ia where id_escritorio = $1::uuid and cobranca <> 'isenta'
+             and criado_em >= now() - interval '90 days' and id_lead is not null""", esc)
+    if linha and linha["leads"] and linha["valor"] > 0:
+        return {"valor_brl": round(linha["valor"] / linha["leads"], 4), "fonte": "historico_90d", "estimativa": False}
+    padrao = os.environ.get("AGENTESIA_MODELO", "gpt-4.1")
+    modelos = [r["modelo"] for r in await pool.fetch(
+        """select distinct coalesce(nullif(config -> 'modelos' ->> 'etapa', ''), $2) as modelo
+           from agentesia_agentes where id_escritorio = $1::uuid""", esc, padrao)] or [padrao]
+    ref = await pool.fetchrow(
+        """with por_lead as (
+               select c.id_lead, min(c.id_escritorio::text) as esc, sum(c.custo_brl_real) as real_brl
+               from agentesia_chamadas_ia c
+               where c.criado_em >= now() - interval '90 days' and c.id_lead is not null and c.cobranca <> 'isenta'
+                 and c.id_lead in (select e.id_lead from agentesia_chamadas_ia e
+                                    where e.papel = 'etapa' and e.modelo = any($1::text[]) and e.id_lead is not null
+                                      and e.criado_em >= now() - interval '90 days')
+               group by c.id_lead)
+           select avg(real_brl)::float8 as real_brl, count(*)::int as leads, count(distinct esc)::int as escritorios
+           from por_lead""", modelos)
+    if (ref and ref["real_brl"] and ref["leads"] >= MINIMO_REFERENCIA["leads"]
+            and ref["escritorios"] >= MINIMO_REFERENCIA["escritorios"]):
+        markup = markup_escritorio or (await _vigente(pool))["markup"]
+        return {"valor_brl": round(ref["real_brl"] * markup, 4), "fonte": "referencia_modelo", "estimativa": True,
+                "modelos": modelos}
+    return {"valor_brl": None, "fonte": None, "estimativa": True}
+
+
+@api.get("/carteira/conversas")
+async def conversas_que_consumiram(pedido: Request, dias: int = 30, ordem: str = "custo", limite: int = 20,
+                                   deslocamento: int = 0, id_agente: str | None = None,
+                                   ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """Conversas (leads) com consumo no período: contato, telefone mascarado, agente, mensagens, turnos, tokens e R$.
+    ordem=custo (as que mais gastaram) ou recente (histórico). Só do escritório da sessão."""
+    pool = _pool(pedido)
+    await _exigir_007(pool)
+    if ordem not in ("custo", "recente", "tokens"):
+        raise HTTPException(400, "ordem: custo, recente ou tokens.")
+    horas, limite, deslocamento = _horas(dias), max(1, min(int(limite), 200)), max(0, int(deslocamento))
+    chave = (id(pedido.app), ctx.escritorio(), horas, ordem, limite, deslocamento, id_agente)
+    return await _CACHE_PAINEL.obter(chave, lambda: _conversas_que_consumiram(
+        pool, ctx.escritorio(), horas, ordem, limite, deslocamento, id_agente))
+
+
+async def _conversas_que_consumiram(pool: Any, esc: str, horas: int, ordem: str, limite: int, deslocamento: int,
+                                    id_agente: str | None) -> dict[str, Any]:
+    ordenar = {"custo": "valor_brl desc", "recente": "ultimo_em desc", "tokens": "tokens desc"}[ordem]
+    linhas = _linhas(await pool.fetch(
+        f"""with base as (
+                select c.id_lead, sum(c.custo_brl)::float8 as valor_brl, sum(c.tokens_entrada + c.tokens_saida)::bigint as tokens,
+                       count(*)::int as chamadas, count(distinct c.id_turno)::int as turnos,
+                       min(c.criado_em) as primeiro_em, max(c.criado_em) as ultimo_em,
+                       (array_agg(c.id_agente order by c.criado_em desc) filter (where c.id_agente is not null))[1] as id_agente_chamada,
+                       count(*) over ()::int as total_linhas
+                from agentesia_chamadas_ia c
+                where {_FILTRO_PERIODO} and c.id_lead is not null
+                  and ($3::uuid is null or c.id_agente = $3::uuid)
+                group by c.id_lead)
+            select b.id_lead, b.valor_brl, b.tokens, b.chamadas, b.turnos, b.primeiro_em, b.ultimo_em, b.total_linhas,
+                   ct.nome as contato, ct.telefone_normalizado as telefone, ca.numero_normalizado as canal,
+                   coalesce(a.nome, 'Sem agente') as agente, coalesce(b.id_agente_chamada, l.id_agente) as id_agente,
+                   (select count(*)::int from agentesia_mensagens m where m.id_lead = b.id_lead
+                     and m.enviada_em >= now() - make_interval(hours => $2)) as mensagens,
+                   exists (select 1 from agentesia_contratos k where k.id_lead = b.id_lead and k.situacao = 'assinado') as contrato_assinado
+            from base b
+            join agentesia_leads l on l.id = b.id_lead and l.id_escritorio = $1::uuid
+            left join agentesia_contatos ct on ct.id = l.id_contato
+            left join agentesia_canais ca on ca.id = l.id_canal
+            left join agentesia_agentes a on a.id = coalesce(b.id_agente_chamada, l.id_agente)
+            order by {ordenar} limit $4 offset $5""", esc, horas, id_agente, limite, deslocamento))
+    total = linhas[0]["total_linhas"] if linhas else 0
+    for l in linhas:
+        l.pop("total_linhas", None)
+        l["telefone"] = mascarar_telefone(l.get("telefone"))
+        l["canal"] = mascarar_telefone(l.get("canal"))
+    return {"dias": horas // 24, "ordem": ordem, "total": total, "conversas": linhas}
 
 
 async def _extrato(pool: Any, id_escritorio: str, limite: int, admin: bool) -> list[dict[str, Any]]:

@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { Wallet, PlusCircle, X } from "lucide-react";
+import { X } from "lucide-react";
 import { enviar, quando } from "../api";
-import { Alerta, Cabecalho, Carregando, Modal, Painel, Vazio, useAcao, useCarregar } from "../componentes/ui";
-import { useSessao } from "../sessao";
+import { Carregando, Modal, Vazio, useAcao } from "../componentes/ui";
 
 /*
- * Consumo e saldo (cliente). Só o necessário: quanto tem, quanto do bônus do mês já foi, onde a IA gastou (em R$) e o
- * extrato. Sem US$, cotação ou markup. Tokens e número de chamadas só no "Detalhe".
+ * Peças da carteira usadas pela tela Créditos & Consumo (telas/Creditos.tsx) e pela Cobrança da IA (admin): tipos,
+ * extrato, lista de recargas e o pedido de recarga. O cliente nunca vê US$, cotação ou markup.
  */
 
 export interface Carteira {
@@ -19,131 +18,10 @@ export interface Recarga { id: string; valor_brl: number; situacao: string; meto
   vencimento: string | null; paga_em?: string | null; criado_em: string; observacao?: string | null; pedido_por?: string | null; gateway?: string }
 export interface Movimento { id: string; tipo: string; nome_tipo: string; valor_brl: number; parte_saldo: number; parte_bonus: number; saldo_depois: number;
   bonus_depois: number; motivo: string | null; detalhe: Record<string, any>; criado_em: string; usuario: string | null }
-interface Consumo { dias: number; total_brl: number; por_dia: { dia: string; valor_brl: number }[]; por_agente: { agente: string; valor_brl: number }[];
-  por_etapa: { etapa: string; valor_brl: number }[]; por_funcao: { papel: string; nome: string; valor_brl: number; chamadas?: number; tokens?: number }[] }
 
 export const reais = (v: number | null | undefined, casas = 2) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: casas, maximumFractionDigits: casas });
 const SITUACAO_RECARGA: Record<string, string> = { pendente: "warn", paga: "ok", cancelada: "", expirada: "", estornada: "bad" };
-
-export function TelaCarteira() {
-  const { escritorio } = useSessao();
-  const carteira = useCarregar<Carteira>("/carteira", [escritorio]); // mostra o da última visita e atualiza por trás (escrita apaga a cópia)
-  const [dias, setDias] = useState(30);
-  const [detalhe, setDetalhe] = useState(false);
-  const consumo = useCarregar<Consumo>(`/carteira/consumo?dias=${dias}${detalhe ? "&detalhe=1" : ""}`, [escritorio, dias, detalhe]);
-  const extrato = useCarregar<Movimento[]>("/carteira/extrato?limite=100", [escritorio]);
-  const recargas = useCarregar<Recarga[]>("/carteira/recargas", [escritorio]);
-  const [pedir, setPedir] = useState(false);
-  const recarregar = () => { carteira.recarregar(); extrato.recarregar(); recargas.recarregar(); };
-
-  if (!carteira.dados) return <Carregando erro={carteira.erro} />;
-  const c = carteira.dados;
-  return (
-    <>
-      <Cabecalho eyebrow="Acompanhar" titulo="Consumo e saldo"
-        texto="Cada resposta da IA consome do bônus do mês e, depois, do saldo. Quando o saldo acaba, a IA pausa e volta sozinha assim que o crédito entrar."
-        acoes={<button className="btn pri" onClick={() => setPedir(true)}><PlusCircle />Pedir recarga</button>} />
-      {c.bloqueado && <Alerta tipo="bad" titulo="A IA está pausada: o saldo acabou">As mensagens novas ficam com a equipe na LawChat. Peça uma recarga: assim que ela for confirmada, a IA volta a responder (sem responder de uma vez o que chegou durante a pausa).</Alerta>}
-      {c.modo === "so_registrar" && <Alerta tipo="info">Este escritório ainda não está no pré-pago: o consumo é registrado, mas a IA não pausa por saldo.</Alerta>}
-      <div className="grid2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: 16 }}>
-        <Indicador rotulo="Disponível agora" valor={reais(c.disponivel_brl)} destaque={c.bloqueado ? "bad" : undefined} nota="saldo + bônus − consumo em processamento" />
-        <Indicador rotulo="Saldo" valor={reais(c.saldo_brl)} nota="recargas e créditos" />
-        <Indicador rotulo={`Bônus do mês (${c.mes.slice(5)}/${c.mes.slice(0, 4)})`} valor={reais(c.bonus_brl)}
-          nota={c.bonus_do_mes_brl > 0 ? `${c.bonus_usado_pct ?? 0}% usado de ${reais(c.bonus_do_mes_brl)}` : "sem bônus neste mês"} />
-        <Indicador rotulo="Consumo do mês" valor={reais(c.consumo_mes_brl)} nota={c.plano ? `Plano ${c.plano}` : "sem plano"} />
-      </div>
-      {c.bonus_do_mes_brl > 0 && <BarraBonus pct={c.bonus_usado_pct ?? 0} />}
-
-      {(recargas.dados ?? []).some((r) => r.situacao === "pendente") && (
-        <Painel titulo="Recargas aguardando pagamento">
-          <ListaRecargas recargas={(recargas.dados ?? []).filter((r) => r.situacao === "pendente")} aoMudar={recarregar} cancelavel />
-        </Painel>
-      )}
-
-      <Painel titulo="Onde a IA gastou" acoes={<>
-        <div className="seg" role="radiogroup" aria-label="Período">
-          {[7, 30, 90].map((d) => <button key={d} role="radio" aria-checked={dias === d} className={dias === d ? "on" : ""} onClick={() => setDias(d)}>{d} dias</button>)}
-        </div>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}><input type="checkbox" checked={detalhe} onChange={(e) => setDetalhe(e.target.checked)} />Detalhe</label>
-      </>}>
-        {!consumo.dados ? <Carregando erro={consumo.erro} /> : consumo.dados.total_brl === 0 ? <Vazio icone={<Wallet />}>Sem consumo no período.</Vazio> : (
-          <div className="stack">
-            <div><span className="lbl">Por dia · total {reais(consumo.dados.total_brl)}</span><BarrasPorDia dados={consumo.dados.por_dia} /></div>
-            <div className="grid2">
-              <Ranking titulo="Por agente" itens={consumo.dados.por_agente.map((a) => [a.agente, a.valor_brl])} />
-              <Ranking titulo="Por etapa" itens={consumo.dados.por_etapa.map((e) => [e.etapa, e.valor_brl])} />
-            </div>
-            <div className="lst"><table>
-              <thead><tr><th>Função</th><th className="num">Valor</th>{detalhe && <><th className="num">Chamadas</th><th className="num">Tokens</th></>}</tr></thead>
-              <tbody>{consumo.dados.por_funcao.map((f) => (
-                <tr key={f.papel}><td>{f.nome}</td><td className="num">{reais(f.valor_brl)}</td>
-                  {detalhe && <><td className="num">{f.chamadas ?? 0}</td><td className="num">{(f.tokens ?? 0).toLocaleString("pt-BR")}</td></>}</tr>
-              ))}</tbody>
-            </table></div>
-          </div>
-        )}
-      </Painel>
-
-      <Painel titulo="Extrato">
-        <Extrato movimentos={extrato.dados} erro={extrato.erro} />
-      </Painel>
-
-      <Painel titulo="Recargas">
-        {!recargas.dados ? <Carregando erro={recargas.erro} /> : recargas.dados.length === 0 ? <Vazio>Nenhum pedido de recarga.</Vazio>
-          : <ListaRecargas recargas={recargas.dados} aoMudar={recarregar} />}
-      </Painel>
-      {pedir && <PedirRecarga aoFechar={() => setPedir(false)} aoPedir={recarregar} />}
-    </>
-  );
-}
-
-function Indicador({ rotulo, valor, nota, destaque }: { rotulo: string; valor: string; nota?: string; destaque?: "bad" }) {
-  return (
-    <div className="panel" style={{ padding: 16 }}>
-      <span className="lbl">{rotulo}</span>
-      <div style={{ fontSize: 26, fontWeight: 600, color: destaque === "bad" ? "var(--bad, #c0392b)" : undefined }}>{valor}</div>
-      {nota && <span className="ajuda">{nota}</span>}
-    </div>
-  );
-}
-
-function BarraBonus({ pct }: { pct: number }) {
-  const cor = pct >= 100 ? "var(--bad, #c0392b)" : pct >= 80 ? "var(--warn, #d68910)" : "var(--acento, #1e8e3e)";
-  return (
-    <div style={{ marginBottom: 16 }} aria-label={`Bônus do mês ${pct}% usado`}>
-      <div style={{ height: 8, borderRadius: 4, background: "var(--surface-2, #eee)", overflow: "hidden" }}>
-        <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: "100%", background: cor }} />
-      </div>
-    </div>
-  );
-}
-
-function BarrasPorDia({ dados }: { dados: { dia: string; valor_brl: number }[] }) {
-  const maior = Math.max(...dados.map((d) => d.valor_brl), 0.0001);
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 120, marginTop: 8 }}>
-      {dados.map((d) => (
-        <div key={d.dia} title={`${d.dia.split("-").reverse().join("/")}: ${reais(d.valor_brl)}`}
-          style={{ flex: 1, minWidth: 4, height: `${Math.max(2, (d.valor_brl / maior) * 100)}%`, background: "var(--acento, #1e8e3e)", borderRadius: "3px 3px 0 0", opacity: 0.85 }} />
-      ))}
-    </div>
-  );
-}
-
-function Ranking({ titulo, itens }: { titulo: string; itens: [string, number][] }) {
-  const total = itens.reduce((s, [, v]) => s + v, 0) || 1;
-  return (
-    <div>
-      <span className="lbl">{titulo}</span>
-      {itens.slice(0, 8).map(([nome, valor]) => (
-        <div key={nome} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 0", borderBottom: "1px solid var(--line, #eee)" }}>
-          <span>{nome}</span><span className="num">{reais(valor)} <span className="ajuda">({Math.round((valor / total) * 100)}%)</span></span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function Extrato({ movimentos, erro, admin }: { movimentos: Movimento[] | null; erro?: string | null; admin?: boolean }) {
   if (!movimentos) return <Carregando erro={erro} />;
@@ -190,9 +68,9 @@ export function ListaRecargas({ recargas, aoMudar, cancelavel }: { recargas: Rec
 
 const VALORES_SUGERIDOS = [100, 300, 500, 1000];
 
-export function PedirRecarga({ aoFechar, aoPedir }: { aoFechar: () => void; aoPedir: () => void }) {
+export function PedirRecarga({ aoFechar, aoPedir, valorInicial = 300 }: { aoFechar: () => void; aoPedir: () => void; valorInicial?: number }) {
   const { ocupado, executar } = useAcao();
-  const [valor, setValor] = useState("300");
+  const [valor, setValor] = useState(String(valorInicial));
   const [obs, setObs] = useState("");
   const numero = Number(valor.replace(",", "."));
   return (

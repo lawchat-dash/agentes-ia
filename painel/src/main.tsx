@@ -56,7 +56,7 @@ const TelaModelos = lazy(() => import("./telas/Modelos").then((m) => ({ default:
 const TelaModelo = lazy(() => import("./telas/Modelos").then((m) => ({ default: m.TelaModelo })));
 const TelaEquipe = lazy(() => import("./telas/Equipe").then((m) => ({ default: m.TelaEquipe })));
 const TelaAvisos = lazy(() => import("./telas/Avisos").then((m) => ({ default: m.TelaAvisos })));
-const TelaCarteira = lazy(() => import("./telas/Carteira").then((m) => ({ default: m.TelaCarteira })));
+const TelaCreditos = lazy(() => import("./telas/Creditos").then((m) => ({ default: m.TelaCreditos })));
 const TelaAdminCobranca = lazy(() => import("./telas/AdminCobranca").then((m) => ({ default: m.TelaAdminCobranca })));
 const Biblioteca = lazy(() => import("@/pages/Biblioteca"));
 const BibliotecaDetalhes = lazy(() => import("@/pages/BibliotecaDetalhes"));
@@ -78,7 +78,7 @@ function usePreCarregarTelas(ligado: boolean, podeGerir: boolean, admin: boolean
       () => import("./telas/Inicio"), () => import("./telas/Conversas"), () => import("./telas/MinhaConta"),
       ...(podeGerir ? [
         () => import("@/pages/MeusProdutos"), () => import("./telas/Agente"), () => import("@/pages/Biblioteca"),
-        () => import("@/pages/BibliotecaDetalhes"), () => import("./telas/Ferramentas"), () => import("./telas/Carteira"),
+        () => import("@/pages/BibliotecaDetalhes"), () => import("./telas/Ferramentas"), () => import("./telas/Creditos"),
         () => import("@/pages/ProdutoEditor"), () => import("./telas/Integracoes"), () => import("./telas/Configuracoes"),
         () => import("./telas/Roteiros"), () => import("./telas/Historico"), () => import("./telas/Followup"), () => import("./telas/Avisos"), () => import("./telas/Erros"),
       ] : []),
@@ -176,7 +176,7 @@ function ComEstrutura() {
           <Route path="/avisos" element={precisaEscritorio(<TelaAvisos />)} />
           <Route path="/configuracoes" element={precisaEscritorio(<TelaConfiguracoes />)} />
           <Route path="/historico" element={precisaEscritorio(<TelaHistorico />)} />
-          <Route path="/consumo" element={precisaEscritorio(<TelaCarteira />)} />
+          <Route path="/consumo" element={precisaEscritorio(<TelaCreditos />)} />
           <Route path="/ferramentas" element={precisaEscritorio(<TelaFerramentas />)} />
           <Route path="/ferramentas/roteiros" element={precisaEscritorio(<TelaRoteiros />)} />
           <Route path="/ferramentas/followup" element={precisaEscritorio(<TelaFollowup />)} />

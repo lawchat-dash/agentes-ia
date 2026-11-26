@@ -740,3 +740,19 @@ html { scroll-behavior: smooth; }
   cursor: pointer; transition: background .15s;
 }
 .lc-rich .ProseMirror .lc-media-chip:hover::before { background: #dbeafe; }
+
+/* ===== Créditos & Consumo (telas/Creditos.tsx) ===== */
+.cr-entra { animation: cr-entra .35s ease both; }
+@keyframes cr-entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.cr-barra { animation: cr-barra .8s cubic-bezier(.2,.8,.2,1) both; transform-origin: left; }
+@keyframes cr-barra { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.cr-brilho { background: linear-gradient(90deg, #f2f4f7 0%, #f9fafb 50%, #f2f4f7 100%); background-size: 200% 100%; animation: cr-brilho 1.2s linear infinite; }
+@keyframes cr-brilho { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.cr-pag { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9999px; border: 1px solid #e4e7ec; background: #fff; }
+.cr-pag:disabled { opacity: .4; }
+.cr-range { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 9999px; outline: none;
+  background: linear-gradient(90deg, #00bc33 0 var(--pct), #eaecf0 var(--pct) 100%); }
+.cr-range::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 9999px; background: #00bc33;
+  border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,188,51,.5); cursor: pointer; }
+.cr-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 9999px; background: #00bc33; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,188,51,.5); cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .cr-entra, .cr-barra, .cr-brilho { animation: none; } }
