@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useReducedMotion } from "framer-motion";
 import {
-  Activity, ArrowDownLeft, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, BookOpen, Bot, Calendar, CheckCircle2, ChevronLeft,
-  ChevronRight, CircleDollarSign, Coins, Cpu, Download, FileSignature, Gauge, Gift, HeartPulse, History, Info, MessageSquare,
-  Receipt, Sparkles, Target, Trophy, TrendingUp, Users, Wallet, XCircle, AlertTriangle,
+  Activity, AlertTriangle, ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen, Bot, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock,
+  Cpu, Download, FileCheck2, Heart, History, Info, LineChart as IconeLinha, MessageCircle, Receipt, Sparkles, Target, TrendingUp, Users, Zap,
 } from "lucide-react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import walletImg from "@/assets/credits-hero.png";
+import {
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from "recharts";
 import { quando } from "../api";
 import { useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
@@ -17,6 +17,8 @@ import { ListaRecargas, PedirRecarga, reais, type Movimento, type Recarga } from
  * Créditos & Consumo (cliente, /consumo). Foco: quantos leads o saldo atende. Tudo em R$ cobrado (o que sai da
  * carteira, já com o markup); nada de US$. Só dados reais: quando é estimativa, a tela diz; sem dado, estado vazio.
  * Dados: /carteira/painel (uma ida), /carteira/conversas, /carteira/recargas e /carteira/extrato.
+ * Visual: cartão principal verde-escuro (saldo) + simulador de recarga; abas em pílula; blocos brancos com ícone
+ * em caixinha de cor suave. Destaques de texto na mesma fonte do painel (Inter), no verde LawChat.
  */
 
 interface Agente {
@@ -45,17 +47,29 @@ interface Conversa {
 }
 interface Conversas { total: number; conversas: Conversa[] }
 
+// Paleta: verde LawChat como destaque; cores das funções só na rosca; vermelho/âmbar só em alerta.
 const VERDE = "#00bc33";
+const VERDE_ESCURO = "#0a8f35";
+const CINZA_BARRA = "#d0d5dd";
+const CORES_FUNCAO = ["#0a8f35", "#2563eb", "#f59e0b", "#7c3aed", "#667085", "#c7cfd6", "#0ea5e9", "#ec4899"];
+const EIXO = { fontSize: 11, fill: "#98A2B3" };
+const DICA = { borderRadius: 10, border: "1px solid #e6ebe8", fontSize: 12, boxShadow: "0 8px 24px rgba(16,24,40,.08)" };
+
 const PERIODOS = [{ d: 1, r: "24h" }, { d: 7, r: "7d" }, { d: 30, r: "30d" }, { d: 90, r: "90d" }];
-const ABAS = [{ id: "visao", r: "Visão Geral" }, { id: "agentes", r: "Por agente" }, { id: "historico", r: "Histórico" },
-  { id: "recargas", r: "Recargas" }, { id: "avancado", r: "Avançado" }] as const;
+const ABAS = [{ id: "visao", r: "Visão geral", i: Activity }, { id: "agentes", r: "Por agente", i: Bot }, { id: "historico", r: "Histórico", i: Clock },
+  { id: "recargas", r: "Recargas", i: Receipt }, { id: "avancado", r: "Avançado", i: TrendingUp }] as const;
 type Aba = (typeof ABAS)[number]["id"];
+const ATALHOS = [50, 150, 500, 1000];
 const nomePeriodo = (d: number) => (d === 1 ? "nas últimas 24 horas" : `nos últimos ${d} dias`);
 /** Valores pequenos (custo de um lead) com mais casas, para não virar "R$ 0,00". */
 const rs = (v: number | null | undefined) => (v == null ? "—" : reais(v, Math.abs(v) > 0 && Math.abs(v) < 0.1 ? 4 : 2));
 const inteiro = (v: number | null | undefined) => (v ?? 0).toLocaleString("pt-BR");
 const pct = (v: number | null | undefined) => `${(v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 const compacto = (v: number) => v.toLocaleString("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+/** Tokens por extenso curto: "813,6 mil", "1,2 mi". */
+const tokensCurto = (v: number) => (v >= 1e6 ? `${(v / 1e6).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`
+  : v >= 1000 ? `${(v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil` : inteiro(v));
+const leadsDe = (valor: number, cpl: number | null) => (cpl ? Math.floor(valor / cpl + 1e-9) : null);
 
 // ============================================================================ tela
 export function TelaCreditos() {
@@ -64,6 +78,7 @@ export function TelaCreditos() {
   const aba = (ABAS.some((a) => a.id === busca.get("aba")) ? busca.get("aba") : "visao") as Aba;
   const irPara = (nova: Aba) => setBusca((b) => { const n = new URLSearchParams(b); n.set("aba", nova); return n; }, { replace: true });
   const [dias, setDias] = useState(30);
+  const [valorSim, setValorSim] = useState(150);
   const painel = useCarregar<PainelConsumo>(`/carteira/painel?dias=${dias}`, [escritorio, dias]);
   const caras = useCarregar<Conversas>(`/carteira/conversas?dias=${dias}&ordem=custo&limite=10`, [escritorio, dias]);
   const recargas = useCarregar<Recarga[]>("/carteira/recargas", [escritorio]);
@@ -72,44 +87,37 @@ export function TelaCreditos() {
 
   const p = painel.dados;
   return (
-    <div className="cr-tela mx-auto w-full max-w-[1320px] pb-10">
-      <Topo p={p} aoRecarregar={() => setPedir(300)} />
+    <div className="cr-tela mx-auto w-full max-w-[1240px] pb-12">
+      <Topo dias={dias} setDias={setDias} podeExportar={!!p} aoExportar={() => p && exportarCsv(p, caras.dados, dias)} aoRecarregar={() => setPedir(valorSim)} />
 
-      {p?.carteira.bloqueado && (
-        <Faixa tom="bad" icone={<XCircle />} titulo="A IA está pausada: o saldo acabou">
-          As mensagens novas ficam com a sua equipe. Assim que a recarga for confirmada, a IA volta a responder sozinha.
-        </Faixa>
-      )}
       {(recargas.dados ?? []).some((r) => r.situacao === "pendente") && (
-        <Faixa tom="warn" icone={<Receipt />} titulo="Você tem recarga aguardando pagamento">
-          <button className="underline font-semibold" onClick={() => irPara("recargas")}>Ver na aba Recargas</button>
-        </Faixa>
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#fedf89] bg-[#fffaeb] px-4 py-3 text-[13px] text-[#b54708]">
+          <Receipt className="mt-0.5 size-4 shrink-0" />
+          <div><b>Você tem recarga aguardando pagamento.</b>{" "}
+            <button className="font-semibold underline" onClick={() => irPara("recargas")}>Ver na aba Recargas</button></div>
+        </div>
       )}
 
-      {p ? <Destaque p={p} dias={dias} aoRecarregar={setPedir} /> : <Esqueleto altura={220} erro={painel.erro} />}
-
-      {/* Abas + período + exportar */}
-      <div className="mt-6 mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Seções">
-          {ABAS.map((a) => (
-            <button key={a.id} role="tab" aria-selected={aba === a.id} onClick={() => irPara(a.id)}
-              className={`shrink-0 rounded-full border px-4 py-2 text-[13px] font-semibold transition ${aba === a.id
-                ? "border-transparent bg-[#00bc33] text-white shadow-[0_6px_18px_-6px_rgba(0,188,51,.6)]"
-                : "border-[#e4e7ec] bg-white text-[#344054] hover:border-[#00bc33]/50"}`}>{a.r}</button>
-          ))}
+      {p ? (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.28fr)_minmax(0,1fr)]">
+          <Heroi p={p} dias={dias} valorSim={valorSim} />
+          <Simulador p={p} valor={valorSim} setValor={setValorSim} aoRecarregar={setPedir} />
         </div>
-        <div className="flex items-center gap-1 self-start rounded-full border border-[#e4e7ec] bg-white p-1 lg:self-auto">
-          <div role="radiogroup" aria-label="Período" className="flex">
-            {PERIODOS.map(({ d, r }) => (
-              <button key={d} role="radio" aria-checked={dias === d} onClick={() => setDias(d)}
-                className={`rounded-full px-3 py-1.5 text-[12px] font-semibold transition ${dias === d ? "bg-[#101828] text-white" : "text-[#667085] hover:text-[#101828]"}`}>{r}</button>
-            ))}
-          </div>
-          <span className="mx-1 h-5 w-px bg-[#e4e7ec]" />
-          <button disabled={!p} onClick={() => p && exportarCsv(p, caras.dados, dias)}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:text-[#00bc33] disabled:opacity-40">
-            <Download className="size-3.5" />Exportar
-          </button>
+      ) : <Esqueleto altura={460} erro={painel.erro} />}
+
+      {/* Abas em pílula */}
+      <div className="mb-6 mt-7 overflow-x-auto pb-1">
+        <div className="cr-abas inline-flex gap-1 rounded-2xl border border-[#e6ebe8] bg-white p-1.5" role="tablist" aria-label="Seções">
+          {ABAS.map((a) => {
+            const Icone = a.i;
+            const ativa = aba === a.id;
+            return (
+              <button key={a.id} role="tab" aria-selected={ativa} onClick={() => irPara(a.id)}
+                className={`cr-aba inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-[14px] font-semibold transition ${ativa ? "cr-aba-ativa text-white" : "text-[#344054] hover:bg-[#f2f5f3]"}`}>
+                <Icone className="size-4" strokeWidth={2} />{a.r}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -119,7 +127,7 @@ export function TelaCreditos() {
           {aba === "agentes" && <PorAgente p={p} dias={dias} />}
           {aba === "historico" && <Historico dias={dias} />}
           {aba === "recargas" && <Recargas p={p} dias={dias} recargas={recargas.dados} erro={recargas.erro} aoMudar={aposPedir} />}
-          {aba === "avancado" && <Avancado p={p} aoRecarregar={setPedir} />}
+          {aba === "avancado" && <Avancado p={p} />}
         </div>
       )}
       {pedir != null && <PedirRecarga valorInicial={pedir} aoFechar={() => setPedir(null)} aoPedir={aposPedir} />}
@@ -127,39 +135,43 @@ export function TelaCreditos() {
   );
 }
 
-// ============================================================================ topo e destaque
-function Topo({ p, aoRecarregar }: { p: PainelConsumo | null; aoRecarregar: () => void }) {
-  const c = p?.carteira;
-  const cor = !c ? "#98A2B3" : c.bloqueado ? "#ef4444" : nivelSaldo(p!) === "baixo" ? "#f59e0b" : VERDE;
+// ============================================================================ topo
+function Topo({ dias, setDias, podeExportar, aoExportar, aoRecarregar }: {
+  dias: number; setDias: (d: number) => void; podeExportar: boolean; aoExportar: () => void; aoRecarregar: () => void;
+}) {
   return (
-    <header className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-      <div className="flex items-center gap-4">
-        <img src={walletImg} alt="" className="size-20 shrink-0 select-none object-contain drop-shadow-md md:size-[88px]" />
-        <div className="min-w-0">
-          <span className="inline-block rounded-md bg-[#e8f9ee] px-2 py-0.5 text-[10px] font-bold tracking-[.12em] text-[#00a02b]">CRÉDITOS</span>
-          <h1 className="mt-1 text-[26px] font-bold leading-tight tracking-tight text-[#101828] md:text-[30px]">Créditos &amp; Consumo</h1>
-          <p className="mt-1 max-w-xl text-[13.5px] text-[#667085]">Veja quantos leads seu saldo atende, quanto cada agente gasta e para onde vão seus créditos. Créditos de recarga não expiram.</p>
-        </div>
+    <header className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0">
+        <div className="text-[12px] font-bold uppercase tracking-[.14em] text-[#475467]">Créditos</div>
+        <h1 className="mt-1 text-[30px] font-extrabold leading-[1.1] tracking-[-0.025em] text-[#0c111d] md:text-[38px]">
+          Créditos <span className="cr-destaque">&amp; consumo</span>
+        </h1>
+        <p className="mt-2 max-w-[600px] text-[14.5px] leading-relaxed text-[#475467]">
+          Veja quantos leads seu saldo atende, quanto cada agente gasta e para onde vão seus créditos. Créditos de recarga não expiram.
+        </p>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-3 rounded-2xl border border-[#e4e7ec] bg-white px-4 py-2.5 shadow-sm">
-          <span className="grid size-9 place-items-center rounded-xl bg-[#e8f9ee] text-[#00bc33]"><Wallet className="size-4" /></span>
-          <div>
-            <div className="text-[11px] text-[#667085]">Saldo disponível</div>
-            <div className="text-[18px] font-bold tabular-nums text-[#101828]">{c ? reais(c.disponivel_brl) : "—"}</div>
-          </div>
-          <span className="ml-1 size-2.5 rounded-full" style={{ background: cor, boxShadow: `0 0 0 4px ${cor}22` }} aria-hidden />
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div role="radiogroup" aria-label="Período" className="flex rounded-xl border border-[#e6ebe8] bg-white p-1">
+          {PERIODOS.map(({ d, r }) => (
+            <button key={d} role="radio" aria-checked={dias === d} onClick={() => setDias(d)}
+              className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${dias === d ? "bg-[#0c111d] text-white" : "text-[#475467] hover:text-[#0c111d]"}`}>{r}</button>
+          ))}
         </div>
-        <button onClick={aoRecarregar}
-          className="inline-flex items-center gap-2 rounded-2xl bg-[#00bc33] px-5 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_-10px_rgba(0,188,51,.8)] transition hover:bg-[#00a82e] active:scale-[.98]">
-          <Sparkles className="size-4" />Recarregar créditos<ArrowUpRight className="size-4" />
+        <button disabled={!podeExportar} onClick={aoExportar}
+          className="inline-flex items-center gap-2 rounded-xl border border-[#e6ebe8] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1d2939] transition hover:bg-[#f7f9f8] disabled:opacity-40">
+          <Download className="size-4" />Exportar
+        </button>
+        <button onClick={aoRecarregar} className="cr-botao-verde inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[13.5px] font-semibold text-white">
+          <Sparkles className="size-4" />Recarregar créditos
         </button>
       </div>
     </header>
   );
 }
 
-function nivelSaldo(p: PainelConsumo): "pausado" | "baixo" | "ok" | "sem_ritmo" {
+// ============================================================================ cartão principal (saldo)
+type Nivel = "pausado" | "baixo" | "ok" | "sem_ritmo";
+function nivelSaldo(p: PainelConsumo): Nivel {
   if (p.carteira.bloqueado) return "pausado";
   const dias = diasDeAutonomia(p);
   if (dias == null) return "sem_ritmo";
@@ -170,253 +182,320 @@ const diasDeAutonomia = (p: PainelConsumo) =>
 
 function textoFonte(p: PainelConsumo, dias: number) {
   const cpl = p.custo_por_lead;
-  if (cpl.fonte === "periodo") return <>pelo custo médio real de <b className="text-[#101828]">{rs(cpl.valor_brl)} por lead</b> {nomePeriodo(dias)}</>;
-  if (cpl.fonte === "historico_90d") return <>pelo seu custo médio real de <b className="text-[#101828]">{rs(cpl.valor_brl)} por lead</b> nos últimos 90 dias</>;
-  if (cpl.fonte === "referencia_modelo") return <><b className="text-[#b54708]">Estimativa:</b> você ainda não tem histórico, então usamos o custo médio por lead de escritórios com o mesmo modelo de IA dos seus agentes (<b className="text-[#101828]">{rs(cpl.valor_brl)} por lead</b>, já no seu preço).</>;
+  if (cpl.fonte === "periodo") return <>Pelo seu custo médio real de {rs(cpl.valor_brl)} por lead {nomePeriodo(dias)}</>;
+  if (cpl.fonte === "historico_90d") return <>Pelo seu custo médio real de {rs(cpl.valor_brl)} por lead nos últimos 90 dias</>;
+  if (cpl.fonte === "referencia_modelo") return <>Estimativa: você ainda não tem histórico, então usamos o custo médio por lead de escritórios com o mesmo modelo de IA dos seus agentes ({rs(cpl.valor_brl)} por lead, já no seu preço)</>;
   return null;
 }
 
-/** O número principal da tela: quantos leads o saldo atende (e por quantos dias, no ritmo atual). */
-function Destaque({ p, dias, aoRecarregar }: { p: PainelConsumo; dias: number; aoRecarregar: (v: number) => void }) {
+function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim: number }) {
   const c = p.carteira;
   const cpl = p.custo_por_lead;
-  const autonomia = diasDeAutonomia(p);
   const nivel = nivelSaldo(p);
-  const selo = {
-    pausado: { t: "IA pausada por saldo", cor: "#b42318", fundo: "#fef3f2", icone: <XCircle className="size-3.5" /> },
-    baixo: { t: "Saldo baixo: recarregue logo", cor: "#b54708", fundo: "#fffaeb", icone: <AlertTriangle className="size-3.5" /> },
-    ok: { t: "Operação saudável", cor: "#067647", fundo: "#ecfdf3", icone: <CheckCircle2 className="size-3.5" /> },
-    sem_ritmo: { t: "Sem consumo recente", cor: "#475467", fundo: "#f2f4f7", icone: <Info className="size-3.5" /> },
-  }[nivel];
+  const autonomia = diasDeAutonomia(p);
+  const extra = p.media_dia_brl ? valorSim / p.media_dia_brl : null;
+  const negativo = c.disponivel_brl < 0;
+  const cmp = p.comparativo;
+  const variacao = cmp.anteriores_7_brl > 0 ? ((cmp.ultimos_7_brl - cmp.anteriores_7_brl) / cmp.anteriores_7_brl) * 100 : null;
+  // Barra de autonomia: hoje (cheio) + o que a recarga simulada acrescenta (translúcido), numa escala de 1 ano.
+  const escala = 365;
+  const larguraHoje = autonomia != null ? Math.max(autonomia > 0 ? 2 : 0, (autonomia / escala) * 100) : 0;
+  const larguraExtra = extra != null ? (extra / escala) * 100 : 0;
   return (
-    <section className="lc-hero relative overflow-hidden p-5 md:p-7">
-      <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 size-64 rounded-full bg-[#00bc33]/10 blur-3xl" />
-      <div className="relative grid gap-6 lg:grid-cols-[1.25fr_1fr]">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-medium text-[#475467]">Saldo disponível</span>
-            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold" style={{ color: selo.cor, background: selo.fundo }}>{selo.icone}{selo.t}</span>
-          </div>
-          <div className="mt-1 text-[38px] font-extrabold leading-none tracking-tight tabular-nums md:text-[46px]" style={{ color: c.disponivel_brl > 0 ? VERDE : "#d92d20" }}>
-            <Contador valor={c.disponivel_brl} formato={(v) => reais(v)} />
-          </div>
-          {c.bonus_do_mes_brl > 0 && (
-            <div className="mt-3 max-w-md">
-              <div className="flex justify-between text-[12px] text-[#667085]"><span>Bônus do mês: {reais(c.bonus_brl)} restantes</span><span>{pct(c.bonus_usado_pct ?? 0)} usado</span></div>
-              <Barra pct={c.bonus_usado_pct ?? 0} cor={(c.bonus_usado_pct ?? 0) >= 80 ? "#f59e0b" : VERDE} />
+    <section className="cr-heroi relative isolate min-w-0 overflow-hidden rounded-[26px] p-6 text-white md:p-8">
+      {/* Selos de situação */}
+      <div className="flex flex-wrap gap-2">
+        {nivel === "pausado" && <Selo ponto="#ff9b85">{negativo ? "Saldo negativo · IA em pausa" : "Saldo zerado · IA em pausa"}</Selo>}
+        {(nivel === "pausado" || nivel === "baixo") && <Selo icone={<AlertTriangle className="size-3.5" />}>Saldo baixo: recarregue logo</Selo>}
+        {nivel === "ok" && <Selo ponto="#5ee38a">Operação saudável</Selo>}
+        {nivel === "sem_ritmo" && <Selo ponto="#98A2B3">Sem consumo recente</Selo>}
+        {cpl.estimativa && cpl.valor_brl != null && <Selo icone={<Info className="size-3.5" />}>Estimativa</Selo>}
+      </div>
+
+      <div className="mt-6 text-[14px] text-white/70">Saldo disponível</div>
+      <div className={`mt-1 break-words text-[52px] font-extrabold leading-[1] tracking-[-0.04em] tabular-nums sm:text-[72px] md:text-[86px] ${negativo ? "cr-saldo-negativo" : "cr-saldo-positivo"}`}>
+        {negativo ? "−" : ""}{reais(Math.abs(c.disponivel_brl))}
+      </div>
+
+      <p className="mt-6 max-w-[520px] text-[15px] leading-relaxed text-white/85">
+        {cpl.leads_com_saldo != null ? (
+          <>Seu saldo atende cerca de <b className="font-bold text-white">{cpl.estimativa && "≈ "}<Contador valor={cpl.leads_com_saldo} formato={(v) => inteiro(Math.round(v))} /> {cpl.leads_com_saldo === 1 ? "lead" : "leads"}</b>
+            {autonomia != null && <>, {autonomia < 1 ? "menos de 1 dia" : formatarDias(autonomia)} no seu ritmo atual</>}.
+            {nivel === "pausado" && " A IA volta sozinha quando a recarga entra."}</>
+        ) : (
+          <>Assim que seus agentes atenderem os primeiros leads, mostramos aqui quantos leads o seu saldo paga, com o custo real do seu escritório.
+            {nivel === "pausado" && " A IA volta sozinha quando a recarga entra."}</>
+        )}
+      </p>
+
+      {c.bonus_do_mes_brl > 0 && (
+        <p className="mt-2 text-[12.5px] text-white/60">Bônus do mês: {reais(c.bonus_brl)} restantes · {pct(c.bonus_usado_pct ?? 0)} usado</p>
+      )}
+
+      <div className="mt-6">
+        {autonomia != null ? (
+          <>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12.5px] text-white/75">
+              <span>Autonomia hoje: <b className="font-bold text-white">{formatarDias(autonomia)}</b></span>
+              {extra != null && <span>Com {reais(valorSim)}: <b className="font-bold text-white">{formatarDias(autonomia + extra)}</b></span>}
             </div>
-          )}
+            <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-white/10" role="img"
+              aria-label={`Autonomia hoje ${formatarDias(autonomia)}; com a recarga ${extra != null ? formatarDias(autonomia + extra) : ""}`}>
+              <div className="cr-barra h-full rounded-l-full bg-[#3ddc6f]" style={{ width: `${larguraHoje}%` }} />
+              <div className="cr-barra h-full rounded-r-full bg-gradient-to-r from-[#3ddc6f]/80 to-white/70" style={{ width: `${Math.min(100 - larguraHoje, larguraExtra)}%` }} />
+            </div>
+          </>
+        ) : <p className="text-[12.5px] text-white/60">Sem consumo nos últimos 30 dias para medir a autonomia.</p>}
+      </div>
 
-          <div className="mt-5 rounded-2xl border border-[#d1fadf] bg-white/80 p-4 md:p-5">
-            {cpl.leads_com_saldo != null ? (
-              <>
-                <div className="flex items-center gap-2 text-[13px] font-semibold text-[#067647]"><Users className="size-4" />Seu saldo atende cerca de</div>
-                <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
-                  <span className="text-[44px] font-extrabold leading-none tracking-tight text-[#101828] tabular-nums md:text-[56px]">
-                    {cpl.estimativa && "≈ "}<Contador valor={cpl.leads_com_saldo} formato={(v) => inteiro(Math.round(v))} />
-                  </span>
-                  <span className="text-[20px] font-bold text-[#101828]">leads</span>
-                  {autonomia != null && (
-                    <span className="text-[14px] font-medium text-[#475467]">≈ {formatarDias(autonomia)} no seu ritmo atual</span>
-                  )}
-                </div>
-                <p className="mt-2 text-[12.5px] leading-relaxed text-[#667085]">{textoFonte(p, dias)}</p>
-              </>
-            ) : (
-              <div className="flex items-start gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#e8f9ee] text-[#00bc33]"><Users className="size-5" /></span>
-                <div>
-                  <div className="text-[15px] font-semibold text-[#101828]">Quantos leads seu saldo atende?</div>
-                  <p className="text-[13px] text-[#667085]">Assim que seus agentes atenderem os primeiros leads, mostramos aqui quantos leads o seu saldo paga, com o custo real do seu escritório.</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 self-start">
-          <MiniDado icone={<Target />} rotulo="Custo médio por lead" valor={rs(cpl.valor_brl)} nota={cpl.estimativa && cpl.valor_brl != null ? "estimativa" : cpl.fonte === "historico_90d" ? "últimos 90 dias" : nomePeriodo(dias)} />
-          <MiniDado icone={<Calendar />} rotulo="Autonomia estimada" valor={autonomia != null ? formatarDias(autonomia) : "—"} nota={p.media_dia_brl ? `gasto médio ${rs(p.media_dia_brl)}/dia` : "sem consumo nos últimos 30 dias"} />
-          <Comparativo atual={p.comparativo.ultimos_7_brl} antes={p.comparativo.anteriores_7_brl} />
-          <MiniDado icone={<CircleDollarSign />} rotulo="Consumo do mês" valor={reais(c.consumo_mes_brl)} nota={c.plano ? `plano ${c.plano}` : "desde o dia 1º"} />
-          <div className="col-span-2 flex flex-wrap gap-2">
-            {[50, 150, 500].map((v) => (
-              <button key={v} onClick={() => aoRecarregar(v)}
-                className="flex-1 rounded-xl border border-[#d1fadf] bg-white px-3 py-2 text-left text-[12px] text-[#475467] transition hover:border-[#00bc33] hover:shadow-sm">
-                <div className="font-bold text-[#101828]">{reais(v, 0)}</div>
-                <div>{cpl.valor_brl ? `≈ ${inteiro(Math.floor(v / cpl.valor_brl + 1e-9))} leads` : "recarregar"}</div>
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <MiniCartao icone={<Target />} rotulo="Custo médio por lead" valor={rs(cpl.valor_brl)}
+          nota={cpl.valor_brl == null ? "ainda sem leads atendidos" : cpl.estimativa ? "estimativa pelo modelo de IA" : cpl.fonte === "historico_90d" ? "nos últimos 90 dias" : nomePeriodo(dias)} />
+        <MiniCartao icone={<Clock />} rotulo="Últimos 7 dias" valor={reais(cmp.ultimos_7_brl)}
+          nota={variacao == null ? (cmp.ultimos_7_brl > 0 ? "sem semana anterior para comparar" : "sem consumo") : `${variacao > 0 ? "+" : ""}${variacao.toFixed(0)}% vs. semana anterior`}
+          alerta={variacao != null && variacao > 50} />
+        <MiniCartao icone={<CalendarDays />} rotulo="Consumo do mês" valor={reais(c.consumo_mes_brl)}
+          nota={`${c.plano ? `plano ${c.plano}` : "desde o dia 1º"}${p.media_dia_brl ? ` · ${rs(p.media_dia_brl)}/dia` : ""}`} />
       </div>
     </section>
   );
 }
 
-function Comparativo({ atual, antes }: { atual: number; antes: number }) {
-  const pct = antes > 0 ? ((atual - antes) / antes) * 100 : null;
-  const subiu = pct != null && pct > 0;
+const Selo = ({ ponto, icone, children }: { ponto?: string; icone?: ReactNode; children: ReactNode }) => (
+  <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold text-white/90 backdrop-blur-sm">
+    {ponto && <span className="size-2 rounded-full" style={{ background: ponto, boxShadow: `0 0 8px ${ponto}` }} aria-hidden />}{icone}{children}
+  </span>
+);
+
+const MiniCartao = ({ icone, rotulo, valor, nota, alerta }: { icone: ReactNode; rotulo: string; valor: string; nota: string; alerta?: boolean }) => (
+  <div className="min-w-0 rounded-2xl border border-white/10 bg-white/[.06] p-4 backdrop-blur-sm">
+    <div className="flex items-center gap-1.5 text-[12.5px] text-white/70 [&>svg]:size-3.5">{icone}{rotulo}</div>
+    <div className="mt-2 truncate text-[22px] font-bold tracking-tight tabular-nums">{valor}</div>
+    <div className={`mt-1 text-[11.5px] leading-snug ${alerta ? "text-[#ffc56b]" : "text-white/55"}`}>{nota}</div>
+  </div>
+);
+
+// ============================================================================ simulador
+/** Quanto uma recarga compra: leads (pelo custo médio por lead) e dias (pelo gasto médio por dia). */
+function Simulador({ p, valor, setValor, aoRecarregar }: { p: PainelConsumo; valor: number; setValor: (v: number) => void; aoRecarregar: (v: number) => void }) {
+  const cpl = p.custo_por_lead.valor_brl;
+  const leads = leadsDe(valor, cpl);
+  const dias = p.media_dia_brl ? valor / p.media_dia_brl : null;
+  const depois = p.carteira.disponivel_brl + valor;
+  const fracao = (valor - 10) / 1990;
+  // Anel: proporção do valor no intervalo do controle (R$ 10 a R$ 2.000).
+  const R = 52, C = 2 * Math.PI * R;
   return (
-    <MiniDado icone={subiu ? <ArrowUpRight /> : <ArrowDownRight />} rotulo="Últimos 7 dias" valor={reais(atual)}
-      nota={pct == null ? (atual > 0 ? "sem semana anterior para comparar" : "sem consumo") : `${subiu ? "+" : ""}${pct.toFixed(0)}% vs. semana anterior`}
-      tom={pct == null ? undefined : subiu ? "warn" : "ok"} />
+    <section className="cr-cartao flex min-w-0 flex-col rounded-[26px] p-5 md:p-6">
+      <div className="flex items-start gap-3">
+        <IconeCaixa cor="verde"><Zap /></IconeCaixa>
+        <div className="min-w-0">
+          <h3 className="text-[16px] font-bold text-[#0c111d]">Simulador de recarga</h3>
+          <p className="text-[13px] text-[#667085]">Arraste e veja quantos leads e dias uma recarga compra.</p>
+        </div>
+      </div>
+
+      <div className="mt-5 flex items-center gap-5">
+        <div className="relative size-[124px] shrink-0">
+          <svg viewBox="0 0 124 124" className="size-full -rotate-90" aria-hidden>
+            <circle cx="62" cy="62" r={R} fill="none" stroke="#e5ece8" strokeWidth="10" />
+            <circle cx="62" cy="62" r={R} fill="none" stroke={VERDE_ESCURO} strokeWidth="10" strokeLinecap="round" className="cr-anel"
+              strokeDasharray={`${Math.max(0.02, fracao) * C} ${C}`} />
+          </svg>
+          <div className="absolute inset-0 grid place-items-center text-center">
+            <div>
+              <div className="text-[28px] font-extrabold leading-none tracking-tight tabular-nums text-[#0a8f35]">{leads != null ? inteiro(leads) : "—"}</div>
+              <div className="mt-1 text-[12px] text-[#667085]">{leads != null ? (leads === 1 ? "lead" : "leads") : "sem histórico"}</div>
+            </div>
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11.5px] font-bold uppercase tracking-[.12em] text-[#667085]">Recarregar</div>
+          <div className="mt-1 text-[30px] font-extrabold leading-tight tracking-[-0.02em] tabular-nums text-[#0c111d] md:text-[34px]">{reais(valor)}</div>
+          <input type="range" min={10} max={2000} step={10} value={valor} onChange={(e) => setValor(Number(e.target.value))}
+            aria-label="Valor da recarga" className="cr-range mt-3 w-full" style={{ ["--pct" as any]: `${fracao * 100}%` }} />
+          <div className="mt-1.5 flex justify-between text-[11.5px] text-[#98A2B3]"><span>R$ 10</span><span>R$ 2.000</span></div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {ATALHOS.map((v) => {
+          const ativo = valor === v;
+          const n = leadsDe(v, cpl);
+          return (
+            <button key={v} onClick={() => setValor(v)} aria-pressed={ativo}
+              className={`rounded-xl border px-2 py-2.5 text-center transition ${ativo ? "border-[#0a8f35] bg-[#e7f7ec] text-[#0a8f35]" : "border-[#e6ebe8] bg-white text-[#0c111d] hover:border-[#c9d6ce]"}`}>
+              <div className="text-[14px] font-bold tabular-nums">{reais(v, 0)}</div>
+              <div className={`text-[11.5px] ${ativo ? "text-[#0a8f35]/80" : "text-[#667085]"}`}>{n != null ? `≈ ${inteiro(n)} ${n === 1 ? "lead" : "leads"}` : "—"}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-[#f1f4f2] px-3.5 py-3">
+          <div className="text-[12px] text-[#667085]">Duração no seu ritmo</div>
+          <div className="mt-0.5 text-[17px] font-bold tabular-nums text-[#0c111d]">{dias != null ? formatarDias(dias) : "—"}</div>
+        </div>
+        <div className="rounded-xl bg-[#f1f4f2] px-3.5 py-3">
+          <div className="text-[12px] text-[#667085]">Saldo depois da recarga</div>
+          <div className={`mt-0.5 text-[17px] font-bold tabular-nums ${depois < 0 ? "text-[#b42318]" : "text-[#0c111d]"}`}>{depois < 0 ? "−" : ""}{reais(Math.abs(depois))}</div>
+        </div>
+      </div>
+
+      <button onClick={() => aoRecarregar(valor)} className="cr-botao-verde mt-4 w-full rounded-xl py-3.5 text-[15px] font-bold text-white">
+        Recarregar {reais(valor)}
+      </button>
+      <p className="mt-3 text-[12px] leading-relaxed text-[#667085]">
+        {cpl == null ? "Ainda sem consumo para calcular. Assim que seus agentes atenderem os primeiros leads, o simulador usa o seu custo real."
+          : <>{p.custo_por_lead.estimativa ? `Estimativa pelo custo de referência do modelo de IA dos seus agentes (${rs(cpl)} por lead)` : `Pelo seu custo médio real de ${rs(cpl)} por lead`}
+            {p.media_dia_brl ? ` e gasto médio de ${rs(p.media_dia_brl)} por dia.` : ". Sem consumo nos últimos 30 dias para estimar os dias."}
+            {!p.custo_por_lead.estimativa && p.totais.conversas > 0 && p.totais.conversas < 10 && ` Com ${p.totais.conversas} ${p.totais.conversas === 1 ? "lead" : "leads"} no histórico, a estimativa ainda é aproximada.`}</>}
+      </p>
+    </section>
   );
 }
 
-// ============================================================================ Visão Geral
+// ============================================================================ Visão geral
 function VisaoGeral({ p, dias, caras, erroCaras, irPara, recargas, aoRecarregar }: {
   p: PainelConsumo; dias: number; caras: Conversas | null; erroCaras: string | null; irPara: (a: Aba) => void;
   recargas: Recarga[] | null; aoRecarregar: (v: number) => void;
 }) {
   const t = p.totais;
+  const serie = useMemo(() => preencherSerie(p, dias), [p, dias]);
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <Kpi icone={<TrendingUp />} cor="green" rotulo="Créditos usados" valor={<Contador valor={t.creditos_brl} formato={(v) => reais(v)} />} nota={nomePeriodo(dias)} />
-        <Kpi icone={<Users />} cor="blue" rotulo="Leads atendidos" valor={<Contador valor={t.conversas} formato={(v) => inteiro(Math.round(v))} />} nota="conversas com a IA no período" />
-        <Kpi icone={<Target />} cor="amber" rotulo="Custo médio por lead" valor={rs(t.custo_por_conversa_brl)} nota={t.conversas ? `${inteiro(t.conversas)} leads no período` : "sem leads no período"} />
-        <Kpi icone={<Coins />} cor="violet" rotulo="Tokens consumidos" valor={<Contador valor={t.tokens} formato={(v) => compacto(Math.round(v))} />} nota={`${inteiro(t.chamadas)} chamadas da IA`} />
-        <Kpi icone={<FileSignature />} cor="green" rotulo="Contratos assinados" valor={inteiro(t.contratos)}
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <Kpi icone={<TrendingUp />} cor="verde" rotulo="Créditos usados" valor={reais(t.creditos_brl)} nota={nomePeriodo(dias)}
+          extra={t.creditos_brl > 0 ? <MiniLinha valores={serie.map((s) => s.valor_brl)} /> : undefined} />
+        <Kpi icone={<Users />} cor="azul" rotulo="Leads atendidos" valor={inteiro(t.conversas)} nota="conversas com a IA no período" />
+        <Kpi icone={<Target />} cor="ambar" rotulo="Custo médio por lead" valor={rs(t.custo_por_conversa_brl)}
+          nota={t.conversas ? `${inteiro(t.conversas)} ${t.conversas === 1 ? "lead" : "leads"} no período` : "sem leads no período"} />
+        <Kpi icone={<Cpu />} cor="roxo" rotulo="Tokens consumidos" valor={tokensCurto(t.tokens)} nota={`${inteiro(t.chamadas)} chamadas da IA`}
+          extra={t.tokens > 0 ? <span className="mt-2 inline-flex rounded-full bg-[#f1f4f2] px-2.5 py-1 text-[11.5px] font-semibold text-[#475467]">≈ {rs((t.creditos_brl / t.tokens) * 1000)} por mil tokens</span> : undefined} />
+        <Kpi icone={<FileCheck2 />} cor="verde" rotulo="Contratos assinados" valor={inteiro(t.contratos)}
           nota={t.contratos ? `${rs(t.custo_por_contrato_brl)} por contrato · ${pct(t.conversao_pct)} conversão` : "sem contratos assinados no período"} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <Cartao icone={<Activity />} titulo="Consumo ao longo do tempo" sub="Quanto a IA gastou em cada dia do período." direita={<span className="text-[12px] text-[#667085]"><span className="mr-1 inline-block size-2 rounded-full bg-[#00bc33]" />R$ cobrado</span>}>
-          <GraficoConsumo p={p} dias={dias} />
-        </Cartao>
-        <Cartao icone={<Bot />} titulo="Consumo por agente" sub="Quanto cada agente gastou e quantos leads atendeu." direita={<BotaoTexto onClick={() => irPara("agentes")}>Detalhes</BotaoTexto>}>
-          {p.por_agente.length === 0 ? <Vazio icone={<Users />}>Nenhum agente consumiu neste período.</Vazio> : (
-            <ul className="flex flex-col gap-3.5">
-              {p.por_agente.slice(0, 5).map((a) => (
-                <li key={a.id_agente ?? "sem"}>
-                  <div className="flex items-baseline justify-between gap-2 text-[13px]">
-                    <span className="truncate font-semibold text-[#101828]">{a.agente}</span>
-                    <span className="shrink-0 font-bold tabular-nums text-[#101828]">{reais(a.valor_brl)}</span>
-                  </div>
-                  <Barra pct={a.participacao_pct} cor={VERDE} />
-                  <div className="mt-1 flex justify-between text-[11.5px] text-[#667085]">
-                    <span>{inteiro(a.conversas)} leads · {rs(a.custo_por_lead_brl)} por lead</span><span>{pct(a.participacao_pct)}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Cartao>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+        <Bloco icone={<Activity />} titulo="Consumo ao longo do tempo" sub={`Quanto a IA gastou em cada ${p.granularidade === "hora" ? "hora" : "dia"} do período.`}
+          direita={<span className="hidden shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px] sm:inline-flex text-[#475467]"><span className="size-2 rounded-full bg-[#0a8f35]" />R$ cobrado</span>}>
+          <GraficoConsumo p={p} serie={serie} />
+        </Bloco>
+        <Bloco icone={<Sparkles />} titulo="Consumo por função" sub="Para onde foram seus créditos.">
+          <PorFuncao p={p} />
+        </Bloco>
       </div>
 
-      <TabelaConversas titulo="Conversas que mais gastaram" sub={`As 10 conversas com mais consumo ${nomePeriodo(dias)}.`} dados={caras} erro={erroCaras}
+      <TabelaConversas icone={<MessageCircle />} titulo="Conversas que mais gastaram" sub={`As 10 conversas com mais consumo ${nomePeriodo(dias)}.`} dados={caras} erro={erroCaras}
         direita={<BotaoTexto onClick={() => irPara("historico")}>Ver histórico</BotaoTexto>} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Cartao icone={<Sparkles />} titulo="Consumo por função" sub="Para onde foram seus créditos.">
-          <PorFuncao p={p} />
-        </Cartao>
-        <Simulador p={p} aoRecarregar={aoRecarregar} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Saude p={p} />
-        <Cartao icone={<Receipt />} titulo="Últimas recargas" direita={<BotaoTexto onClick={() => irPara("recargas")}>Ver todas</BotaoTexto>}>
-          {!recargas ? <Linhas /> : recargas.length === 0 ? <Vazio icone={<Receipt />}>Nenhuma recarga ainda.</Vazio> : (
-            <ul className="divide-y divide-[#f2f4f7]">
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Bloco icone={<Heart />} titulo="Saúde da operação" sub="O que precisa da sua atenção agora."><Saude p={p} /></Bloco>
+        <Bloco icone={<Receipt />} titulo="Últimas recargas" sub="Pedidos e créditos mais recentes." direita={<BotaoTexto onClick={() => irPara("recargas")}>Ver todas</BotaoTexto>}>
+          {!recargas ? <Linhas /> : recargas.length === 0 ? (
+            <div className="grid place-items-center rounded-2xl border border-dashed border-[#d5ddd8] px-4 py-8 text-center">
+              <span className="grid size-10 place-items-center rounded-xl bg-[#f1f4f2] text-[#667085]"><Receipt className="size-4" /></span>
+              <p className="mt-3 text-[14px] text-[#475467]">Nenhum pedido de recarga ainda.</p>
+              <button onClick={() => aoRecarregar(150)} className="cr-botao-verde mt-3 rounded-xl px-4 py-2 text-[13px] font-bold text-white">Pedir a primeira recarga</button>
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-2">
               {recargas.slice(0, 4).map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-2 py-2.5 text-[13px]">
-                  <span className="text-[#667085]">{dataCurta(r.criado_em)}</span>
-                  <span className="ml-auto font-semibold tabular-nums text-[#101828]">{reais(r.valor_brl)}</span>
+                <li key={r.id} className="flex items-center gap-3 rounded-xl bg-[#f6f8f7] px-3.5 py-3 text-[13px]">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white text-[#0a8f35]"><ArrowDownLeft className="size-4" /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold tabular-nums text-[#0c111d]">{reais(r.valor_brl)}</div>
+                    <div className="text-[11.5px] tabular-nums text-[#667085]">{dataCurta(r.criado_em)}</div>
+                  </div>
                   <SeloSituacao s={r.situacao} />
                 </li>
               ))}
             </ul>
           )}
-        </Cartao>
+        </Bloco>
       </div>
       <ComoFunciona />
     </div>
   );
 }
 
-function GraficoConsumo({ p, dias }: { p: PainelConsumo; dias: number }) {
-  const dados = useMemo(() => preencherSerie(p, dias), [p, dias]);
-  if (p.totais.creditos_brl === 0) return <Vazio icone={<Activity />}>Sem consumo registrado neste período.</Vazio>;
+function GraficoConsumo({ p, serie }: { p: PainelConsumo; serie: { rotulo: string; valor_brl: number; conversas: number }[] }) {
+  if (p.totais.creditos_brl === 0) return <Vazio>Sem consumo registrado neste período.</Vazio>;
+  const comConsumo = serie.filter((s) => s.valor_brl > 0);
+  const pico = serie.reduce((m, s) => (s.valor_brl > m.valor_brl ? s : m), serie[0]);
+  const ultimo = serie.length - 1;
+  const unidade = p.granularidade === "hora" ? "hora" : "dia";
   return (
-    <div className="h-[240px] w-full">
-      <ResponsiveContainer>
-        <AreaChart data={dados} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id="crArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={VERDE} stopOpacity={0.32} /><stop offset="100%" stopColor={VERDE} stopOpacity={0} /></linearGradient>
-          </defs>
-          <CartesianGrid stroke="#f2f4f7" vertical={false} />
-          <XAxis dataKey="rotulo" tick={{ fontSize: 11, fill: "#98A2B3" }} tickLine={false} axisLine={false} minTickGap={18} />
-          <YAxis tick={{ fontSize: 11, fill: "#98A2B3" }} tickLine={false} axisLine={false} width={58} tickFormatter={(v) => reais(v, v < 1 ? 2 : 0)} />
-          <Tooltip cursor={{ stroke: "#d0d5dd" }} contentStyle={{ borderRadius: 12, border: "1px solid #e4e7ec", fontSize: 12 }}
-            formatter={(v: number, _n, item: any) => [`${rs(v)} · ${inteiro(item?.payload?.conversas)} leads`, "Consumo"]} labelFormatter={(l) => l} />
-          <Area type="monotone" dataKey="valor_brl" stroke={VERDE} strokeWidth={2.2} fill="url(#crArea)" animationDuration={700} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
+    <>
+      <div className="h-[240px] w-full">
+        <ResponsiveContainer>
+          <AreaChart data={serie} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="crArea" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={VERDE_ESCURO} stopOpacity={0.22} />
+                <stop offset="100%" stopColor={VERDE_ESCURO} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#eef2ef" vertical={false} />
+            <XAxis dataKey="rotulo" tick={EIXO} tickLine={false} axisLine={false} minTickGap={28} />
+            <YAxis tick={EIXO} tickLine={false} axisLine={false} width={62} tickFormatter={(v) => reais(v, Number.isInteger(v) ? 0 : 2)} />
+            <Tooltip cursor={{ stroke: "#c9d6ce" }} contentStyle={DICA}
+              formatter={(v: number, _n, item: any) => [`${rs(v)} · ${inteiro(item?.payload?.conversas)} leads`, "Consumo"]} />
+            <Area type="monotone" dataKey="valor_brl" stroke={VERDE_ESCURO} strokeWidth={2} fill="url(#crArea)" animationDuration={700}
+              activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff", fill: VERDE_ESCURO }}
+              dot={(d: any) => d.index === ultimo
+                ? <circle key="fim" cx={d.cx} cy={d.cy} r={4} fill={VERDE_ESCURO} stroke="#fff" strokeWidth={2} />
+                : <g key={d.index} />} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-3 flex items-start gap-2 text-[12.5px] text-[#475467]">
+        <Info className="mt-0.5 size-3.5 shrink-0 text-[#667085]" />
+        {comConsumo.length === 1
+          ? `Todo o consumo do período aconteceu em ${comConsumo[0].rotulo}. Passe o mouse no gráfico para ver cada ${unidade}.`
+          : `Pico em ${pico.rotulo}: ${rs(pico.valor_brl)}. Passe o mouse no gráfico para ver cada ${unidade}.`}
+      </p>
+    </>
   );
 }
 
+/** Rosca com o total no centro + legenda com R$, %, chamadas e tokens. */
 function PorFuncao({ p }: { p: PainelConsumo }) {
   const total = p.por_funcao.reduce((s, f) => s + f.valor_brl, 0);
-  if (!total) return <Vazio icone={<Sparkles />}>Sem consumo por função neste período.</Vazio>;
-  const cores = [VERDE, "#2e90fa", "#7a5af8", "#f79009", "#ee46bc", "#15b79e", "#98A2B3"];
+  if (!total) return <Vazio>Sem consumo por função neste período.</Vazio>;
+  const lista = p.por_funcao.slice(0, CORES_FUNCAO.length);
   return (
-    <ul className="flex flex-col gap-3">
-      {p.por_funcao.slice(0, 7).map((f, i) => (
-        <li key={f.papel}>
-          <div className="flex justify-between gap-2 text-[13px]"><span className="text-[#344054]">{f.nome}</span>
-            <span className="tabular-nums font-semibold text-[#101828]">{rs(f.valor_brl)} <span className="font-normal text-[#98A2B3]">· {Math.round((f.valor_brl / total) * 100)}%</span></span></div>
-          <Barra pct={(f.valor_brl / total) * 100} cor={cores[i % cores.length]} />
-          <div className="mt-0.5 text-[11px] text-[#98A2B3]">{inteiro(f.chamadas)} chamadas · {compacto(f.tokens)} tokens</div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** Quanto uma recarga compra: leads (pelo custo médio por lead) e dias (pelo gasto médio por dia). */
-function Simulador({ p, aoRecarregar }: { p: PainelConsumo; aoRecarregar: (v: number) => void }) {
-  const [valor, setValor] = useState(150);
-  const cpl = p.custo_por_lead.valor_brl;
-  const leads = cpl ? Math.floor(valor / cpl + 1e-9) : null;
-  const dias = p.media_dia_brl ? valor / p.media_dia_brl : null;
-  return (
-    <Cartao icone={<Gauge />} titulo="Simulador de recarga" sub="Veja quantos leads e quantos dias uma recarga compra.">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#98A2B3]">Recarregar</span>
-        <span className="text-[30px] font-extrabold tabular-nums text-[#101828]">{reais(valor)}</span>
+    <div className="grid items-center gap-5 sm:grid-cols-[170px_minmax(0,1fr)]">
+      <div className="relative mx-auto size-[170px]">
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie data={lista} dataKey="valor_brl" nameKey="nome" innerRadius={56} outerRadius={80} startAngle={90} endAngle={-270} paddingAngle={lista.length > 1 ? 1 : 0}
+              stroke="none" animationDuration={700}>
+              {lista.map((f, i) => <Cell key={f.papel} fill={CORES_FUNCAO[i]} />)}
+            </Pie>
+            <Tooltip contentStyle={DICA} formatter={(v: number, n) => [rs(v), n]} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+          <div><div className="text-[18px] font-extrabold tracking-tight tabular-nums text-[#0c111d]">{rs(total)}</div>
+            <div className="text-[11px] text-[#667085]">total do período</div></div>
+        </div>
       </div>
-      <input type="range" min={10} max={2000} step={10} value={valor} onChange={(e) => setValor(Number(e.target.value))}
-        aria-label="Valor da recarga" className="cr-range mt-2 w-full" style={{ ["--pct" as any]: `${((valor - 10) / 1990) * 100}%` }} />
-      <div className="mt-1 flex justify-between text-[11px] text-[#98A2B3]"><span>R$ 10</span><span>R$ 2.000</span></div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {[50, 150, 500, 1000].map((v) => (
-          <button key={v} onClick={() => setValor(v)}
-            className={`rounded-full border px-3 py-1 text-[12px] font-semibold transition ${valor === v ? "border-[#00bc33] bg-[#e8f9ee] text-[#067647]" : "border-[#e4e7ec] text-[#475467] hover:border-[#00bc33]/60"}`}>{reais(v, 0)}</button>
-        ))}
-      </div>
-      <div className="mt-4 rounded-2xl bg-gradient-to-br from-[#ecfdf3] to-white p-4 ring-1 ring-[#d1fadf]">
-        {leads != null ? (
-          <>
-            <div className="flex flex-wrap items-baseline gap-x-2 text-[#101828]">
-              <span className="text-[15px] font-semibold">{reais(valor)}</span><span className="text-[#98A2B3]">≈</span>
-              <span className="text-[26px] font-extrabold tabular-nums text-[#067647]">{inteiro(leads)} leads</span>
-              {dias != null && <><span className="text-[#98A2B3]">≈</span><span className="text-[20px] font-bold tabular-nums">{formatarDias(dias)}</span></>}
+      <ul className="flex min-w-0 flex-col gap-3">
+        {lista.map((f, i) => (
+          <li key={f.papel} className="min-w-0">
+            <div className="flex items-baseline justify-between gap-3 text-[13.5px]">
+              <span className="flex min-w-0 items-center gap-2 font-semibold text-[#1d2939]">
+                <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: CORES_FUNCAO[i] }} /><span className="truncate">{f.nome}</span>
+              </span>
+              <span className="shrink-0 font-semibold tabular-nums text-[#1d2939]">{rs(f.valor_brl)}</span>
             </div>
-            <p className="mt-1 text-[12px] text-[#667085]">
-              {p.custo_por_lead.estimativa ? "Estimativa pelo custo de referência do modelo de IA dos seus agentes. " : `Pelo seu custo médio real de ${rs(cpl)} por lead. `}
-              {dias != null ? `Dias pelo seu gasto médio de ${rs(p.media_dia_brl)} por dia.` : "Sem consumo nos últimos 30 dias para estimar os dias."}
-            </p>
-          </>
-        ) : <p className="text-[13px] text-[#667085]">Ainda sem consumo para calcular. Assim que seus agentes atenderem os primeiros leads, o simulador usa o seu custo real.</p>}
-      </div>
-      <button onClick={() => aoRecarregar(valor)}
-        className="mt-4 w-full rounded-xl bg-[#00bc33] py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_-12px_rgba(0,188,51,.8)] transition hover:bg-[#00a82e]">
-        Recarregar {reais(valor)}
-      </button>
-    </Cartao>
+            <div className="pl-[18px] text-[11.5px] text-[#667085]">{Math.round((f.valor_brl / total) * 100)}% · {inteiro(f.chamadas)} chamadas · {tokensCurto(f.tokens)} tokens</div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -425,7 +504,7 @@ function Saude({ p }: { p: PainelConsumo }) {
   const c = p.comparativo;
   const variacao = c.anteriores_7_brl > 0 ? ((c.ultimos_7_brl - c.anteriores_7_brl) / c.anteriores_7_brl) * 100 : null;
   const itens: { ok: boolean | null; texto: string }[] = [
-    p.carteira.bloqueado ? { ok: false, texto: "A IA está pausada: o saldo acabou." }
+    p.carteira.bloqueado ? { ok: false, texto: "A IA está pausada: o saldo acabou. Ela volta sozinha quando a recarga entra." }
       : dias == null ? { ok: null, texto: "Sem consumo nos últimos 30 dias para medir a autonomia." }
       : dias < 7 ? { ok: false, texto: `O saldo dá para ${formatarDias(dias)} no ritmo atual.` }
       : { ok: true, texto: `Saldo saudável: dá para ${formatarDias(dias)} no ritmo atual.` },
@@ -437,22 +516,21 @@ function Saude({ p }: { p: PainelConsumo }) {
   if (topo && p.por_agente.length > 1 && topo.participacao_pct >= 70)
     itens.push({ ok: null, texto: `${topo.agente} responde por ${pct(topo.participacao_pct)} do consumo do período.` });
   const previsao = dias != null ? new Date(Date.now() + dias * 86400000) : null;
+  const estilo = (ok: boolean | null) => (ok === false ? "bg-[#fff1dc] text-[#93370d]" : ok === true ? "bg-[#e7f7ec] text-[#0a6b2a]" : "bg-[#f1f4f2] text-[#344054]");
   return (
-    <Cartao icone={<HeartPulse />} titulo="Saúde da operação">
-      <ul className="flex flex-col gap-2.5">
-        {itens.map((i, n) => (
-          <li key={n} className="flex items-start gap-2 text-[13px] text-[#344054]">
-            {i.ok === true ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#00bc33]" /> : i.ok === false ? <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#f79009]" /> : <Info className="mt-0.5 size-4 shrink-0 text-[#98A2B3]" />}
-            {i.texto}
-          </li>
-        ))}
-      </ul>
-      <div className="mt-4 flex items-center justify-between rounded-xl bg-[#f9fafb] px-4 py-3">
-        <div><div className="text-[11.5px] text-[#667085]">Próxima recarga prevista</div>
-          <div className="text-[15px] font-bold text-[#101828]">{previsao ? previsao.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", ...(previsao.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) }) : "—"}</div></div>
-        <Calendar className="size-5 text-[#98A2B3]" />
-      </div>
-    </Cartao>
+    <ul className="flex flex-col gap-2">
+      {itens.map((i, n) => (
+        <li key={n} className={`flex items-start gap-2.5 rounded-xl px-3.5 py-3 text-[13.5px] ${estilo(i.ok)}`}>
+          {i.ok === true ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#0a8f35]" /> : i.ok === false ? <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#dc6803]" /> : <Info className="mt-0.5 size-4 shrink-0 text-[#475467]" />}
+          {i.texto}
+        </li>
+      ))}
+      <li className="flex items-center gap-2.5 rounded-xl bg-[#f1f4f2] px-3.5 py-3 text-[13.5px] text-[#344054]">
+        <CalendarDays className="size-4 shrink-0 text-[#475467]" />
+        <span className="flex-1">Próxima recarga prevista</span>
+        <b className="font-bold text-[#0c111d]">{previsao ? previsao.toLocaleDateString("pt-BR", { day: "numeric", month: "long", ...(previsao.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) }) : "—"}</b>
+      </li>
+    </ul>
   );
 }
 
@@ -461,39 +539,77 @@ function PorAgente({ p, dias }: { p: PainelConsumo; dias: number }) {
   const [escolhido, setEscolhido] = useState<string | null>(null);
   const agente = p.por_agente.find((a) => (a.id_agente ?? "") === escolhido) ?? null;
   const conversas = useCarregar<Conversas>(agente?.id_agente ? `/carteira/conversas?dias=${dias}&ordem=custo&limite=10&id_agente=${agente.id_agente}` : null, [escolhido, dias]);
-  if (p.por_agente.length === 0)
-    return <Cartao icone={<Users />} titulo="Consumo por agente" sub="Quanto cada agente gastou no período."><Vazio icone={<Users />}>Nenhum agente consumiu neste período.</Vazio></Cartao>;
+  const maisCaro = [...p.por_agente].filter((a) => a.custo_por_lead_brl).sort((a, b) => (b.custo_por_lead_brl ?? 0) - (a.custo_por_lead_brl ?? 0))[0];
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {p.por_agente.map((a, i) => {
-          const ativo = (a.id_agente ?? "") === escolhido;
-          return (
-            <button key={a.id_agente ?? "sem"} onClick={() => setEscolhido(ativo ? null : a.id_agente ?? "")} disabled={!a.id_agente}
-              className={`lc-card relative p-5 text-left transition hover:-translate-y-0.5 ${ativo ? "ring-2 ring-[#00bc33]" : ""}`}>
-              <div className="flex items-center gap-3">
-                <span className="grid size-10 place-items-center rounded-xl bg-[#e8f9ee] text-[13px] font-bold text-[#067647]">{i + 1}º</span>
-                <div className="min-w-0"><div className="truncate text-[15px] font-bold text-[#101828]">{a.agente}</div>
-                  <div className="text-[12px] text-[#667085]">{pct(a.participacao_pct)} do consumo</div></div>
-                <span className="ml-auto text-[18px] font-extrabold tabular-nums text-[#101828]">{reais(a.valor_brl)}</span>
-              </div>
-              <Barra pct={a.participacao_pct} cor={VERDE} />
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                <Numero rotulo="leads" valor={inteiro(a.conversas)} />
-                <Numero rotulo="R$ por lead" valor={rs(a.custo_por_lead_brl)} destaque />
-                <Numero rotulo="contratos" valor={inteiro(a.contratos)} />
-              </div>
-              <div className="mt-3 flex flex-wrap justify-between gap-1 text-[11.5px] text-[#667085]">
-                <span>{a.contratos ? `${rs(a.custo_por_contrato_brl)} por contrato · ${pct(a.conversao_pct)} conversão` : "sem contrato assinado no período"}</span>
-                <span>{compacto(a.tokens)} tokens</span>
-              </div>
-              {a.id_agente && <div className="mt-3 text-[12px] font-semibold text-[#00a02b]">{ativo ? "Esconder conversas" : "Ver conversas que mais gastaram"} →</div>}
-            </button>
-          );
-        })}
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-4">
+        <Kpi icone={<Bot />} cor="verde" rotulo="Agentes com consumo" valor={inteiro(p.por_agente.length)} nota={nomePeriodo(dias)} />
+        <Kpi icone={<TrendingUp />} cor="azul" rotulo="Quem mais gastou" valor={p.por_agente[0]?.agente ?? "—"} pequeno
+          nota={p.por_agente[0] ? `${reais(p.por_agente[0].valor_brl)} · ${pct(p.por_agente[0].participacao_pct)} do total` : "sem consumo"} />
+        <Kpi icone={<Target />} cor="ambar" rotulo="Maior custo por lead" valor={maisCaro ? rs(maisCaro.custo_por_lead_brl) : "—"} nota={maisCaro?.agente ?? "sem leads"} />
+        <Kpi icone={<FileCheck2 />} cor="roxo" rotulo="Contratos" valor={inteiro(p.totais.contratos)} nota={p.totais.contratos ? `${pct(p.totais.conversao_pct)} conversão` : "sem contratos no período"} />
       </div>
-      {agente && <TabelaConversas titulo={`Conversas que mais gastaram · ${agente.agente}`} sub={nomePeriodo(dias)} dados={conversas.dados} erro={conversas.erro} />}
+      <Bloco icone={<Bot />} titulo="Consumo por agente" sub={`Quanto cada agente gastou ${nomePeriodo(dias)}. Toque num agente para ver as conversas que mais gastaram.`} corpo="pb-2">
+        <TabelaAgentes agentes={p.por_agente} escolhido={escolhido} aoEscolher={setEscolhido} />
+      </Bloco>
+      {agente && <TabelaConversas icone={<MessageCircle />} titulo={`Conversas que mais gastaram · ${agente.agente}`} sub={nomePeriodo(dias)} dados={conversas.dados} erro={conversas.erro}
+        direita={<BotaoTexto onClick={() => setEscolhido(null)} seta={false}>Fechar</BotaoTexto>} />}
     </div>
+  );
+}
+
+/** Tabela por agente. A maior participação fica em verde; o resto em cinza. */
+function TabelaAgentes({ agentes, escolhido, aoEscolher }: { agentes: Agente[]; escolhido?: string | null; aoEscolher?: (id: string | null) => void }) {
+  if (agentes.length === 0) return <div className="px-5 pb-3 md:px-6"><Vazio>Nenhum agente consumiu neste período.</Vazio></div>;
+  const maior = Math.max(...agentes.map((a) => a.participacao_pct));
+  const clicavel = (a: Agente) => !!aoEscolher && !!a.id_agente;
+  const alternar = (a: Agente) => aoEscolher && a.id_agente && aoEscolher(escolhido === a.id_agente ? null : a.id_agente);
+  return (
+    <>
+      {/* Celular: lista */}
+      <ul className="divide-y divide-[#eef2ef] border-t border-[#eef2ef] md:hidden">
+        {agentes.map((a) => (
+          <li key={a.id_agente ?? "sem"} onClick={() => alternar(a)}
+            className={`px-5 py-3.5 ${clicavel(a) ? "cursor-pointer" : ""} ${escolhido && escolhido === a.id_agente ? "bg-[#f1f8f3]" : ""}`}>
+            <div className="flex items-baseline justify-between gap-3 text-[13.5px]">
+              <span className="truncate font-semibold text-[#0c111d]">{a.agente}</span>
+              <span className="shrink-0 font-bold tabular-nums text-[#0c111d]">{reais(a.valor_brl)}</span>
+            </div>
+            <div className="mt-2 flex items-center gap-2"><BarraFina pct={a.participacao_pct} destaque={a.participacao_pct === maior} /><span className="w-10 text-right text-[11.5px] tabular-nums text-[#667085]">{pct(a.participacao_pct)}</span></div>
+            <div className="mt-1.5 text-[11.5px] text-[#667085]">{inteiro(a.conversas)} leads · {rs(a.custo_por_lead_brl)} por lead · {inteiro(a.contratos)} contratos</div>
+            <div className="mt-0.5 text-[11.5px] text-[#98A2B3]">{a.contratos ? `${rs(a.custo_por_contrato_brl)} por contrato · ${pct(a.conversao_pct)} conversão · ` : ""}{compacto(a.tokens)} tokens</div>
+          </li>
+        ))}
+      </ul>
+      {/* Tela larga: tabela */}
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full text-[13px]">
+          <thead><tr className="cr-thead">
+            <th className="pl-6">Agente</th><th className="text-right">Gasto</th><th>Participação</th><th className="text-right">Leads</th>
+            <th className="text-right">R$ por lead</th><th className="text-right">Contratos</th><th className="text-right">Por contrato</th>
+            <th className="text-right">Conversão</th><th className="pr-6 text-right">Tokens</th>
+          </tr></thead>
+          <tbody>{agentes.map((a) => {
+            const ativo = !!escolhido && escolhido === a.id_agente;
+            return (
+              <tr key={a.id_agente ?? "sem"} onClick={() => alternar(a)}
+                className={`border-t border-[#eef2ef] ${clicavel(a) ? "cursor-pointer hover:bg-[#f6f8f7]" : ""} ${ativo ? "bg-[#f1f8f3]" : ""}`}>
+                <td className="py-3 pl-6 pr-3"><SeloAgente nome={a.agente} /></td>
+                <td className="px-3 py-3 text-right font-bold tabular-nums text-[#0c111d]">{reais(a.valor_brl)}</td>
+                <td className="px-3 py-3"><div className="flex items-center gap-2"><BarraFina pct={a.participacao_pct} destaque={a.participacao_pct === maior} largura="w-28" />
+                  <span className="w-11 text-right text-[12px] tabular-nums text-[#667085]">{pct(a.participacao_pct)}</span></div></td>
+                <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{inteiro(a.conversas)}</td>
+                <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{rs(a.custo_por_lead_brl)}</td>
+                <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{inteiro(a.contratos)}</td>
+                <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{a.contratos ? rs(a.custo_por_contrato_brl) : "—"}</td>
+                <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{a.contratos ? pct(a.conversao_pct) : "—"}</td>
+                <td className="py-3 pl-3 pr-6 text-right tabular-nums text-[#667085]">{compacto(a.tokens)}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -506,9 +622,9 @@ function Historico({ dias }: { dias: number }) {
   const total = r.dados?.total ?? 0;
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   return (
-    <TabelaConversas titulo="Histórico" sub={`${inteiro(total)} conversas com consumo ${nomePeriodo(dias)}, das mais recentes para as mais antigas.`} dados={r.dados} erro={r.erro}
+    <TabelaConversas icone={<History />} titulo="Histórico" sub={`${inteiro(total)} conversas com consumo ${nomePeriodo(dias)}, das mais recentes para as mais antigas.`} dados={r.dados} erro={r.erro}
       rodape={total > POR_PAGINA && (
-        <div className="flex items-center justify-end gap-2 px-4 py-3 text-[12.5px] text-[#667085]">
+        <div className="flex items-center justify-end gap-2 border-t border-[#eef2ef] px-5 py-3 text-[12.5px] text-[#667085]">
           <button className="cr-pag" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)} aria-label="Página anterior"><ChevronLeft className="size-4" /></button>
           <span>Página {pagina + 1} de {paginas}</span>
           <button className="cr-pag" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)} aria-label="Próxima página"><ChevronRight className="size-4" /></button>
@@ -517,53 +633,50 @@ function Historico({ dias }: { dias: number }) {
   );
 }
 
-function TabelaConversas({ titulo, sub, dados, erro, direita, rodape }: {
-  titulo: string; sub?: string; dados: Conversas | null; erro?: string | null; direita?: ReactNode; rodape?: ReactNode;
+function TabelaConversas({ icone, titulo, sub, dados, erro, direita, rodape }: {
+  icone: ReactNode; titulo: string; sub?: string; dados: Conversas | null; erro?: string | null; direita?: ReactNode; rodape?: ReactNode;
 }) {
   return (
-    <section className="lc-card relative overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-5 pb-3 pt-5">
-        <div className="flex items-center gap-3">
-          <Icone><MessageSquare /></Icone>
-          <div><h3 className="text-[15px] font-bold text-[#101828]">{titulo}</h3>{sub && <p className="text-[12px] text-[#667085]">{sub}</p>}</div>
-        </div>
-        {direita}
-      </div>
-      {!dados ? <div className="px-5 pb-5"><Linhas erro={erro} /></div> : dados.conversas.length === 0 ? <div className="px-5 pb-5"><Vazio icone={<MessageSquare />}>Nenhuma conversa com consumo neste período.</Vazio></div> : (
+    <Bloco icone={icone} titulo={titulo} sub={sub} direita={direita} corpo="pb-2">
+      {!dados ? <div className="px-5 pb-4 md:px-6"><Linhas erro={erro} /></div> : dados.conversas.length === 0 ? <div className="px-5 pb-4 md:px-6"><Vazio>Nenhuma conversa com consumo neste período.</Vazio></div> : (
         <>
-          {/* Celular: cartões */}
-          <ul className="divide-y divide-[#f2f4f7] md:hidden">
+          {/* Celular: lista simples */}
+          <ol className="divide-y divide-[#eef2ef] border-t border-[#eef2ef] lg:hidden">
             {dados.conversas.map((c) => (
-              <li key={c.id_lead} className="flex items-center gap-3 px-5 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13.5px] font-semibold text-[#101828]">{c.contato || "Sem nome"} {c.contrato_assinado && <SeloContrato />}</div>
-                  <div className="text-[11.5px] text-[#667085]">{c.telefone ?? "—"} · {c.agente}</div>
-                  <div className="text-[11.5px] text-[#98A2B3]">{inteiro(c.mensagens)} msgs · {inteiro(c.turnos)} turnos · {compacto(c.tokens)} tokens</div>
-                </div>
-                <div className="text-right"><div className="text-[14px] font-bold tabular-nums text-[#101828]">{rs(c.valor_brl)}</div>
-                  <Link to={`/conversas/${c.id_lead}`} className="text-[12px] font-semibold text-[#00a02b]">Abrir</Link></div>
+              <li key={c.id_lead}>
+                <Link to={`/conversas/${c.id_lead}`} className="flex items-center gap-3 px-5 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13.5px] font-semibold text-[#0c111d]">{c.contato || "Sem nome"}{c.contrato_assinado && <SeloContrato />}</div>
+                    <div className="truncate text-[11.5px] text-[#667085]">{c.agente} · {quando(c.ultimo_em)} · {inteiro(c.mensagens)} msgs · {compacto(c.tokens)} tokens</div>
+                  </div>
+                  <span className="text-[13.5px] font-bold tabular-nums text-[#0c111d]">{rs(c.valor_brl)}</span>
+                  <ChevronRight className="size-4 shrink-0 text-[#c9d6ce]" />
+                </Link>
               </li>
             ))}
-          </ul>
+          </ol>
           {/* Tela larga: tabela */}
-          <div className="hidden overflow-x-auto md:block">
-            <table className="w-full text-[13px]">
-              <thead><tr className="border-y border-[#f2f4f7] bg-[#f9fafb] text-left text-[11px] font-semibold uppercase tracking-wider text-[#667085]">
-                <th className="px-5 py-2.5">Lead</th><th className="px-3 py-2.5">Agente</th><th className="px-3 py-2.5">Última atividade</th>
-                <th className="px-3 py-2.5 text-right">Msgs</th><th className="px-3 py-2.5 text-right">Turnos</th><th className="px-3 py-2.5 text-right">Tokens</th>
-                <th className="px-3 py-2.5 text-right">Custo</th><th className="px-5 py-2.5" />
+          <div className="hidden px-2 lg:block">
+            <table className="w-full text-[13.5px]">
+              <thead><tr className="cr-thead">
+                <th className="pl-4">Lead</th><th>Agente</th><th>Última atividade</th><th className="text-right">Msgs</th><th className="text-right">Turnos</th>
+                <th className="text-right">Tokens</th><th className="text-right">Custo</th><th className="text-right">Por mensagem</th><th className="pr-4" />
               </tr></thead>
               <tbody>{dados.conversas.map((c) => (
-                <tr key={c.id_lead} className="border-b border-[#f2f4f7] last:border-0 hover:bg-[#f9fafb]">
-                  <td className="px-5 py-3"><div className="font-semibold text-[#101828]">{c.contato || "Sem nome"} {c.contrato_assinado && <SeloContrato />}</div>
-                    <div className="text-[11.5px] tabular-nums text-[#667085]">{c.telefone ?? "—"}</div></td>
-                  <td className="px-3 py-3 text-[#344054]">{c.agente}</td>
-                  <td className="px-3 py-3 tabular-nums text-[#667085]">{quando(c.ultimo_em)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">{inteiro(c.mensagens)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">{inteiro(c.turnos)}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">{compacto(c.tokens)}</td>
-                  <td className="px-3 py-3 text-right font-bold tabular-nums text-[#101828]">{rs(c.valor_brl)}</td>
-                  <td className="px-5 py-3 text-right"><Link to={`/conversas/${c.id_lead}`} className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#e4e7ec] px-3 py-1 text-[12px] font-semibold text-[#344054] hover:border-[#00bc33] hover:text-[#00a02b]">Abrir conversa<ArrowRight className="size-3" /></Link></td>
+                <tr key={c.id_lead} className="cr-linha">
+                  <td className="py-3 pl-4 pr-3"><div className="font-semibold text-[#0c111d]">{c.contato || "Sem nome"}{c.contrato_assinado && <SeloContrato />}</div>
+                    <div className="text-[12px] tabular-nums text-[#667085]">{c.telefone ?? "—"}</div></td>
+                  <td className="px-3 py-3"><SeloAgente nome={c.agente} /></td>
+                  <td className="px-3 py-3 tabular-nums text-[#344054]">{quando(c.ultimo_em)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{inteiro(c.mensagens)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{inteiro(c.turnos)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{tokensCurto(c.tokens)}</td>
+                  <td className="px-3 py-3 text-right font-bold tabular-nums text-[#0c111d]">{rs(c.valor_brl)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[#475467]">{c.mensagens ? `≈ ${rs(c.valor_brl / c.mensagens)}` : "—"}</td>
+                  <td className="py-3 pl-3 pr-4 text-right">
+                    <Link to={`/conversas/${c.id_lead}`} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-[#e6ebe8] bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[#1d2939] transition hover:border-[#c9d6ce]">
+                      Ver detalhes<ArrowRight className="size-3.5" /></Link>
+                  </td>
                 </tr>
               ))}</tbody>
             </table>
@@ -571,7 +684,7 @@ function TabelaConversas({ titulo, sub, dados, erro, direita, rodape }: {
           {rodape}
         </>
       )}
-    </section>
+    </Bloco>
   );
 }
 
@@ -582,64 +695,60 @@ function Recargas({ p, dias, recargas, erro, aoMudar }: { p: PainelConsumo; dias
   const situacoes = (recargas ?? []).reduce<Record<string, number>>((s, r) => ({ ...s, [r.situacao]: (s[r.situacao] ?? 0) + 1 }), {});
   const pendentes = (recargas ?? []).filter((r) => r.situacao === "pendente");
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Kpi icone={<TrendingUp />} cor="green" rotulo="Total recarregado" valor={reais(cr.recargas_brl)} nota={nomePeriodo(dias)} />
-        <Kpi icone={<Gift />} cor="violet" rotulo="Bônus recebido" valor={reais(cr.bonus_brl)} nota={cr.bonus ? `${cr.bonus} bônus no período` : "sem bônus no período"} />
-        <Kpi icone={<CheckCircle2 />} cor="blue" rotulo="Recargas confirmadas" valor={inteiro(cr.recargas)} nota="creditadas no saldo" />
-        <Kpi icone={<CircleDollarSign />} cor="amber" rotulo="Ticket médio" valor={cr.recargas ? reais(cr.recargas_brl / cr.recargas) : "—"} nota="por recarga" />
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-4">
+        <Kpi icone={<ArrowDownLeft />} cor="verde" rotulo="Total recarregado" valor={reais(cr.recargas_brl)} nota={nomePeriodo(dias)} />
+        <Kpi icone={<Sparkles />} cor="roxo" rotulo="Bônus recebido" valor={reais(cr.bonus_brl)} nota={cr.bonus ? `${cr.bonus} bônus no período` : "sem bônus no período"} />
+        <Kpi icone={<CheckCircle2 />} cor="azul" rotulo="Recargas confirmadas" valor={inteiro(cr.recargas)} nota="creditadas no saldo" />
+        <Kpi icone={<Receipt />} cor="ambar" rotulo="Ticket médio" valor={cr.recargas ? reais(cr.recargas_brl / cr.recargas) : "—"} nota="por recarga" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <Cartao icone={<BarChart3 />} titulo="Créditos por mês" sub="Recargas e bônus dos últimos 12 meses.">
-          {meses.length === 0 ? <Vazio icone={<BarChart3 />}>Nenhum crédito nos últimos 12 meses.</Vazio> : (
-            <div className="h-[230px]"><ResponsiveContainer>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Bloco icone={<IconeLinha />} titulo="Créditos por mês" sub="Recargas (verde) e bônus (cinza) dos últimos 12 meses.">
+          {meses.length === 0 ? <Vazio>Nenhum crédito nos últimos 12 meses.</Vazio> : (
+            <div className="h-[220px]"><ResponsiveContainer>
               <BarChart data={meses} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#f2f4f7" vertical={false} />
-                <XAxis dataKey="rotulo" tick={{ fontSize: 11, fill: "#98A2B3" }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#98A2B3" }} tickLine={false} axisLine={false} width={58} tickFormatter={(v) => reais(v, 0)} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e7ec", fontSize: 12 }} formatter={(v: number, n) => [reais(v), n === "recargas_brl" ? "Recargas" : "Bônus"]} />
-                <Bar dataKey="recargas_brl" stackId="a" fill={VERDE} maxBarSize={56} />
-                <Bar dataKey="bonus_brl" stackId="a" fill="#a6f4c5" radius={[6, 6, 0, 0]} maxBarSize={56} />
+                <CartesianGrid stroke="#eef2ef" vertical={false} />
+                <XAxis dataKey="rotulo" tick={EIXO} tickLine={false} axisLine={false} />
+                <YAxis tick={EIXO} tickLine={false} axisLine={false} width={58} tickFormatter={(v) => reais(v, 0)} />
+                <Tooltip cursor={{ fill: "#f6f8f7" }} contentStyle={DICA} formatter={(v: number, n) => [reais(v), n === "recargas_brl" ? "Recargas" : "Bônus"]} />
+                <Bar dataKey="recargas_brl" stackId="a" fill={VERDE_ESCURO} maxBarSize={40} />
+                <Bar dataKey="bonus_brl" stackId="a" fill={CINZA_BARRA} radius={[4, 4, 0, 0]} maxBarSize={40} />
               </BarChart>
             </ResponsiveContainer></div>
           )}
-        </Cartao>
-        <Cartao icone={<Receipt />} titulo="Pedidos de recarga" sub="Situação dos pedidos feitos aqui.">
-          {!recargas ? <Linhas erro={erro} /> : recargas.length === 0 ? <Vazio icone={<Receipt />}>Nenhum pedido de recarga ainda.</Vazio> : (
-            <ul className="flex flex-col gap-3">
+        </Bloco>
+        <Bloco icone={<Receipt />} titulo="Pedidos de recarga" sub="Situação dos pedidos feitos aqui.">
+          {!recargas ? <Linhas erro={erro} /> : recargas.length === 0 ? <Vazio>Nenhum pedido de recarga ainda.</Vazio> : (
+            <ul className="flex flex-col gap-4">
               {Object.entries(situacoes).map(([s, n]) => (
                 <li key={s}>
                   <div className="flex justify-between text-[13px]"><SeloSituacao s={s} /><span className="tabular-nums text-[#667085]">{n} ({Math.round((n / recargas.length) * 100)}%)</span></div>
-                  <Barra pct={(n / recargas.length) * 100} cor={s === "paga" ? VERDE : s === "pendente" ? "#f79009" : "#98A2B3"} />
+                  <div className="mt-1.5"><BarraFina pct={(n / recargas.length) * 100} destaque={s === "paga"} cor={s === "pendente" ? "#f79009" : undefined} /></div>
                 </li>
               ))}
             </ul>
           )}
-        </Cartao>
+        </Bloco>
       </div>
       {pendentes.length > 0 && (
-        <Cartao icone={<AlertTriangle />} titulo="Aguardando pagamento"><ListaRecargas recargas={pendentes} aoMudar={aoMudar} cancelavel /></Cartao>
+        <Bloco icone={<AlertTriangle />} titulo="Aguardando pagamento"><ListaRecargas recargas={pendentes} aoMudar={aoMudar} cancelavel /></Bloco>
       )}
-      <Cartao icone={<History />} titulo="Todos os pedidos de recarga">
-        {!recargas ? <Linhas erro={erro} /> : recargas.length === 0 ? <Vazio icone={<Receipt />}>Nenhum pedido de recarga ainda.</Vazio> : <ListaRecargas recargas={recargas} aoMudar={aoMudar} />}
-      </Cartao>
+      <Bloco icone={<Receipt />} titulo="Todos os pedidos de recarga">
+        {!recargas ? <Linhas erro={erro} /> : recargas.length === 0 ? <Vazio>Nenhum pedido de recarga ainda.</Vazio> : <ListaRecargas recargas={recargas} aoMudar={aoMudar} />}
+      </Bloco>
     </div>
   );
 }
 
 // ============================================================================ Avançado
-function Avancado({ p, aoRecarregar }: { p: PainelConsumo; aoRecarregar: (v: number) => void }) {
+function Avancado({ p }: { p: PainelConsumo }) {
   const { escritorio } = useSessao();
   const extrato = useCarregar<Movimento[]>("/carteira/extrato?limite=300", [escritorio]);
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Previsao p={p} />
-        <Simulador p={p} aoRecarregar={aoRecarregar} />
-      </div>
+    <div className="flex flex-col gap-5">
+      <Previsao p={p} />
       <Ranking p={p} />
       <LinhaDoTempo movimentos={extrato.dados} erro={extrato.erro} />
-      <ComoFunciona />
     </div>
   );
 }
@@ -656,50 +765,50 @@ function Previsao({ p }: { p: PainelConsumo }) {
     return { rotulo: `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`, saldo: Math.max(0, disp - media * i) };
   }) : [];
   return (
-    <Cartao icone={<Calendar />} titulo="Previsão de 30 dias" sub="Projeção pelo seu gasto médio dos últimos 30 dias.">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <MiniDado rotulo="Gasto projetado (30d)" valor={media ? reais(media * 30) : "—"} />
-        <MiniDado rotulo="Saldo no fim do mês" valor={media ? reais(disp - media * restantes) : reais(disp)} />
-        <MiniDado rotulo="Saldo acaba em" valor={dias == null ? "sem consumo" : new Date(hoje.getTime() + dias * 86400000).toLocaleDateString("pt-BR")} />
-      </div>
+    <Bloco icone={<TrendingUp />} titulo="Previsão de 30 dias" sub="Projeção pelo seu gasto médio dos últimos 30 dias (estimativa).">
+      <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {[["Gasto projetado (30d)", media ? reais(media * 30) : "—"], ["Saldo no fim do mês", media ? reais(disp - media * restantes) : reais(disp)],
+          ["Saldo acaba em", dias == null ? "sem consumo" : new Date(hoje.getTime() + dias * 86400000).toLocaleDateString("pt-BR")]].map(([r, v]) => (
+          <div key={r} className="rounded-xl bg-[#f1f4f2] px-3.5 py-3"><dt className="text-[12px] text-[#667085]">{r}</dt><dd className="mt-0.5 text-[17px] font-bold tabular-nums text-[#0c111d]">{v}</dd></div>
+        ))}
+      </dl>
       {media ? (
-        <div className="mt-4 h-[170px]"><ResponsiveContainer>
-          <AreaChart data={curva} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
-            <defs><linearGradient id="crPrev" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2e90fa" stopOpacity={0.25} /><stop offset="100%" stopColor="#2e90fa" stopOpacity={0} /></linearGradient></defs>
-            <CartesianGrid stroke="#f2f4f7" vertical={false} />
-            <XAxis dataKey="rotulo" tick={{ fontSize: 10.5, fill: "#98A2B3" }} tickLine={false} axisLine={false} minTickGap={24} />
-            <YAxis tick={{ fontSize: 10.5, fill: "#98A2B3" }} tickLine={false} axisLine={false} width={58} tickFormatter={(v) => reais(v, 0)} />
-            <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e7ec", fontSize: 12 }} formatter={(v: number) => [reais(v), "Saldo previsto"]} />
-            <Area type="monotone" dataKey="saldo" stroke="#2e90fa" strokeWidth={2} strokeDasharray="5 4" fill="url(#crPrev)" />
-          </AreaChart>
+        <div className="mt-4 h-[190px]"><ResponsiveContainer>
+          <LineChart data={curva} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke="#eef2ef" vertical={false} />
+            <XAxis dataKey="rotulo" tick={EIXO} tickLine={false} axisLine={false} minTickGap={24} />
+            <YAxis tick={EIXO} tickLine={false} axisLine={false} width={58} tickFormatter={(v) => reais(v, 0)} />
+            <Tooltip cursor={{ stroke: "#c9d6ce" }} contentStyle={DICA} formatter={(v: number) => [reais(v), "Saldo previsto"]} />
+            <Line type="monotone" dataKey="saldo" stroke={VERDE_ESCURO} strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: VERDE_ESCURO }} />
+          </LineChart>
         </ResponsiveContainer></div>
-      ) : <Vazio icone={<Calendar />}>Sem histórico para projetar.</Vazio>}
-    </Cartao>
+      ) : <div className="mt-4"><Vazio>Sem histórico para projetar.</Vazio></div>}
+    </Bloco>
   );
 }
 
 function Ranking({ p }: { p: PainelConsumo }) {
   const lista = p.por_agente.filter((a) => a.custo_por_lead_brl).sort((a, b) => (a.custo_por_lead_brl ?? 0) - (b.custo_por_lead_brl ?? 0));
   return (
-    <Cartao icone={<Trophy />} titulo="Ranking de eficiência" sub="Quem atende mais leads com o mesmo dinheiro (menor R$ por lead primeiro).">
-      {lista.length === 0 ? <Vazio icone={<Trophy />}>Sem dados de eficiência neste período.</Vazio> : (
-        <div className="overflow-x-auto"><table className="w-full text-[13px]">
-          <thead><tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-[#667085]">
-            <th className="py-2 pr-3">#</th><th className="py-2 pr-3">Agente</th><th className="py-2 pr-3 text-right">R$ por lead</th>
-            <th className="py-2 pr-3 text-right">Leads com R$ 100</th><th className="py-2 pr-3 text-right">Contratos</th><th className="py-2 text-right">Custo por contrato</th></tr></thead>
+    <Bloco icone={<Target />} titulo="Ranking de eficiência" sub="Quem atende mais leads com o mesmo dinheiro (menor R$ por lead primeiro)." corpo="pb-2">
+      {lista.length === 0 ? <div className="px-5 pb-3 md:px-6"><Vazio>Sem dados de eficiência neste período.</Vazio></div> : (
+        <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-[13px]">
+          <thead><tr className="cr-thead">
+            <th className="pl-6">#</th><th>Agente</th><th className="text-right">R$ por lead</th>
+            <th className="text-right">Leads com R$ 100</th><th className="text-right">Contratos</th><th className="pr-6 text-right">Custo por contrato</th></tr></thead>
           <tbody>{lista.map((a, i) => (
-            <tr key={a.id_agente ?? "sem"} className="border-t border-[#f2f4f7]">
-              <td className="py-2.5 pr-3">{i === 0 ? <Trophy className="size-4 text-[#f79009]" /> : `${i + 1}º`}</td>
-              <td className="py-2.5 pr-3 font-semibold text-[#101828]">{a.agente}</td>
-              <td className="py-2.5 pr-3 text-right font-bold tabular-nums">{rs(a.custo_por_lead_brl)}</td>
-              <td className="py-2.5 pr-3 text-right tabular-nums text-[#067647]">≈ {inteiro(Math.floor(100 / (a.custo_por_lead_brl ?? 1)))}</td>
-              <td className="py-2.5 pr-3 text-right tabular-nums">{inteiro(a.contratos)}</td>
-              <td className="py-2.5 text-right tabular-nums">{rs(a.custo_por_contrato_brl)}</td>
+            <tr key={a.id_agente ?? "sem"} className="border-t border-[#eef2ef]">
+              <td className="py-3 pl-6 pr-3"><span className={`grid size-6 place-items-center rounded-full text-[11px] font-bold ${i === 0 ? "bg-[#0a8f35] text-white" : "bg-[#f1f4f2] text-[#475467]"}`}>{i + 1}</span></td>
+              <td className="px-3 py-3"><SeloAgente nome={a.agente} /></td>
+              <td className="px-3 py-3 text-right font-bold tabular-nums text-[#0c111d]">{rs(a.custo_por_lead_brl)}</td>
+              <td className="px-3 py-3 text-right tabular-nums text-[#344054]">≈ {inteiro(Math.floor(100 / (a.custo_por_lead_brl ?? 1)))}</td>
+              <td className="px-3 py-3 text-right tabular-nums text-[#344054]">{inteiro(a.contratos)}</td>
+              <td className="py-3 pl-3 pr-6 text-right tabular-nums text-[#344054]">{rs(a.custo_por_contrato_brl)}</td>
             </tr>
           ))}</tbody>
         </table></div>
       )}
-    </Cartao>
+    </Bloco>
   );
 }
 
@@ -724,137 +833,161 @@ function LinhaDoTempo({ movimentos, erro }: { movimentos: Movimento[] | null; er
   }, [movimentos]);
   const visiveis = mais ? itens : itens.slice(0, 8);
   return (
-    <Cartao icone={<History />} titulo="Linha do tempo" sub="Recargas, bônus e consumo em ordem cronológica.">
-      {!movimentos ? <Linhas erro={erro} /> : itens.length === 0 ? <Vazio icone={<History />}>Nenhum movimento ainda.</Vazio> : (
+    <Bloco icone={<History />} titulo="Linha do tempo" sub="Recargas, bônus e consumo em ordem cronológica." corpo="pb-2">
+      {!movimentos ? <div className="px-5 pb-4 md:px-6"><Linhas erro={erro} /></div> : itens.length === 0 ? <div className="px-5 pb-4 md:px-6"><Vazio>Nenhum movimento ainda.</Vazio></div> : (
         <>
-          <ol className="relative ml-4 border-l border-[#e4e7ec]">
+          <ul className="divide-y divide-[#eef2ef] border-t border-[#eef2ef]">
             {visiveis.map((i) => (
-              <li key={i.id} className="relative mb-4 pl-6 last:mb-0">
-                <span className={`absolute -left-[13px] top-0.5 grid size-6 place-items-center rounded-full ring-4 ring-white ${i.entrada ? "bg-[#e8f9ee] text-[#00a02b]" : "bg-[#f2f4f7] text-[#667085]"}`}>
-                  {i.entrada ? <ArrowDownLeft className="size-3.5" /> : <ArrowUpRight className="size-3.5" />}
+              <li key={i.id} className="flex items-center gap-3 px-5 py-3 md:px-6">
+                <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${i.entrada ? "bg-[#e7f7ec] text-[#0a8f35]" : "bg-[#f1f4f2] text-[#667085]"}`}>
+                  {i.entrada ? <ArrowDownLeft className="size-4" /> : <ArrowUpRight className="size-4" />}
                 </span>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0"><div className="text-[13.5px] font-semibold text-[#101828]">{i.titulo}</div>
-                    <div className="truncate text-[12px] text-[#667085]">{i.detalhe}</div>
-                    <div className="text-[11.5px] text-[#98A2B3]">{dataCurta(i.quando)}</div></div>
-                  <span className={`shrink-0 font-bold tabular-nums ${i.entrada ? "text-[#00a02b]" : "text-[#344054]"}`}>{i.entrada ? "+" : ""}{rs(i.valor)}</span>
-                </div>
+                <div className="min-w-0 flex-1"><div className="text-[13.5px] font-semibold text-[#0c111d]">{i.titulo}</div>
+                  <div className="truncate text-[11.5px] text-[#98A2B3]">{i.detalhe} · {dataCurta(i.quando)}</div></div>
+                <span className={`shrink-0 text-[13.5px] font-bold tabular-nums ${i.entrada ? "text-[#0a8f35]" : "text-[#0c111d]"}`}>{i.entrada ? "+" : ""}{rs(i.valor)}</span>
               </li>
             ))}
-          </ol>
-          {itens.length > 8 && <button className="mt-3 text-[12.5px] font-semibold text-[#00a02b]" onClick={() => setMais(!mais)}>{mais ? "Mostrar menos" : `Mostrar todos (${itens.length})`}</button>}
+          </ul>
+          {itens.length > 8 && <div className="border-t border-[#eef2ef] px-5 py-3 md:px-6"><BotaoTexto onClick={() => setMais(!mais)} seta={false}>{mais ? "Mostrar menos" : `Mostrar todos (${itens.length})`}</BotaoTexto></div>}
         </>
       )}
-    </Cartao>
+    </Bloco>
   );
 }
 
 function ComoFunciona() {
+  const passos = [
+    { t: "Bônus do mês", d: "É o primeiro crédito a sair." },
+    { t: "Saldo de recarga", d: "Entra depois do bônus e não expira." },
+    { t: "Saldo zerado", d: "A IA pausa e volta sozinha quando a recarga entra." },
+  ];
+  const termos = [
+    { i: <ArrowRight />, t: "Entrada", d: "Tudo que a IA lê para responder: instruções do agente, histórico e a mensagem do lead." },
+    { i: <Sparkles />, t: "Saída", d: "A resposta escrita pela IA. Costuma custar mais por token que a entrada." },
+    { i: <Cpu />, t: "Modelo", d: "Modelos mais inteligentes custam mais por token. Cada agente pode usar um modelo diferente." },
+  ];
   return (
-    <section className="lc-card relative overflow-hidden bg-gradient-to-br from-white to-[#f6fef9] p-5 md:p-6">
-      <div className="flex items-center gap-3">
-        <span className="grid size-11 place-items-center rounded-2xl bg-[#00bc33] text-white shadow-[0_8px_20px_-8px_rgba(0,188,51,.8)]"><BookOpen className="size-5" /></span>
-        <h3 className="text-[16px] font-bold text-[#101828]">Como funcionam os créditos</h3>
-        <span className="rounded-full border border-[#e4e7ec] bg-white px-2 py-0.5 text-[11px] text-[#475467]">Bom saber</span>
+    <section className="cr-cartao rounded-[22px] p-5 md:p-6">
+      <div className="flex items-start gap-3">
+        <IconeCaixa cor="verde"><BookOpen /></IconeCaixa>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[16px] font-bold text-[#0c111d]">Como funcionam os créditos</h3>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-[#475467]">
+            Cada vez que um agente lê uma mensagem e responde, a IA processa tokens (pedaços de texto). O custo de cada lead é a soma de todas as respostas,
+            leituras de áudio, imagem e documento e follow-ups daquela conversa.
+          </p>
+        </div>
+        <span className="hidden shrink-0 rounded-full bg-[#e7f7ec] px-2.5 py-1 text-[11.5px] font-bold text-[#0a8f35] sm:inline">Bom saber</span>
       </div>
-      <p className="mt-3 text-[13px] leading-relaxed text-[#475467]">
-        Cada vez que um agente lê uma mensagem e responde, a IA processa <b>tokens</b> (pedaços de texto). O custo de cada lead é a soma de todas as respostas,
-        leituras de áudio, imagem e documento e follow-ups daquela conversa. Primeiro sai do bônus do mês, depois do saldo. Se o saldo acabar, a IA pausa e volta sozinha quando a recarga entra.
-      </p>
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {[{ i: <ArrowRight />, t: "Entrada", d: "Tudo que a IA lê para responder: instruções do agente, histórico e a mensagem do lead." },
-          { i: <Sparkles />, t: "Saída", d: "A resposta escrita pela IA. Costuma custar mais por token que a entrada." },
-          { i: <Cpu />, t: "Modelo", d: "Modelos mais inteligentes custam mais por token. Cada agente pode usar um modelo diferente." }].map((c) => (
-          <div key={c.t} className="rounded-xl border border-[#e4e7ec] bg-white p-4">
-            <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-[#101828]"><span className="text-[#00bc33] [&>svg]:size-4">{c.i}</span>{c.t}</div>
-            <p className="mt-1.5 text-[12.5px] text-[#667085]">{c.d}</p>
+      <ol className="mt-5 grid gap-3 md:grid-cols-3">
+        {passos.map((s, i) => (
+          <li key={s.t} className={`flex items-center gap-3.5 rounded-2xl border p-4 ${i === 0 ? "border-[#7fd49a] bg-[#ecf9f0] shadow-[0_10px_24px_-14px_rgba(10,143,53,.45)]" : "border-[#e6ebe8] bg-white"}`}>
+            <span className={`cr-passo ${i === 0 ? "cr-passo-ativo" : ""}`} aria-hidden>{i + 1}</span>
+            <div className="min-w-0"><div className="text-[14px] font-bold text-[#0c111d]">{s.t}</div><div className="text-[12.5px] text-[#475467]">{s.d}</div></div>
+          </li>
+        ))}
+      </ol>
+      <dl className="mt-3 grid gap-3 md:grid-cols-3">
+        {termos.map((c) => (
+          <div key={c.t} className="rounded-2xl bg-[#f1f4f2] p-4">
+            <dt className="flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-[.12em] text-[#1d2939] [&>svg]:size-3.5 [&>svg]:text-[#0a8f35]">{c.i}{c.t}</dt>
+            <dd className="mt-1.5 text-[13px] leading-relaxed text-[#475467]">{c.d}</dd>
           </div>
         ))}
-      </div>
-      <p className="mt-3 flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-[12px] text-[#667085]"><Info className="size-3.5 shrink-0" />Tudo é cobrado em créditos (R$) numa conta só. Cada conversa mostra o custo real dela.</p>
+      </dl>
+      <p className="mt-4 flex items-center gap-2 text-[12.5px] text-[#667085]"><Info className="size-3.5 shrink-0" />Tudo é cobrado em créditos (R$) numa conta só. Cada conversa mostra o custo real dela.</p>
     </section>
   );
 }
 
 // ============================================================================ peças
-function Cartao({ icone, titulo, sub, direita, children }: { icone: ReactNode; titulo: string; sub?: string; direita?: ReactNode; children: ReactNode }) {
+type Cor = "verde" | "azul" | "ambar" | "roxo";
+const CORES_ICONE: Record<Cor, string> = {
+  verde: "bg-[#e4f6ea] text-[#0a8f35]", azul: "bg-[#e8efff] text-[#2563eb]", ambar: "bg-[#fff1dc] text-[#c2620a]", roxo: "bg-[#f1eaff] text-[#7c3aed]",
+};
+const IconeCaixa = ({ cor, children }: { cor: Cor; children: ReactNode }) => (
+  <span className={`grid size-10 shrink-0 place-items-center rounded-xl [&>svg]:size-[18px] ${CORES_ICONE[cor]}`}>{children}</span>
+);
+
+/** Bloco padrão: cartão branco arredondado, ícone em caixinha verde suave, título e subtítulo. `corpo` troca o recuo (tabelas encostam nas bordas). */
+function Bloco({ icone, titulo, sub, direita, corpo = "px-5 pb-5 md:px-6 md:pb-6", children }: {
+  icone: ReactNode; titulo: string; sub?: string; direita?: ReactNode; corpo?: string; children: ReactNode;
+}) {
   return (
-    <section className="lc-card relative p-5">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3"><Icone>{icone}</Icone>
-          <div><h3 className="text-[15px] font-bold text-[#101828]">{titulo}</h3>{sub && <p className="text-[12px] text-[#667085]">{sub}</p>}</div></div>
+    <section className="cr-cartao min-w-0 rounded-[22px]">
+      <div className="flex items-start justify-between gap-3 px-5 pb-4 pt-5 md:px-6">
+        <div className="flex min-w-0 items-start gap-3">
+          <IconeCaixa cor="verde">{icone}</IconeCaixa>
+          <div className="min-w-0"><h3 className="text-[16px] font-bold text-[#0c111d]">{titulo}</h3>{sub && <p className="mt-0.5 text-[13px] text-[#667085]">{sub}</p>}</div>
+        </div>
         {direita}
       </div>
-      {children}
+      <div className={corpo}>{children}</div>
     </section>
   );
 }
 
-const CORES_KPI = { green: ["#e8f9ee", "#00a02b"], blue: ["#eff8ff", "#1570ef"], amber: ["#fffaeb", "#dc6803"], violet: ["#f4f3ff", "#6938ef"] } as const;
-function Kpi({ icone, cor, rotulo, valor, nota }: { icone: ReactNode; cor: keyof typeof CORES_KPI; rotulo: string; valor: ReactNode; nota?: string }) {
-  const [fundo, frente] = CORES_KPI[cor];
+function Kpi({ icone, cor, rotulo, valor, nota, extra, pequeno }: { icone: ReactNode; cor: Cor; rotulo: string; valor: string; nota?: string; extra?: ReactNode; pequeno?: boolean }) {
   return (
-    <div className="lc-card relative p-4 transition hover:-translate-y-0.5">
-      <div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg [&>svg]:size-4" style={{ background: fundo, color: frente }}>{icone}</span>
-        <span className="text-[12.5px] font-medium text-[#475467]">{rotulo}</span></div>
-      <div className="mt-3 text-[24px] font-extrabold leading-none tracking-tight tabular-nums text-[#101828]">{valor}</div>
-      {nota && <div className="mt-1.5 text-[11.5px] text-[#98A2B3]">{nota}</div>}
+    <div className="cr-cartao relative min-w-0 rounded-[20px] p-4 md:p-5">
+      <div className="flex items-center gap-2.5">
+        <span className={`grid size-8 shrink-0 place-items-center rounded-lg [&>svg]:size-4 ${CORES_ICONE[cor]}`}>{icone}</span>
+        <span className="truncate text-[13.5px] text-[#344054]">{rotulo}</span>
+      </div>
+      <div className={`mt-3 truncate font-extrabold tracking-[-0.02em] tabular-nums text-[#0c111d] ${pequeno ? "text-[20px]" : "text-[28px] leading-tight"}`}>{valor}</div>
+      {nota && <div className="mt-1 text-[12px] leading-snug text-[#667085]">{nota}</div>}
+      {extra}
     </div>
   );
 }
 
-function MiniDado({ icone, rotulo, valor, nota, tom }: { icone?: ReactNode; rotulo: string; valor: string; nota?: string; tom?: "ok" | "warn" }) {
+/** Mini linha do KPI "Créditos usados". */
+function MiniLinha({ valores }: { valores: number[] }) {
+  if (valores.length < 2) return null;
+  const max = Math.max(...valores) || 1;
+  const L = 80, A = 26;
+  const pts = valores.map((v, i) => `${((i / (valores.length - 1)) * L).toFixed(1)},${(A - 2 - (v / max) * (A - 4)).toFixed(1)}`).join(" ");
   return (
-    <div className="rounded-2xl border border-[#eaecf0] bg-white/90 p-3.5">
-      <div className="flex items-center gap-1.5 text-[11.5px] text-[#667085]">{icone && <span className="text-[#00bc33] [&>svg]:size-3.5">{icone}</span>}{rotulo}</div>
-      <div className="mt-1 text-[17px] font-bold tabular-nums text-[#101828]">{valor}</div>
-      {nota && <div className={`mt-0.5 text-[11px] ${tom === "warn" ? "text-[#b54708]" : tom === "ok" ? "text-[#067647]" : "text-[#98A2B3]"}`}>{nota}</div>}
-    </div>
+    <svg viewBox={`0 0 ${L} ${A}`} className="absolute bottom-4 right-4 h-[26px] w-[80px]" aria-hidden>
+      <polyline points={pts} fill="none" stroke={VERDE_ESCURO} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   );
 }
 
-const Numero = ({ rotulo, valor, destaque }: { rotulo: string; valor: string; destaque?: boolean }) => (
-  <div className={`rounded-xl px-2 py-2 ${destaque ? "bg-[#ecfdf3]" : "bg-[#f9fafb]"}`}>
-    <div className={`text-[15px] font-extrabold tabular-nums ${destaque ? "text-[#067647]" : "text-[#101828]"}`}>{valor}</div>
-    <div className="text-[10.5px] text-[#667085]">{rotulo}</div>
+/** Barra fina: verde só quando é o destaque (o maior); cinza no resto. */
+const BarraFina = ({ pct, destaque, cor, largura = "flex-1", altura = "h-1.5" }: { pct: number; destaque?: boolean; cor?: string; largura?: string; altura?: string }) => (
+  <div className={`${largura} ${altura} min-w-[40px] overflow-hidden rounded-full bg-[#eef2ef]`}>
+    <div className="cr-barra h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: cor ?? (destaque ? VERDE_ESCURO : CINZA_BARRA) }} />
   </div>
 );
-const Icone = ({ children }: { children: ReactNode }) => <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#e8f9ee] text-[#00bc33] [&>svg]:size-[18px]">{children}</span>;
-const Barra = ({ pct, cor }: { pct: number; cor: string }) => (
-  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#f2f4f7]"><div className="cr-barra h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: cor }} /></div>
+const BotaoTexto = ({ onClick, children, seta = true }: { onClick: () => void; children: ReactNode; seta?: boolean }) => (
+  <button onClick={onClick} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-[13px] font-semibold text-[#1d2939] transition hover:bg-[#f1f4f2]">
+    {children}{seta && <ArrowRight className="size-3.5" />}
+  </button>
 );
-const BotaoTexto = ({ onClick, children }: { onClick: () => void; children: ReactNode }) => (
-  <button onClick={onClick} className="shrink-0 text-[12.5px] font-semibold text-[#00a02b] hover:underline">{children}</button>
+const SeloAgente = ({ nome }: { nome: string }) => (
+  <span className="inline-flex max-w-[200px] items-center gap-1.5 rounded-full bg-[#e7f7ec] px-2.5 py-1 text-[12px] font-semibold text-[#0a8f35]">
+    <Bot className="size-3.5 shrink-0" /><span className="truncate">{nome}</span>
+  </span>
 );
-const SeloContrato = () => <span className="ml-1 inline-flex items-center rounded-full bg-[#ecfdf3] px-1.5 py-0.5 align-middle text-[10px] font-semibold text-[#067647]">contrato</span>;
+const SeloContrato = () => <span className="ml-1.5 inline-flex items-center rounded-full bg-[#e7f7ec] px-1.5 py-px align-middle text-[10px] font-bold text-[#0a8f35]">contrato</span>;
 const NOME_SITUACAO: Record<string, [string, string, string]> = {
-  paga: ["Confirmada", "#ecfdf3", "#067647"], pendente: ["Aguardando", "#fffaeb", "#b54708"], cancelada: ["Cancelada", "#f2f4f7", "#475467"],
-  expirada: ["Expirada", "#f2f4f7", "#475467"], estornada: ["Estornada", "#fef3f2", "#b42318"],
+  paga: ["Confirmada", "#0a6b2a", "#e7f7ec"], pendente: ["Aguardando", "#93370d", "#fff1dc"], cancelada: ["Cancelada", "#475467", "#f1f4f2"],
+  expirada: ["Expirada", "#475467", "#f1f4f2"], estornada: ["Estornada", "#b42318", "#fef3f2"],
 };
 const SeloSituacao = ({ s }: { s: string }) => {
-  const [t, fundo, cor] = NOME_SITUACAO[s] ?? [s, "#f2f4f7", "#475467"];
-  return <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: fundo, color: cor }}>{t}</span>;
+  const [t, cor, fundo] = NOME_SITUACAO[s] ?? [s, "#475467", "#f1f4f2"];
+  return <span className="inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={{ color: cor, background: fundo }}>{t}</span>;
 };
-function Faixa({ tom, icone, titulo, children }: { tom: "bad" | "warn"; icone: ReactNode; titulo: string; children: ReactNode }) {
-  const [fundo, borda, cor] = tom === "bad" ? ["#fef3f2", "#fecdca", "#b42318"] : ["#fffaeb", "#fedf89", "#b54708"];
-  return (
-    <div className="mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13px]" style={{ background: fundo, borderColor: borda, color: cor }}>
-      <span className="mt-0.5 [&>svg]:size-4">{icone}</span><div><b>{titulo}.</b> {children}</div>
-    </div>
-  );
-}
-const Vazio = ({ icone, children }: { icone: ReactNode; children: ReactNode }) => (
-  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#eaecf0] bg-[#fcfcfd] px-4 py-10 text-center">
-    <span className="grid size-11 place-items-center rounded-2xl bg-[#f2f4f7] text-[#98A2B3] [&>svg]:size-5">{icone}</span>
-    <p className="text-[13px] text-[#667085]">{children}</p>
-  </div>
+const Vazio = ({ children }: { children: ReactNode }) => (
+  <div className="rounded-2xl border border-dashed border-[#d5ddd8] px-4 py-8 text-center text-[13px] text-[#667085]">{children}</div>
 );
 const Linhas = ({ erro }: { erro?: string | null }) => erro
   ? <p className="text-[13px] text-[#b42318]">{erro}</p>
-  : <div className="flex flex-col gap-2">{[0, 1, 2].map((i) => <div key={i} className="cr-brilho h-9 rounded-lg" />)}</div>;
+  : <div className="flex flex-col gap-2">{[0, 1, 2].map((i) => <div key={i} className="cr-brilho h-10 rounded-xl" />)}</div>;
 const Esqueleto = ({ altura, erro }: { altura: number; erro?: string | null }) => erro
-  ? <div className="lc-card p-5 text-[13px] text-[#b42318]">{erro}</div>
-  : <div className="cr-brilho rounded-[28px]" style={{ height: altura }} />;
+  ? <div className="cr-cartao rounded-[22px] p-5 text-[13px] text-[#b42318]">{erro}</div>
+  : <div className="cr-brilho rounded-[26px]" style={{ height: altura }} />;
 
 /** Conta de 0 até o valor (suave; sem animação para quem pediu menos movimento). */
 function Contador({ valor, formato }: { valor: number; formato: (v: number) => string }) {
