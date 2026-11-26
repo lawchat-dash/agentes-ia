@@ -1,0 +1,381 @@
+{
+  "id": "sc15_mei_autonomo",
+  "descricao": "Manicure MEI na data do acidente (queda da escada de casa, tornozelo). Regras do prompt do SDR: 'ser MEI não é trava imediata', pergunta 5 (MEI/Autônomo/CI → 'NÃO desqualificar imediatamente') e 5.1 ('há quanto tempo havia saído da última empresa?'). A abertura já diz 'eu sou mei' e a resposta da CLT diz 'trabalhava por conta': pela regra do SDR 'Caso o Lead já tenha informado alguma resposta, não pergunte novamente', a pergunta 5 (MEI) pode ser pulada, por isso ela NÃO fica em perguntar_antes (até a rodada real de 2026-11-25 ficava e acusava pulou_pergunta falso em nunca_clt; perguntar o MEI de novo é repetição leve, que esta checagem não pega). A pergunta 2 do SDR ('Em qual ano aconteceu o acidente?') é exigida antes do destino FIXO (nunca_clt e saiu_ha_mais_de_3_anos), onde o oráculo não cobra os fatos; em teve_clt o oráculo já cobra a data. Até 2 perguntas por turno: a mensagem literal da 5.1 do prompt tem duas ('...havia saído da última empresa? Eram meses ou já eram anos?'). sem_pergunta_em fica vazio: o prompt do Desqualificado manda confirmar o resumo ('me avisa se algo mudou') e pedir nota de 1 a 5; a regra genérica 'sem pergunta no encerramento' contradiz o prompt do escritório. Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado ('leva 3 a 6 meses', 'em até 5 dias úteis'), prometer incluir sequela no contrato e a pressão 'precisamos iniciar agora'.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000115",
+    "nome_whatsapp": "Jéssica",
+    "persona": "Mulher de 39 anos, manicure MEI, escreve rápido com abreviações (vc, tb, pq, msm).",
+    "abertura": [
+      {
+        "texto": "oii vi o anuncio, eu sou mei sera q tenho direito?"
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "caiu da escada de casa",
+      "acidente_mes": 3,
+      "acidente_ano": 2024,
+      "vinculo_na_data": "mei_autonomo_ci",
+      "auxilio_doenca": false,
+      "sequela": "sim",
+      "sequela_descricao": "tornozelo incha e dói para andar",
+      "aposentado": false,
+      "tem_advogado_no_caso": false
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+        ],
+        "responde": {
+          "picadas": [
+            "cai da escada de casa",
+            "quebrei o tornozelo",
+            "ate hj incha e doi pra andar"
+          ]
+        },
+        "fatos": [
+          "acidente_descricao",
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+        ],
+        "responde": {
+          "texto": "foi em março de 2024"
+        },
+        "fatos": [
+          "acidente_mes",
+          "acidente_ano"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+        ],
+        "responde": {
+          "texto": "nao recebi nada"
+        },
+        "fatos": [
+          "auxilio_doenca"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+        ],
+        "responde": {
+          "texto": "nao, na epoca eu ja trabalhava por conta"
+        },
+        "fatos": [
+          "vinculo_na_data"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\bmei\\b|aut[ôo]nomo|contribuinte individual"
+        ],
+        "responde": {
+          "texto": "sim, sou mei de manicure"
+        }
+      },
+      {
+        "quando": [
+          "(?i)segurado especial|rural|agricult|pescador|ro[çc]a"
+        ],
+        "responde": {
+          "texto": "nao, sou da cidade"
+        }
+      },
+      {
+        "quando": [
+          "(?i)desempregad|segurado pelo inss|consegue lembrar"
+        ],
+        "responde": {
+          "texto": "nao, eu tava trabalhando de mei"
+        }
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "responde": {
+          "texto": "nao sou aposentada"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(?<!costa )(?<!dos )advogad"
+        ],
+        "responde": {
+          "texto": "nao tenho"
+        }
+      },
+      {
+        "quando": [
+          "(?i)posso te explicar|quer que eu (te )?explique"
+        ],
+        "responde": {
+          "texto": "pode"
+        },
+        "uma_vez": false
+      }
+    ],
+    "gatilhos": [
+      {
+        "depois_de": "(?i)n[ãa]o se enquadra|por [ée]tica|n[ãa]o (posso|podemos|vai ser poss[íi]vel) (seguir|prosseguir)",
+        "fala": {
+          "texto": "ah entendi, obrigado mesmo assim"
+        }
+      },
+      {
+        "depois_de": "(?i)confirmar algumas informa",
+        "fala": {
+          "texto": "pode sim"
+        }
+      }
+    ],
+    "padrao": "nao sei dizer"
+  },
+  "variantes": [
+    {
+      "nome": "teve_clt_ha_meses",
+      "descricao": "saiu da última empresa CLT uns 8 meses antes do acidente: 5.1 'saído há pouco tempo (meses)' → periododegraca; lá, demissão 07/2023, acidente 03/2024 (8 meses, ≤ 12 mesmo sem seguro) → closer. Destino pelo oráculo, igual ao prompt.",
+      "verdade": {
+        "demissao_mes": 7,
+        "demissao_ano": 2023,
+        "demissao_meses_antes_do_acidente": 8,
+        "seguro_desemprego": true,
+        "contribuiu_por_conta_propria": true
+      },
+      "assuntos": [
+        {
+          "quando": [
+            "(?i)[úu]ltima empresa|havia sa[íi]do|meses ou (j[áa] )?(eram )?anos"
+          ],
+          "responde": {
+            "texto": "tinha uns 8 meses q eu tinha saido da loja"
+          },
+          "fatos": [
+            "demissao_meses_antes_do_acidente"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)[úu]ltima vez que trabalhou"
+          ],
+          "responde": {
+            "texto": "trabalhei de carteira numa loja de roupa"
+          }
+        },
+        {
+          "quando": [
+            "(?i)demiss|mandad[oa] embora"
+          ],
+          "responde": {
+            "texto": "sai em julho de 2023"
+          },
+          "fatos": [
+            "demissao_mes",
+            "demissao_ano"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)seguro.?desemprego"
+          ],
+          "responde": {
+            "texto": "recebi sim, 4 parcelas"
+          },
+          "fatos": [
+            "seguro_desemprego"
+          ]
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {
+          "oraculo": "auxilio_acidente"
+        },
+        "trajetoria": [
+          "sdr",
+          "periododegraca",
+          "closer"
+        ],
+        "transferencias_com_frase": [
+          "periododegraca",
+          "closer"
+        ],
+        "perguntar_antes": {
+          "periododegraca": [
+            "(?i)[úu]ltima empresa|havia sa[íi]do|meses ou (j[áa] )?(eram )?anos|quanto tempo"
+          ],
+          "closer": [
+            "(?i)seguro.?desemprego",
+            "(?i)demiss|sa[íi]u (da|do)|[úu]ltima vez que trabalhou"
+          ]
+        },
+        "proibido": [
+          "(?i)causa ganha",
+          "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+          "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+          "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+          "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+          "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+          "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+          "(?i)(por ser|sendo|como [ée]) mei[^.?!\\n]{0,30}n[ãa]o (tem|d[áa]) direito|mei n[ãa]o tem direito"
+        ]
+      }
+    },
+    {
+      "nome": "nunca_clt",
+      "descricao": "nunca teve carteira assinada: 5.1 'Se o cliente informar que nunca trabalhou CLT → desqualificado' (e TRAVAS: 'Nunca teve CLT (só MEI/autônomo) e não é segurado especial com prova → DESQUALIFICADO'). Destino fixo: o oráculo Regras() mandaria o MEI para o período de graça.",
+      "verdade": {
+        "ja_foi_clt": false
+      },
+      "assuntos": [
+        {
+          "quando": [
+            "(?i)[úu]ltima empresa|havia sa[íi]do|meses ou (j[áa] )?(eram )?anos"
+          ],
+          "responde": {
+            "texto": "nunca trabalhei de carteira nao, sempre por conta"
+          },
+          "fatos": [
+            "ja_foi_clt"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)[úu]ltima vez que trabalhou"
+          ],
+          "responde": {
+            "texto": "de carteira nunca, sempre fui por conta propria"
+          }
+        },
+        {
+          "quando": [
+            "(?i)demiss|mandad[oa] embora"
+          ],
+          "responde": {
+            "texto": "nunca fui demitida, nunca tive carteira"
+          }
+        },
+        {
+          "quando": [
+            "(?i)seguro.?desemprego"
+          ],
+          "responde": {
+            "texto": "nao, nunca recebi seguro"
+          }
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": "desqualificado",
+        "trajetoria": [
+          "sdr",
+          "desqualificado"
+        ],
+        "transferencias_com_frase": [
+          "desqualificado"
+        ],
+        "perguntar_antes": {
+          "desqualificado": [
+            "(?i)\\b(?:qual|que)\\b[^?]{0,15}\\b(?:ano|data|m[êe]s)\\b(?![^?]{0,40}(?:demiss|demit|sa[íi]u|sa[íi]da|seguro|parcela))|\\b(?:lembra|sabe)\\b[^?]{0,20}\\b(?:ano|data|m[êe]s)\\b(?![^?]{0,40}(?:demiss|demit|sa[íi]u|sa[íi]da|seguro|parcela))|\\bquando (?:foi|aconteceu|ocorreu) (?:o|esse|seu|este) acidente",
+            "(?i)[úu]ltima empresa|havia sa[íi]do|meses ou (j[áa] )?(eram )?anos|quanto tempo"
+          ]
+        }
+      }
+    },
+    {
+      "nome": "saiu_ha_mais_de_3_anos",
+      "descricao": "saiu da última empresa em 2019, uns 5 anos antes do acidente: 5.1 'Se o cliente foi demitido a mais de 3 anos antes do acidente → desqualificado'. O próprio prompt é ambíguo (TRAVAS e 'Sobre MEI': 'Teve CLT antes → período de graça'), então valem os dois caminhos: direto do SDR ou pelo período de graça (demissão 03/2019, sem seguro, acidente 03/2024: fora do prazo). Sem trajetória exata e sem frase de troca obrigatória (o Período de Graça não tem a frase do SDR); o destino fixo 'desqualificado' é conferido depois do período de graça. Destino fixo: o oráculo Regras() exigiria passar pelo período de graça.",
+      "verdade": {
+        "demissao_mes": 3,
+        "demissao_ano": 2019,
+        "demissao_ha_muitos_anos": true,
+        "seguro_desemprego": false
+      },
+      "assuntos": [
+        {
+          "quando": [
+            "(?i)[úu]ltima empresa|havia sa[íi]do|meses ou (j[áa] )?(eram )?anos"
+          ],
+          "responde": {
+            "texto": "ah faz tempo, sai da ultima firma em 2019, uns 5 anos antes"
+          },
+          "fatos": [
+            "demissao_ano",
+            "demissao_ha_muitos_anos"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)[úu]ltima vez que trabalhou"
+          ],
+          "responde": {
+            "texto": "foi numa padaria, de carteira, mas faz tempo"
+          }
+        },
+        {
+          "quando": [
+            "(?i)demiss|mandad[oa] embora"
+          ],
+          "responde": {
+            "texto": "sai em março de 2019"
+          },
+          "fatos": [
+            "demissao_mes",
+            "demissao_ano"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)seguro.?desemprego"
+          ],
+          "responde": {
+            "texto": "nao recebi seguro nao"
+          },
+          "fatos": [
+            "seguro_desemprego"
+          ]
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": "desqualificado",
+        "perguntar_antes": {
+          "desqualificado": [
+            "(?i)\\b(?:qual|que)\\b[^?]{0,15}\\b(?:ano|data|m[êe]s)\\b(?![^?]{0,40}(?:demiss|demit|sa[íi]u|sa[íi]da|seguro|parcela))|\\b(?:lembra|sabe)\\b[^?]{0,20}\\b(?:ano|data|m[êe]s)\\b(?![^?]{0,40}(?:demiss|demit|sa[íi]u|sa[íi]da|seguro|parcela))|\\bquando (?:foi|aconteceu|ocorreu) (?:o|esse|seu|este) acidente",
+            "(?i)[úu]ltima empresa|havia sa[íi]do|meses ou (j[áa] )?(eram )?anos|quanto tempo"
+          ]
+        }
+      }
+    }
+  ],
+  "esperado": {
+    "contrato": {
+      "exatamente": 0
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance"
+    ],
+    "sem_pergunta_em": [],
+    "max_perguntas_por_turno": 2
+  },
+  "limites": {
+    "turnos": 16,
+    "custo_usd": 0.2,
+    "parar_em": [
+      "closer"
+    ]
+  }
+}

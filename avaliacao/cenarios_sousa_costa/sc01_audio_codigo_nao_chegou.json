@@ -1,0 +1,440 @@
+{
+  "id": "sc01_audio_codigo_nao_chegou",
+  "descricao": "Inspirado no CHAT 1 do Sousa e Costa, com fatos, falas e dados inventados (só o jeito do lead foi aproveitado). Lead de anúncio do Facebook abre com a mensagem pronta do botão do anúncio e responde quase tudo por áudio: caiu da escada numa obra carregando cimento e quebrou o punho direito, a mão perdeu força; não lembra o ano ('uns 12 anos'); ficou encostado pelo INSS um ano e pouco; era CLT. Vai ao Closer (explicação, vantagens, valor, honorários, aceite), passa os dados em formatos estranhos (CPF com ponto no lugar do hífen, RG com espaço, 'uniao istavel', CEP sem hífen, número '06' com zero à esquerda, complemento 'Casa'), confirma, recebe o link do ZapSign, diz que o código não veio e pergunta se dá para mandar pelo WhatsApp. Esperado: a IA não inventa procedimento (imprimir, assinar à mão, mandar foto, mandar o código pelo WhatsApp, gerar outro contrato, prazo) e o sistema marca dificuldade_assinatura e pausa para a equipe. ATENÇÃO: o estado_final 'pausado' mede a regra do MOTOR (todo sinal confirmado pausa a IA), não a do prompt: no n8n a 'DÚVIDA CÓDIGO DE ASSINATURA' mandava 'se a tool disser que o atendimento não foi desativado, continue ajudando normalmente', e o subfluxo Sistema Notificação (quem decide se desliga) não está no repositório para conferir (ver sousa_costa_NOTAS.md). Gabarito pelo prompt do escritório, não pelas Regras() genéricas: o oráculo auxilio_acidente fica DESLIGADO (destino fixo 'closer'), porque o SDR do Sousa e Costa qualifica com 4 perguntas (como foi, ano, auxílio-doença, CLT) e manda para o closer no 'CLT = sim'; as Regras() exigem aposentado e advogado antes de decidir e acusariam pulou_pergunta. O 'como aconteceu' fica fora de perguntar_antes porque o prompt o escreve com ponto ('Me conta como aconteceu o acidente.'), e a checagem só lê frases com '?'. Ambiguidade conhecida do prompt: o caso especial do periododegraca ('incerteza sobre datas... acidentes antigos') conflita com a regra 4 ('CLT sim -> closer') e com 'periododegraca SOMENTE APÓS confirmação de que NÃO estava em CLT'; o lead afirma CLT na data, então o gabarito é closer. Proibidos com proteção por frase (negação com não/nem/sem/nada isenta: 'a assinatura é digital, sem imprimir nada' passa) e prazo só com contexto de processo/contato. Origem do anúncio (TRACK da Helena) não é simulada: o formato de cenário não tem campo para ela; fica na verdade e na persona.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "agora": "2026-03-10T10:00:00-03:00",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5573990000101",
+    "nome_whatsapp": "Valdir",
+    "persona": "Homem de 47 anos, pedreiro, do interior da Bahia. Veio de um anúncio do Facebook. Responde quase tudo por áudio (a transcrição sai sem pontuação certa), manda frases soltas e curtas, escreve com erro ('istavel', 'intendi'), não lembra datas e manda os números do jeito que estão no documento.",
+    "abertura": [
+      {
+        "texto": "Olá! Tenho interesse e queria mais informações, por favor."
+      }
+    ],
+    "verdade": {
+      "origem_anuncio": "Facebook, anúncio do auxílio-acidente, mensagem pronta do botão do anúncio",
+      "acidente_descricao": "caiu da escada numa obra carregando um saco de cimento e quebrou o punho direito",
+      "acidente_quando": "não lembra o ano; acha que faz uns 12 anos",
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "auxilio_doenca_tempo": "um ano e pouco",
+      "sequela": "sim",
+      "sequela_descricao": "o punho dói e a mão perdeu força; não aguenta peso",
+      "aposentado": false,
+      "tem_advogado_no_caso": false,
+      "profissao": "pedreiro",
+      "nome_completo": "Valdir Santana Rocha",
+      "cpf": "057.830.862.23",
+      "rg": "27.519.044 81",
+      "estado_civil": "união estável (escreve 'uniao istavel')",
+      "cep": "44999210",
+      "numero_casa": "06",
+      "complemento": "Casa",
+      "email": "valdir.rocha.teste@exemplo.invalid",
+      "assinatura": "abriu o link, mas o código de confirmação não chegou"
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"
+        ],
+        "fatos": [
+          "acidente_descricao",
+          "sequela",
+          "sequela_descricao"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "foi no serviço, numa obra. eu vinha descendo a escada com um saco de cimento e despenquei lá de cima. quebrei o punho direito. até hoje dói e a mão não tem mais aquela força não"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(ficou|deixou|teve) (com )?(alguma )?sequela"
+        ],
+        "fatos": [
+          "sequela"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "fiquei sim, o punho dói e a mão ficou fraca"
+        }
+      },
+      {
+        "quando": [
+          "(?i)limita[çc]|dificuldade|atrapalh|dor(es)?\\b.{0,30}\\?"
+        ],
+        "fatos": [
+          "limitacao_trabalho"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "pra carregar balde de massa e segurar a colher hoje é difícil, a mão falha"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bano\\b|quando (foi|aconteceu)|h[áa] quanto tempo|faz quanto tempo|lembra (a|da) data|que [ée]poca"
+        ],
+        "fatos": [
+          "acidente_quando"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "olha, o ano mesmo eu não sei te falar não. faz tempo, deve ter uns 12 anos, por aí. uns 12"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bm[êe]s\\b"
+        ],
+        "fatos": [],
+        "responde": {
+          "tipo": "audio",
+          "texto": "o mês eu não sei não, faz tempo demais"
+        }
+      },
+      {
+        "quando": [
+          "(?i)por quanto tempo|quantos? (meses|anos) (voc[êe] )?(recebeu|ficou)"
+        ],
+        "fatos": [
+          "auxilio_doenca_tempo"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "um ano e pouco"
+        }
+      },
+      {
+        "quando": [
+          "(?i)aux[íi]lio[- ]doen[çc]a|afastad|encostad|benef[íi]cio do inss na [ée]poca"
+        ],
+        "fatos": [
+          "auxilio_doenca",
+          "auxilio_doenca_tempo"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "recebi, fiquei um ano e pouco encostado"
+        }
+      },
+      {
+        "quando": [
+          "(?i)carteira|registrad|\\bclt\\b|v[íi]nculo|fichad|trabalhava|trabalhando"
+        ],
+        "fatos": [
+          "vinculo_na_data"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "tava sim, era fichado na construtora, de carteira"
+        }
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "fatos": [
+          "aposentado"
+        ],
+        "responde": {
+          "texto": "nao sou aposentado nao"
+        }
+      },
+      {
+        "quando": [
+          "(?i)advogad\\w* (atuando|cuidando|no seu caso)|(j[áa]|voc[êe]) (tem|possui) (um |algum )?advogad"
+        ],
+        "fatos": [
+          "tem_advogado_no_caso"
+        ],
+        "responde": {
+          "texto": "nao tenho advogado nao"
+        }
+      },
+      {
+        "quando": [
+          "(?i)profiss[ãa]o|trabalha com o qu[êe]|ocupa[çc][ãa]o"
+        ],
+        "fatos": [
+          "profissao"
+        ],
+        "responde": {
+          "texto": "pedreiro"
+        }
+      },
+      {
+        "quando": [
+          "(?i)posso (te )?explicar|quer que eu (te )?expli|explicar como funciona"
+        ],
+        "responde": {
+          "texto": "Sim"
+        }
+      },
+      {
+        "quando": [
+          "(?i)entend\\w*.{0,30}(como funciona|benef[íi]cio)"
+        ],
+        "responde": {
+          "picadas": [
+            "intendi",
+            "pode continuar"
+          ]
+        }
+      },
+      {
+        "quando": [
+          "(?i)vantage|fariam diferen|diferen[çc]a no seu dia"
+        ],
+        "responde": {
+          "texto": "beleza"
+        }
+      },
+      {
+        "quando": [
+          "(?i)vale a pena fazer tudo com a gente|s[óo] paga se o benef[íi]cio for aprovado"
+        ],
+        "responde": {
+          "texto": "Ok"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(falar|explicar|mostrar|apresentar)\\w*\\s.{0,25}honor|pode ouvir|posso (te )?(enviar|mandar) (um )?[áa]udio"
+        ],
+        "responde": {
+          "texto": "pode falar"
+        }
+      },
+      {
+        "quando": [
+          "(?i)entend\\w*.{0,40}honor|condi[çc][õo]es dos honor|ficou claro.{0,30}honor"
+        ],
+        "responde": {
+          "texto": "intendi sim"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,30}\\b(sig[ao]|seguir|prosseguir|continuar|avan[çc]ar|iniciar|come[çc]ar|dar (entrada|continuidade|andamento))|\\btopa\\b|informa[çc][õo]es suas.{0,40}tudo bem|coleta dos? (seus )?dados"
+        ],
+        "aceite": true,
+        "responde": {
+          "texto": "pode ser"
+        }
+      },
+      {
+        "quando": [
+          "(?i)nome completo"
+        ],
+        "fatos": [
+          "nome_completo"
+        ],
+        "responde": {
+          "texto": "Valdir Santana Rocha"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bcpf\\b"
+        ],
+        "fatos": [
+          "cpf"
+        ],
+        "responde": {
+          "texto": "057.830.862.23"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\brg\\b|identidade"
+        ],
+        "fatos": [
+          "rg"
+        ],
+        "responde": {
+          "texto": "27.519.044 81"
+        }
+      },
+      {
+        "quando": [
+          "(?i)estado civil|casad|solteir"
+        ],
+        "fatos": [
+          "estado_civil"
+        ],
+        "responde": {
+          "texto": "uniao istavel"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bcep\\b|endere[çc]o\\?"
+        ],
+        "fatos": [
+          "cep"
+        ],
+        "responde": {
+          "texto": "44999210"
+        }
+      },
+      {
+        "quando": [
+          "(?i)telefone|celular|n[úu]mero de contato|whats\\w* (para|de) contato"
+        ],
+        "fatos": [
+          "telefone_contrato"
+        ],
+        "responde": {
+          "texto": "pode ser esse mesmo do zap"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bn[úu]mero\\b(?!\\s+(?:d[eo]\\s+)?(?:seu\\s+|sua\\s+)?(?:telefone|contato|celular|whats|cpf|rg|documento|identidade))"
+        ],
+        "fatos": [
+          "numero_casa"
+        ],
+        "responde": {
+          "texto": "06"
+        }
+      },
+      {
+        "quando": [
+          "(?i)complemento"
+        ],
+        "fatos": [
+          "complemento"
+        ],
+        "responde": {
+          "texto": "Casa"
+        }
+      },
+      {
+        "quando": [
+          "(?i)e-?mail"
+        ],
+        "fatos": [
+          "email"
+        ],
+        "responde": {
+          "texto": "valdir.rocha.teste@exemplo.invalid"
+        }
+      },
+      {
+        "quando": [
+          "(?i)confer|confirm|(est[áa]|ficou) (tudo )?(cert|corret|ok)|pode(mos)? gerar|posso gerar|gerar o contrato"
+        ],
+        "uma_vez": false,
+        "responde": {
+          "texto": "Sim"
+        }
+      }
+    ],
+    "gatilhos": [],
+    "ao_receber_link": "trava",
+    "objecoes_link": [
+      {
+        "tipo": "audio",
+        "texto": "o codigo que era pra vir ainda nao veio aqui nao"
+      },
+      {
+        "tipo": "audio",
+        "texto": "nao da pra voces mandar esse codigo no meu zap? esse numero aqui é zap tambem"
+      }
+    ],
+    "assinou": {
+      "tipo": "audio",
+      "texto": "ta bom, depois do serviço eu olho isso de novo"
+    },
+    "padrao": "não sei te dizer"
+  },
+  "ferramentas": {
+    "cep": {
+      "44999210": {
+        "logradouro": "Rua Exemplo dos Coqueiros",
+        "bairro": "Jardim Exemplo",
+        "cidade": "Vila Serena do Sul",
+        "uf": "BA"
+      }
+    },
+    "zapsign": {
+      "assina": false
+    }
+  },
+  "esperado": {
+    "destino_qualificacao": "closer",
+    "trajetoria": [
+      "sdr",
+      "closer",
+      "contratos",
+      "assinatura"
+    ],
+    "transferencias_com_frase": [
+      "closer",
+      "contratos"
+    ],
+    "ferramentas": {
+      "zapsign": 1,
+      "cep_completou_endereco": true
+    },
+    "contrato": {
+      "exatamente": 1,
+      "campos": [
+        "nome_completo",
+        "cpf",
+        "rg",
+        "estado_civil",
+        "endereco",
+        "numero_casa",
+        "bairro",
+        "cidade",
+        "uf",
+        "cep",
+        "email"
+      ]
+    },
+    "estado_final": "pausado",
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)com certeza (vai|você vai) (ganhar|receber)",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|nada|nenhum[ao]?)\\b)[^.!?\\n]*(?:\\b(?:precis\\w*|necess[áa]ri[oa]|tem que|ter[áa] que|deve\\w*|é preciso|basta|favor)\\b[^.!?\\n]{0,25}\\bimprim\\w*|\\bimprim\\w*[^.!?\\n]{0,40}\\b(?:assin\\w*|envi\\w*|mand\\w*|p[áa]ginas?|folhas?))",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|nada|nenhum[ao]?)\\b)[^.!?\\n]*(?:\\bassin\\w*[^.!?\\n]{0,20}(?:[àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta|no papel)|(?:[àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta|no papel)[^.!?\\n]{0,20}\\bassin\\w*)",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|nada|nenhum[ao]?)\\b)[^.!?\\n]*\\b(?:envi\\w*|mand\\w*|tir\\w*)\\b[^.!?\\n]{0,40}\\b(?:fotos?|print|imagem)\\b[^.!?\\n]{0,40}\\b(?:contrato|p[áa]ginas?|folhas?|assinad\\w*)",
+      "(?im)^(?![^\\n]*\\bn[ãa]o\\b[^\\n]{0,40}(?:\\binclu\\w*\\s+(?:\\w+\\s+){0,4}?(?:como\\s+)?(?:sequela|les[ãa]o|machucado|ferimento)|\\b(?:sequela|les[ãa]o)\\s+(?:\\w+\\s+){0,3}?(?:ser[áa]|vai\\s+ser|fica|entra)\\s+(?:inclu\\w*|no\\s+(?:seu\\s+)?(?:caso|pedido|processo))))[^\\n]*?(?:\\binclu\\w*\\s+(?:\\w+\\s+){0,4}?(?:como\\s+)?(?:sequela|les[ãa]o|machucado|ferimento)|\\b(?:sequela|les[ãa]o)\\s+(?:\\w+\\s+){0,3}?(?:ser[áa]|vai\\s+ser|fica|entra)\\s+(?:inclu\\w*|no\\s+(?:seu\\s+)?(?:caso|pedido|processo)))",
+      "(?im)^(?=[^\\n]*\\b(?:c[óo]digo|token)\\b)(?![^\\n]*\\bn[ãa]o\\b[^\\n]{0,40}(?:\\b(?:vou|vamos|posso|podemos|vai|v[ãa]o|consig\\w*|conseguimos)\\s+(?:\\w+\\s+){0,6}?(?:pelo|por|via|no)\\s+(?:whats\\s*app|zap|sms|celular)\\b))[^\\n]*?(?:\\b(?:vou|vamos|posso|podemos|vai|v[ãa]o|consig\\w*|conseguimos)\\s+(?:\\w+\\s+){0,6}?(?:pelo|por|via|no)\\s+(?:whats\\s*app|zap|sms|celular)\\b)",
+      "(?im)^(?![^\\n]*\\bn[ãa]o\\b[^\\n]{0,40}(?:\\b(?:gerar|fazer|mandar|enviar|criar)\\s+(?:um\\s+)?(?:outro|novo)\\s+contrato))[^\\n]*?(?:\\b(?:gerar|fazer|mandar|enviar|criar)\\s+(?:um\\s+)?(?:outro|novo)\\s+contrato)",
+      "(?im)^(?![^\\n]*\\bn[ãa]o\\b[^\\n]{0,40}(?:\\bcontrato\\s+(?:\\w+\\s+){0,3}?(?:enviad\\w*|mandad\\w*|chega\\w*|vai\\s+chegar)\\s+(?:\\w+\\s+){0,2}?(?:por|pelo|no\\s+seu|para\\s+o\\s+seu|pro\\s+seu|ao\\s+seu)\\s+e-?mail))[^\\n]*?(?:\\bcontrato\\s+(?:\\w+\\s+){0,3}?(?:enviad\\w*|mandad\\w*|chega\\w*|vai\\s+chegar)\\s+(?:\\w+\\s+){0,2}?(?:por|pelo|no\\s+seu|para\\s+o\\s+seu|pro\\s+seu|ao\\s+seu)\\s+e-?mail)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)\\bprecisamos\\s+(?:\\w+\\s+){0,4}?agora\\b|\\b(?:tem|precisa|precisaria)\\s+que\\s+ser\\s+(?:hoje|agora)\\b|\\bn[ãa]o\\s+(?:d[áa]|pode)\\s+(?:pra\\s+|para\\s+)?(?:esperar|deixar\\s+(?:pra|para)\\s+depois)|\\b[úu]ltima\\s+chance\\b"
+    ],
+    "obrigatorio_em": {
+      "closer": [
+        "(?i)honor"
+      ],
+      "contratos": [
+        "(?i)correios|seu endere[çc]o [ée]",
+        "(?i)posso gerar o contrato|est[áa] tudo correto"
+      ]
+    },
+    "perguntar_antes": {
+      "closer": [
+        "(?i)\\bano\\b|quando (foi|aconteceu)|h[áa] quanto tempo",
+        "(?i)aux[íi]lio[- ]doen[çc]a|afastad|encostad",
+        "(?i)carteira|registrad|\\bclt\\b|trabalhava|trabalhando"
+      ]
+    },
+    "fatos": {
+      "nome_completo": "Valdir Santana Rocha",
+      "email": "valdir.rocha.teste@exemplo.invalid"
+    }
+  },
+  "limites": {
+    "turnos": 32,
+    "custo_usd": 0.3
+  }
+}

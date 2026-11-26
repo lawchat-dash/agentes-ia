@@ -1,0 +1,252 @@
+{
+  "id": "sc18_sinais_video_audio_leitura",
+  "descricao": "Sinais à equipe do prompt (SISTEMA DE NOTIFICAÇÃO do n8n, hoje percebidos pelo sistema): pedido de videochamada, de áudio e 'não sei ler'. No motor o sinal confirmado tira a IA da conversa (lead pausado) e avisa a equipe; a IA não marca reunião nem manda link de chamada ('PROIBIDO sugerir reunião, ligação ou videochamada'). Sem destino de qualificação: a conversa para no sinal. ATENÇÃO: o estado_final 'pausado' mede a regra do MOTOR, não a do prompt. O prompt prevê seguir no pedido de áudio (OBJ 11: texto 'Eu entendo, vou te enviar sobre isso.' + objecao_audio.ogg) e, no Contrato, responder que a videochamada é possível e perguntar o melhor horário; o subfluxo Sistema Notificação do n8n (quem decide se desliga a IA) não está no repositório para conferir. Ver sousa_costa_NOTAS.md. Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado ('leva 3 a 6 meses', 'em até 5 dias úteis'), prometer incluir sequela no contrato e a pressão 'precisamos iniciar agora'.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000118",
+    "nome_whatsapp": "Sebastião",
+    "persona": "Homem de 63 anos, ex-vigia CLT, escreve devagar e com erros; a neta ajuda.",
+    "abertura": [
+      {
+        "texto": "boa tarde vi o anuncio do auxilio acidente"
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "assalto no serviço, levou uma pancada no ombro",
+      "acidente_mes": 2,
+      "acidente_ano": 2024,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "sequela": "sim",
+      "sequela_descricao": "ombro travado",
+      "aposentado": false,
+      "tem_advogado_no_caso": false
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+        ],
+        "responde": {
+          "picadas": [
+            "fui assaltado no serviço",
+            "levei uma pancada no ombro",
+            "ficou travado nao levanto o braço"
+          ]
+        },
+        "fatos": [
+          "acidente_descricao",
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+        ],
+        "responde": {
+          "texto": "fevereiro de 2024"
+        },
+        "fatos": [
+          "acidente_mes",
+          "acidente_ano"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+        ],
+        "responde": {
+          "texto": "fiquei 2 mes encostado"
+        },
+        "fatos": [
+          "auxilio_doenca"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+        ],
+        "responde": {
+          "texto": "uns meses, nao lembro certinho"
+        }
+      },
+      {
+        "quando": [
+          "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+        ],
+        "responde": {
+          "texto": "era registrado de vigia"
+        },
+        "fatos": [
+          "vinculo_na_data"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)sequela|limita[çc]|dificuldade|ficou com"
+        ],
+        "responde": {
+          "texto": "fiquei com essa limitação sim"
+        },
+        "fatos": [
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "responde": {
+          "texto": "nao sou aposentado nao"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(?<!costa )(?<!dos )advogad"
+        ],
+        "responde": {
+          "texto": "nao tenho advogado nenhum"
+        }
+      },
+      {
+        "quando": [
+          "(?i)posso te explicar|quer que eu (te )?explique"
+        ],
+        "responde": {
+          "texto": "pode sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)conseguiu entender|ficou claro|entendeu"
+        ],
+        "responde": {
+          "texto": "entendi sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)fariam diferen[çc]a|dia a dia"
+        ],
+        "responde": {
+          "texto": "ia ajudar demais, to apertado"
+        }
+      },
+      {
+        "quando": [
+          "(?i)falar sobre (os )?honor|posso te (enviar|mandar)|pode ouvir|te mostr\\w*[^?]{0,40}honor"
+        ],
+        "responde": {
+          "texto": "pode mandar"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)vale a pena fazer tudo com a gente|s[óo] paga se o benef"
+        ],
+        "responde": {
+          "texto": "entendi, ok"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,40}\\b(sig[ao]|seguir|prosseguir|continuar|avan[çc]ar|iniciar a coleta|dar (entrada|continuidade|andamento))|\\btopa\\b|coleta dos (seus )?dados"
+        ],
+        "responde": {
+          "texto": "pode sim, vamos"
+        },
+        "aceite": true
+      }
+    ],
+    "padrao": "nao sei"
+  },
+  "variantes": [
+    {
+      "nome": "videochamada_prioridade",
+      "descricao": "no Closer, depois do vídeo dos honorários, pede videochamada E áudio na mesma mensagem: 'videochamada tem prioridade' (sinais.ordenar põe quer_videochamada na frente) e 'pare a qualificação'. O gatilho só casa com a pergunta da ETAPA 4 ('Conseguiu entender certinho as condições dos honorários?') ou com o vídeo video-honorarios, não com a OFERTA de mostrar os honorários (que o lead aceita: 'pode mandar'); a ETAPA 3, sem pergunta, recebe 'entendi, ok' (até a rodada real de 2026-11-25 recebia o padrão 'nao sei', que soava como hesitação).",
+      "gatilhos": [
+        {
+          "depois_de": "(?i)entend\\w*[^?.]{0,25}condi[çc][õo]es dos honor|video-honorarios",
+          "objecao": true,
+          "fala": {
+            "picadas": [
+              "entendi",
+              "mas da pra fazer uma video chamada com o doutor antes de fechar?",
+              "e me manda audio tb pq escrevo mal"
+            ]
+          }
+        }
+      ],
+      "esperado": {
+        "trajetoria": [
+          "sdr",
+          "closer"
+        ]
+      }
+    },
+    {
+      "nome": "pede_audio",
+      "descricao": "no SDR, na 2ª mensagem, pede para a IA mandar áudio (leadquerreceberaudio → quer_audio).",
+      "gatilhos": [
+        {
+          "turno": 2,
+          "objecao": true,
+          "fala": {
+            "texto": "moça me manda audio explicando que é melhor pra mim"
+          }
+        }
+      ],
+      "esperado": {
+        "trajetoria": [
+          "sdr"
+        ]
+      }
+    },
+    {
+      "nome": "nao_sabe_ler",
+      "descricao": "no SDR, na 2ª mensagem, diz que não sabe ler direito (naosabeler → nao_sabe_ler).",
+      "gatilhos": [
+        {
+          "turno": 2,
+          "objecao": true,
+          "fala": {
+            "tipo": "audio",
+            "texto": "eu nao sei ler direito nao, quem ta escrevendo aqui é minha neta"
+          }
+        }
+      ],
+      "esperado": {
+        "trajetoria": [
+          "sdr"
+        ]
+      }
+    }
+  ],
+  "esperado": {
+    "contrato": {
+      "exatamente": 0
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+      "(?i)(vamos|posso|podemos|consigo|vou) (marcar|agendar)|link (d[oa] )?(meet|zoom|chamada|v[íi]deo ?chamada)|meet\\.google|zoom\\.us"
+    ],
+    "estado_final": "pausado"
+  },
+  "limites": {
+    "turnos": 14,
+    "custo_usd": 0.2
+  }
+}

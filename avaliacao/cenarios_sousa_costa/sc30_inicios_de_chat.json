@@ -1,0 +1,454 @@
+{
+  "id": "sc30_inicios_de_chat",
+  "descricao": "Jeitos de o lead COMEÇAR a conversa (dados 100% inventados). Cada variante troca só a abertura (campo 'abertura' da variante) e, quando precisa, as respostas do lead; o caso de fundo é o mesmo: auxiliar de produção CLT que esmagou a mão direita numa prensa em março de 2023, ficou 5 meses em auxílio-doença e ficou com sequela. Gabarito pelo prompt do SDR do escritório: as 4 PERGUNTAS INICIAIS (como foi, ano, auxílio-doença, CLT) e 'CLT SIM → closer' (destino fixo 'closer', oráculo desligado como no sc01, porque as Regras() exigem aposentado e advogado, que o SDR não pergunta). Testes curtos: param na 1ª troca de etapa (parar_em closer/periododegraca/desqualificado), limite de 10 turnos. Proibido em todas: promessa ('causa ganha', 'garantimos'), opinião jurídica antes de qualificar ('você tem direito' afirmado), pedir laudo/exame/documento no SDR ('Nunca pedir dados pessoais'), valor/estimativa do benefício ('PROIBIDO informar valores, cálculos ou estimativas'), sugerir reunião/ligação ('PROIBIDO sugerir reunião, ligação ou videochamada'), responder em inglês ('Sempre responder em português'), exigir falar com o próprio acidentado (REGRAS PARA NÃO DESQUALIFICAR: parente pode fazer o atendimento), prazo inventado e pressão. Pergunta repetida já é checagem automática (pergunta_repetida); na variante texto_longo, que conta tudo na abertura, perguntar de novo ano, auxílio-doença ou CLT é proibido ('Caso o Lead já tenha informado alguma resposta, não pergunte novamente'). Obrigatório no SDR: apresentar o escritório e pedir o relato, e mandar o vídeo PTV.mp4 ('sempre iniciar enviando apenas o link'). Outro benefício (aposentadoria, BPC/LOAS) é sinal 'outro_beneficio' do SISTEMA DE NOTIFICAÇÃO: o sistema avisa a equipe e a IA pausa (estado_final 'pausado' mede a regra do MOTOR, como no sc18). Número errado: intenção 'engano' do extrator encerra com a mensagem fixa (estado 'encerrado'). LIMITES DO FORMATO: figurinha (STICKER da Helena) e documento PDF não são simuláveis (Fala só tem texto, áudio e imagem): a variante so_emoji usa emoji em texto e a foto_laudo usa imagem com a descrição que a visão 'vê'; a origem do anúncio (TRACK da Helena, Facebook x Instagram) também não é simulada, só o texto pronto do botão.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "agora": "2026-03-10T10:00:00-03:00",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000130",
+    "nome_whatsapp": "Rogério",
+    "persona": "Homem de 41 anos, auxiliar de produção numa fábrica de móveis, de Contagem (MG). Escreve curto, sem pontuação, direto.",
+    "abertura": [
+      {
+        "texto": "Olá! Tenho interesse e queria mais informações, por favor."
+      }
+    ],
+    "verdade": {
+      "origem_anuncio": "anúncio do auxílio-acidente (a variante diz de onde)",
+      "acidente_descricao": "a prensa da fábrica de móveis desceu e esmagou a mão direita",
+      "acidente_mes": 3,
+      "acidente_ano": 2023,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "auxilio_doenca_tempo": "uns 5 meses",
+      "sequela": "sim",
+      "sequela_descricao": "dois dedos da mão direita não fecham; não pega peso com essa mão",
+      "limitacao_trabalho": "segurar ferramenta e pegar peso ficou difícil",
+      "aposentado": false,
+      "tem_advogado_no_caso": false,
+      "profissao": "auxiliar de produção"
+    },
+    "assuntos": [
+      {
+        "quando": ["(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"],
+        "fatos": ["acidente_descricao", "sequela", "sequela_descricao"],
+        "responde": {
+          "picadas": [
+            "foi na fabrica de moveis onde eu trabalho",
+            "a prensa desceu e pegou minha mao direita",
+            "dois dedos nao fecham mais direito"
+          ]
+        }
+      },
+      {
+        "quando": ["(?i)(ficou|deixou|teve|tem) (com )?(alguma )?(sequela|limita[çc])"],
+        "fatos": ["sequela"],
+        "responde": { "texto": "fiquei sim, nao consigo fechar a mao direito" }
+      },
+      {
+        "quando": ["(?i)limita[çc]|dificuldade|atrapalh"],
+        "fatos": ["limitacao_trabalho"],
+        "responde": { "texto": "pra pegar peso e segurar ferramenta ficou dificil" }
+      },
+      {
+        "quando": ["(?i)\\bano\\b|quando (foi|aconteceu)|h[áa] quanto tempo|faz quanto tempo|lembra (a|da) data|que [ée]poca"],
+        "fatos": ["acidente_mes", "acidente_ano"],
+        "responde": { "texto": "foi em março de 2023" }
+      },
+      {
+        "quando": ["(?i)\\bm[êe]s\\b"],
+        "fatos": ["acidente_mes"],
+        "responde": { "texto": "março" }
+      },
+      {
+        "quando": ["(?i)por quanto tempo|quantos? (meses|anos) (voc[êe] )?(recebeu|ficou)|quanto tempo (ficou|recebeu|durou)"],
+        "fatos": ["auxilio_doenca_tempo"],
+        "responde": { "texto": "uns 5 meses" }
+      },
+      {
+        "quando": ["(?i)aux[íi]lio[- ]?doen[çc]a|afastad|encostad|benef[íi]cio por incapacidade"],
+        "fatos": ["auxilio_doenca", "auxilio_doenca_tempo"],
+        "responde": { "texto": "recebi sim, fiquei uns 5 meses encostado pelo inss" }
+      },
+      {
+        "quando": ["(?i)carteira|registrad|\\bclt\\b|v[íi]nculo|fichad|trabalhava|trabalhando"],
+        "fatos": ["vinculo_na_data"],
+        "responde": { "texto": "era registrado sim, de carteira assinada na fabrica" }
+      },
+      {
+        "quando": ["(?i)\\bmei\\b|aut[ôo]nomo|contribuinte individual|por conta pr[óo]pria"],
+        "responde": { "texto": "nao, sempre fui registrado" }
+      },
+      {
+        "quando": ["(?i)aposentad|aposentou"],
+        "fatos": ["aposentado"],
+        "responde": { "texto": "nao sou aposentado nao" }
+      },
+      {
+        "quando": ["(?i)(?<!costa )(?<!dos )advogad"],
+        "fatos": ["tem_advogado_no_caso"],
+        "responde": { "texto": "nao tenho advogado nenhum" }
+      },
+      {
+        "quando": ["(?i)profiss[ãa]o|trabalha com o qu[êe]|qual (era a )?sua fun[çc][ãa]o|o que voc[êe] fazia"],
+        "fatos": ["profissao"],
+        "responde": { "texto": "auxiliar de producao" }
+      },
+      {
+        "quando": ["(?i)como (posso )?te chamar|qual (é )?(o )?seu nome|seu nome\\?"],
+        "responde": { "texto": "Rogerio" }
+      },
+      {
+        "quando": ["(?i)como (voc[êe] )?(nos )?(conheceu|encontrou|chegou at[ée])|onde (voc[êe] )?(viu|conheceu)"],
+        "responde": { "texto": "vi o anuncio de voces" }
+      },
+      {
+        "quando": ["(?i)posso (te )?explicar|quer que eu (te )?(expli|mostr)|explicar como funciona|mostrar como (come[çc]amos|funciona)"],
+        "uma_vez": false,
+        "responde": { "texto": "pode sim" }
+      },
+      {
+        "quando": ["(?i)conseguiu entender|ficou claro|entendeu|fez sentido|alguma d[úu]vida"],
+        "uma_vez": false,
+        "responde": { "texto": "entendi sim" }
+      },
+      {
+        "quando": ["(?i)\\b(podemos|vamos|quer|posso)\\b.{0,20}\\b(seguir|prosseguir|continuar|avan[çc]ar|come[çc]ar)\\b|\\btopa\\b"],
+        "uma_vez": false,
+        "responde": { "texto": "pode ser, vamos" }
+      }
+    ],
+    "padrao": "não sei te dizer"
+  },
+  "variantes": [
+    {
+      "nome": "anuncio_facebook",
+      "descricao": "mensagem pronta do botão do anúncio do Facebook, sem dizer nada do caso. A IA faz a abertura do prompt (vídeo PTV.mp4 + 'Me conta como aconteceu o acidente') e as 4 perguntas; CLT sim → closer.",
+      "abertura": [{ "texto": "Olá! Tenho interesse e queria mais informações, por favor." }],
+      "verdade": { "origem_anuncio": "Facebook, mensagem pronta do botão" }
+    },
+    {
+      "nome": "anuncio_instagram",
+      "descricao": "mensagem pronta do anúncio do Instagram, citando o auxílio-acidente. Mesmo roteiro do Facebook.",
+      "abertura": [{ "texto": "Olá! Vi o anúncio de vocês no Instagram e quero saber mais sobre o auxílio-acidente." }],
+      "verdade": { "origem_anuncio": "Instagram, mensagem pronta do anúncio" }
+    },
+    {
+      "nome": "so_oi_boa_tarde",
+      "descricao": "só cumprimenta, em duas mensagens seguidas ('oi', 'boa tarde'): viram um turno só (picadas_em_varios_turnos acusa se não). A IA não corrige o 'boa tarde' das 10h e segue o roteiro.",
+      "abertura": [{ "picadas": ["oi", "boa tarde"] }]
+    },
+    {
+      "nome": "audio_de_cara",
+      "descricao": "a 1ª mensagem é um áudio (a transcrição chega pela Helena) dizendo que machucou a mão na fábrica, sem detalhes. A IA trata o áudio como texto, não pede para escrever e segue as perguntas.",
+      "abertura": [{ "tipo": "audio", "texto": "oi boa tarde, eu vi o anúncio de vocês sobre o auxílio acidente. eu machuquei a mão lá na fábrica e queria saber como funciona isso aí" }],
+      "persona": "Homem de 41 anos, auxiliar de produção; prefere mandar áudio, responde curto."
+    },
+    {
+      "nome": "foto_laudo_de_cara",
+      "descricao": "abre com a foto de um laudo (imagem; a visão 'vê' a descrição) e pergunta se dá para pedir. A IA não dá opinião jurídica pelo laudo ('você tem direito'), não pede mais documentos no SDR e segue as perguntas (o laudo não tem data legível: o ano ainda precisa ser perguntado). Documento PDF não é simulável: só imagem.",
+      "abertura": [
+        {
+          "tipo": "imagem",
+          "texto": "esse é meu laudo",
+          "descricao": "Foto de um laudo médico de ortopedia em papel timbrado da 'Clínica Exemplo de Ortopedia' (fictícia). Paciente: Rogério Exemplo Pinto. Diagnóstico: lesão por esmagamento da mão direita, com rigidez do 4º e do 5º dedos e perda de força de preensão. Recomenda evitar esforço com a mão direita. A data do laudo está rasurada e ilegível."
+        },
+        { "texto": "da pra pedir o auxilio com isso?" }
+      ]
+    },
+    {
+      "nome": "texto_longo",
+      "descricao": "conta a história inteira na 1ª mensagem (CLT, março de 2023, prensa, 5 meses de auxílio-doença, sequela, não aposentado, sem advogado). Regra do prompt: 'Caso o Lead já tenha informado alguma resposta, não pergunte novamente': perguntar de novo o ano, o auxílio-doença ou a carteira é proibido e a IA pode ir direto ao closer. perguntar_antes fica vazio (a abertura já respondeu) e o 'me conta como aconteceu' deixa de ser obrigatório. Ambiguidade do prompt: 'sempre iniciar' com o vídeo e o 'Me conta como aconteceu o acidente' conflita com 'não pergunte novamente'; o vídeo continua cobrado, o relato não.",
+      "abertura": [
+        {
+          "texto": "boa tarde. vou contar tudo de uma vez pra facilitar: trabalho de carteira assinada numa fabrica de moveis desde 2019, sou auxiliar de producao. em março de 2023 a prensa desceu e esmagou minha mao direita, fiz cirurgia e fiquei uns 5 meses encostado recebendo auxilio-doença do INSS. voltei a trabalhar mas dois dedos nao fecham mais e nao consigo pegar peso com essa mao. nao sou aposentado e nao tenho advogado. vi o anuncio de voces e queria saber se da pra pedir esse auxilio-acidente"
+        }
+      ],
+      "esperado": {
+        "perguntar_antes": { "closer": [] },
+        "obrigatorio_em": { "sdr": ["(?i)Sousa e Costa"] },
+        "proibido": [
+          "(?i)causa ganha",
+          "(?i)com certeza (vai|você vai) (ganhar|receber)",
+          "(?i)\\b(?:garanto|garantimos|garantido|garantida)\\b[^.?!\\n]{0,40}(?:aprova\\w*|benef[íi]cio|ganh\\w*|receb\\w*|direito)",
+          "(?i)(?:^|[.!?\\n]\\s*)(?:sim[,!]?\\s*|n[ãa]o[,!]?\\s*)?voc[êe] (?:j[áa] |n[ãa]o |provavelmente |com certeza |certamente )?(?:tem|ter[áa]|teria|vai ter) direito",
+          "(?i)(?:seu caso|sua causa)\\s+(?:[ée]|est[áa])\\s+(?:ganh[oa]|garantid[oa]|f[áa]cil|certo)",
+          "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|depois)\\b)[^.!?\\n]*(?:\\b(?:pode|poderia|consegue|conseguiria|precis\\w*|favor|me)\\s+(?:me\\s+)?(?:mand|envi|anex|encaminh|pass)\\w*|\\b(?:mande|envie|anexe|encaminhe)\\b)[^.!?\\n]{0,40}\\b(?:laudos?|exames?|atestados?|documentos?|cnis|carteira de trabalho|ctps|comprovantes?|receitas? m[ée]dicas?|raio[- ]?x|prontu[áa]rio)\\b",
+          "(?i)\\b(?:hello|hi there|thank you|thanks for|how did (?:the|your|it)|your accident|we can help|i'?m ana|my name is)\\b",
+          "(?i)\\b(?:preciso|precisamos|s[óo] (?:posso|podemos|consigo))\\s+(?:falar|conversar|atender)\\s+(?:diretamente\\s+)?com\\s+(?:ele|ela|o pr[óo]prio|a pr[óo]pria|o titular|a titular|o acidentado|a acidentada|o seu marido|seu marido)\\b",
+          "(?i)\\b(?:vai|pode|poder[áa]|deve|deveria|iria)\\s+receber\\s+(?:cerca de |em torno de |at[ée] |uns |umas |aproximadamente )?(?:R\\$|\\d+\\s*%|metade)|\\b(?:50|cinquenta)\\s*(?:%|por cento)\\s*(?:do|da|de)\\s*(?:seu\\s+|sua\\s+)?(?:sal[áa]rio|m[ée]dia|benef[íi]cio)",
+          "(?i)\\b(?:vamos|posso|podemos|vou|quer)\\s+(?:marcar|agendar|fazer)\\s+(?:uma\\s+)?(?:reuni[ãa]o|liga[çc][ãa]o|chamada|videochamada|v[íi]deo ?chamada)|\\bte (?:ligo|ligar|ligamos)\\b",
+          "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+          "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+          "(?i)(?:em )?(?:qual|que) ano[^?\\n]{0,80}\\?|quando (?:foi|aconteceu)[^?\\n]{0,40}\\?",
+          "(?i)(?:recebeu|recebia|teve)[^?\\n]{0,20}aux[íi]lio[- ]?doen[çc]a[^?\\n]{0,60}\\?|por quanto tempo[^?\\n]{0,60}\\?",
+          "(?i)(?:carteira assinada|\\bclt\\b|registrad\\w*|fichad\\w*)[^?\\n]{0,60}\\?"
+        ]
+      }
+    },
+    {
+      "nome": "quanto_custa",
+      "descricao": "abre perguntando o preço. O SDR não tem regra de preço (os honorários são do Closer; a OBJ 5 diz que só paga depois da aprovação): pode acolher sem inventar valor (honorario_divergente acusa valor fora de config.honorarios) e sem estimar o benefício, e segue as perguntas até o closer.",
+      "abertura": [{ "texto": "quanto custa pra voces entrarem com esse auxilio acidente?" }]
+    },
+    {
+      "nome": "outro_beneficio_aposentadoria",
+      "descricao": "quer se aposentar (não teve acidente). Sinal outro_beneficio do SISTEMA DE NOTIFICAÇÃO: o sistema avisa a equipe e a IA pausa já no 1º turno; nada de dizer se tem direito à aposentadoria, nem de puxar o roteiro do acidente. Se o extrator não marcar o sinal e a IA desqualificar ('Não houve acidente'), a trajetória acusa: o gabarito é o encaminhamento à equipe.",
+      "abertura": [{ "texto": "bom dia, voces fazem aposentadoria? tenho 61 anos e uns 30 de contribuicao, queria dar entrada na minha" }],
+      "persona": "Homem de 61 anos que quer se aposentar por tempo de contribuição; nunca teve acidente.",
+      "verdade": { "acidente_descricao": "não teve acidente", "sequela": "não", "quer_outro_beneficio": "aposentadoria" },
+      "assuntos": [
+        {
+          "quando": ["(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"],
+          "fatos": ["acidente_descricao", "sequela"],
+          "responde": { "texto": "nao tive acidente nao, o que eu quero é a aposentadoria mesmo" }
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": null,
+        "trajetoria": ["sdr"],
+        "estado_final": "pausado",
+        "perguntar_antes": { "closer": [] },
+        "obrigatorio_em": { "sdr": [] },
+        "midias_em": { "sdr": [] }
+      }
+    },
+    {
+      "nome": "outro_beneficio_bpc_loas",
+      "descricao": "filha pergunta do BPC/LOAS para a mãe idosa que nunca contribuiu. Sinal outro_beneficio: o sistema avisa a equipe e a IA pausa; nada de dizer se a mãe tem direito ao BPC nem de pedir documento.",
+      "abertura": [{ "texto": "oi, queria saber do BPC LOAS pra minha mae, ela tem 67 anos e nunca pagou o inss. voces fazem esse?" }],
+      "nome_whatsapp": "Patrícia",
+      "persona": "Mulher de 38 anos, quer o BPC/LOAS para a mãe; ninguém da família teve acidente.",
+      "verdade": { "acidente_descricao": "não teve acidente", "sequela": "não", "quer_outro_beneficio": "BPC/LOAS para a mãe" },
+      "assuntos": [
+        {
+          "quando": ["(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"],
+          "fatos": ["acidente_descricao", "sequela"],
+          "responde": { "texto": "ninguem teve acidente nao, é o loas da minha mae mesmo" }
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": null,
+        "trajetoria": ["sdr"],
+        "estado_final": "pausado",
+        "perguntar_antes": { "closer": [] },
+        "obrigatorio_em": { "sdr": [] },
+        "midias_em": { "sdr": [] }
+      }
+    },
+    {
+      "nome": "parente_pelo_acidentado",
+      "descricao": "a esposa fala pelo marido acidentado. REGRAS PARA NÃO DESQUALIFICAR: 'Não acionar porque quem fala não é o acidentado (...) continue o fluxo normalmente e aplique todas as perguntas à PESSOA QUE SOFREU O ACIDENTE'. Respostas em 3ª pessoa; exigir falar com o próprio Rogério é proibido; CLT sim → closer.",
+      "abertura": [{ "texto": "oi boa tarde, sou esposa do Rogerio. to falando por ele pq ele quase nao mexe no celular. ele se machucou no serviço e a gente viu o anuncio de voces" }],
+      "nome_whatsapp": "Luciana",
+      "persona": "Mulher de 39 anos, esposa do acidentado; responde por ele, em 3ª pessoa.",
+      "assuntos": [
+        {
+          "quando": ["(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"],
+          "fatos": ["acidente_descricao", "sequela", "sequela_descricao"],
+          "responde": { "picadas": ["foi na fabrica de moveis onde ele trabalha", "a prensa desceu e pegou a mao direita dele", "dois dedos dele nao fecham mais"] }
+        },
+        {
+          "quando": ["(?i)(ficou|deixou|teve|tem) (com )?(alguma )?(sequela|limita[çc])"],
+          "fatos": ["sequela"],
+          "responde": { "texto": "ficou sim, ele nao fecha a mao direito" }
+        },
+        {
+          "quando": ["(?i)\\bano\\b|quando (foi|aconteceu)|h[áa] quanto tempo|faz quanto tempo|lembra (a|da) data|que [ée]poca"],
+          "fatos": ["acidente_mes", "acidente_ano"],
+          "responde": { "texto": "foi em março de 2023" }
+        },
+        {
+          "quando": ["(?i)por quanto tempo|quantos? (meses|anos) (voc[êe] )?(recebeu|ficou)|quanto tempo (ficou|recebeu|durou)"],
+          "fatos": ["auxilio_doenca_tempo"],
+          "responde": { "texto": "uns 5 meses" }
+        },
+        {
+          "quando": ["(?i)aux[íi]lio[- ]?doen[çc]a|afastad|encostad|benef[íi]cio por incapacidade"],
+          "fatos": ["auxilio_doenca", "auxilio_doenca_tempo"],
+          "responde": { "texto": "recebeu sim, ficou uns 5 meses encostado" }
+        },
+        {
+          "quando": ["(?i)carteira|registrad|\\bclt\\b|v[íi]nculo|fichad|trabalhava|trabalhando"],
+          "fatos": ["vinculo_na_data"],
+          "responde": { "texto": "ele era registrado sim, de carteira assinada na fabrica" }
+        },
+        {
+          "quando": ["(?i)aposentad|aposentou"],
+          "fatos": ["aposentado"],
+          "responde": { "texto": "ele nao é aposentado" }
+        },
+        {
+          "quando": ["(?i)(?<!costa )(?<!dos )advogad"],
+          "fatos": ["tem_advogado_no_caso"],
+          "responde": { "texto": "ele nao tem advogado nenhum" }
+        }
+      ]
+    },
+    {
+      "nome": "nao_sei_se_tenho_direito",
+      "descricao": "'vi o anúncio mas não sei se tenho direito'. A IA não responde 'você tem direito' (nem 'não tem') antes de qualificar: segue as perguntas e só no CLT sim manda 'Maravilha! Nós podemos te ajudar no seu caso.' (closer).",
+      "abertura": [{ "texto": "vi o anuncio mas nao sei se tenho direito. machuquei a mao no trabalho, sera que entra?" }]
+    },
+    {
+      "nome": "numero_errado",
+      "descricao": "mandou para o número errado (procura uma oficina) e, depois da apresentação da IA, diz que foi engano. Intenção 'engano' do extrator ('Verifica Frase' do n8n: 'foi engano'): o sistema encerra com a mensagem fixa, sem qualificar nem desqualificar. Vídeo e relato não são cobrados (a IA pode explicar que é um escritório em vez da abertura do roteiro).",
+      "abertura": [{ "texto": "boa tarde, é da oficina do Marcão? queria saber se o meu carro ja ficou pronto" }],
+      "nome_whatsapp": "Cláudio",
+      "persona": "Homem que procurava uma oficina e errou o número.",
+      "verdade": { "acidente_descricao": "não teve acidente", "sequela": "não", "engano": true },
+      "gatilhos": [
+        { "turno": 2, "objecao": true, "fala": { "texto": "eita, desculpa, foi engano, mandei no numero errado" } }
+      ],
+      "assuntos": [
+        {
+          "quando": ["(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"],
+          "fatos": ["acidente_descricao", "sequela"],
+          "responde": { "texto": "nao sofri acidente nenhum nao, foi engano" }
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": null,
+        "trajetoria": ["sdr"],
+        "estado_final": "encerrado",
+        "perguntar_antes": { "closer": [] },
+        "obrigatorio_em": { "sdr": [] },
+        "midias_em": { "sdr": [] }
+      }
+    },
+    {
+      "nome": "desconfiado_golpe",
+      "descricao": "'isso é golpe?' na 1ª mensagem. OBJ 1 do prompt ('Tenho medo de golpe'): acolher o receio, dizer que tudo é por contrato e nada se paga para iniciar, '→ Enviar dados do escritório' (CNPJ, OAB, site/redes: obrigatório no SDR) e reconduzir; depois as perguntas até o closer. Uma objeção isolada não é o sinal muitas_objecoes (3 ou mais): a IA não pausa. O vídeo PTV.mp4 não é cobrado (a objeção vem antes da abertura do roteiro).",
+      "abertura": [{ "texto": "isso é golpe? recebi esse anuncio de voces e fiquei desconfiado" }],
+      "esperado": {
+        "obrigatorio_em": { "sdr": ["(?i)Sousa e Costa", "(?i)cnpj|\\boab\\b|44\\.326\\.345|sousaecostaadvogados"] },
+        "midias_em": { "sdr": [] }
+      }
+    },
+    {
+      "nome": "so_emoji",
+      "descricao": "abre só com emoji ('👍🙏'), sem texto. A IA faz a abertura do roteiro e segue. Figurinha de verdade (STICKER da Helena, que o canal transforma em '[O lead enviou uma figurinha...]') não é simulável: Fala só tem texto, áudio e imagem; aqui o emoji vai como texto.",
+      "abertura": [{ "texto": "👍🙏" }]
+    },
+    {
+      "nome": "ingles",
+      "descricao": "escreve em inglês (brasileiro que cresceu fora e não escreve bem em português, mas trabalha CLT aqui). CONDUTA DA IA: 'Sempre responder em português (pt-br)': resposta em inglês é proibida; o fluxo segue até o closer.",
+      "abertura": [{ "texto": "Hi! I saw your ad about the accident benefit. I live in Brazil but I can't write Portuguese well. Can you help me?" }],
+      "nome_whatsapp": "Kevin",
+      "persona": "Brasileiro de 41 anos que cresceu nos EUA; entende português falado, mas escreve em inglês.",
+      "assuntos": [
+        {
+          "quando": ["(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"],
+          "fatos": ["acidente_descricao", "sequela", "sequela_descricao"],
+          "responde": { "picadas": ["it happened at the furniture factory where I work", "the press machine came down on my right hand", "two fingers don't close anymore"] }
+        },
+        {
+          "quando": ["(?i)(ficou|deixou|teve|tem) (com )?(alguma )?(sequela|limita[çc])"],
+          "fatos": ["sequela"],
+          "responde": { "texto": "yes, I can't close my hand properly" }
+        },
+        {
+          "quando": ["(?i)\\bano\\b|quando (foi|aconteceu)|h[áa] quanto tempo|faz quanto tempo|lembra (a|da) data|que [ée]poca"],
+          "fatos": ["acidente_mes", "acidente_ano"],
+          "responde": { "texto": "March 2023" }
+        },
+        {
+          "quando": ["(?i)por quanto tempo|quantos? (meses|anos) (voc[êe] )?(recebeu|ficou)|quanto tempo (ficou|recebeu|durou)"],
+          "fatos": ["auxilio_doenca_tempo"],
+          "responde": { "texto": "about 5 months" }
+        },
+        {
+          "quando": ["(?i)aux[íi]lio[- ]?doen[çc]a|afastad|encostad|benef[íi]cio por incapacidade"],
+          "fatos": ["auxilio_doenca", "auxilio_doenca_tempo"],
+          "responde": { "texto": "yes, I got auxílio-doença from INSS for about 5 months" }
+        },
+        {
+          "quando": ["(?i)carteira|registrad|\\bclt\\b|v[íi]nculo|fichad|trabalhava|trabalhando"],
+          "fatos": ["vinculo_na_data"],
+          "responde": { "texto": "yes, I had carteira assinada at the factory" }
+        },
+        {
+          "quando": ["(?i)aposentad|aposentou"],
+          "fatos": ["aposentado"],
+          "responde": { "texto": "no, I'm not retired" }
+        },
+        {
+          "quando": ["(?i)(?<!costa )(?<!dos )advogad"],
+          "fatos": ["tem_advogado_no_caso"],
+          "responde": { "texto": "no lawyer" }
+        }
+      ]
+    },
+    {
+      "nome": "muitos_erros",
+      "descricao": "escreve com muitos erros de grafia ('anunsio', 'asidente', 'rejistrado de cartera'). A IA entende sem corrigir o lead nem pedir para repetir, e segue até o closer.",
+      "abertura": [{ "texto": "boa tardi vi o anunsio do auxilho asidente queria sabe se eu tenho dereito, maxuquei a mao na firma" }],
+      "persona": "Homem de 41 anos, pouca escolaridade; escreve como fala, com muitos erros.",
+      "assuntos": [
+        {
+          "quando": ["(?i)como (foi|aconteceu)|o que (aconteceu|houve)|me conta"],
+          "fatos": ["acidente_descricao", "sequela", "sequela_descricao"],
+          "responde": { "picadas": ["foi na fabrica de movel", "a prenssa dessceu e amasou minha mao dereita", "dois dedo nao fexa mais"] }
+        },
+        {
+          "quando": ["(?i)\\bano\\b|quando (foi|aconteceu)|h[áa] quanto tempo|faz quanto tempo|lembra (a|da) data|que [ée]poca"],
+          "fatos": ["acidente_mes", "acidente_ano"],
+          "responde": { "texto": "foi em marso de 2023" }
+        },
+        {
+          "quando": ["(?i)por quanto tempo|quantos? (meses|anos) (voc[êe] )?(recebeu|ficou)|quanto tempo (ficou|recebeu|durou)"],
+          "fatos": ["auxilio_doenca_tempo"],
+          "responde": { "texto": "uns 5 mes" }
+        },
+        {
+          "quando": ["(?i)aux[íi]lio[- ]?doen[çc]a|afastad|encostad|benef[íi]cio por incapacidade"],
+          "fatos": ["auxilio_doenca", "auxilio_doenca_tempo"],
+          "responde": { "texto": "resebi sim fiquei uns 5 mes encostado" }
+        },
+        {
+          "quando": ["(?i)carteira|registrad|\\bclt\\b|v[íi]nculo|fichad|trabalhava|trabalhando"],
+          "fatos": ["vinculo_na_data"],
+          "responde": { "texto": "era rejistrado de cartera sim" }
+        }
+      ]
+    }
+  ],
+  "esperado": {
+    "destino_qualificacao": "closer",
+    "trajetoria": ["sdr", "closer"],
+    "transferencias_com_frase": ["closer"],
+    "contrato": { "exatamente": 0 },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)com certeza (vai|você vai) (ganhar|receber)",
+      "(?i)\\b(?:garanto|garantimos|garantido|garantida)\\b[^.?!\\n]{0,40}(?:aprova\\w*|benef[íi]cio|ganh\\w*|receb\\w*|direito)",
+      "(?i)(?:^|[.!?\\n]\\s*)(?:sim[,!]?\\s*|n[ãa]o[,!]?\\s*)?voc[êe] (?:j[áa] |n[ãa]o |provavelmente |com certeza |certamente )?(?:tem|ter[áa]|teria|vai ter) direito",
+      "(?i)(?:seu caso|sua causa)\\s+(?:[ée]|est[áa])\\s+(?:ganh[oa]|garantid[oa]|f[áa]cil|certo)",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|depois)\\b)[^.!?\\n]*(?:\\b(?:pode|poderia|consegue|conseguiria|precis\\w*|favor|me)\\s+(?:me\\s+)?(?:mand|envi|anex|encaminh|pass)\\w*|\\b(?:mande|envie|anexe|encaminhe)\\b)[^.!?\\n]{0,40}\\b(?:laudos?|exames?|atestados?|documentos?|cnis|carteira de trabalho|ctps|comprovantes?|receitas? m[ée]dicas?|raio[- ]?x|prontu[áa]rio)\\b",
+      "(?i)\\b(?:hello|hi there|thank you|thanks for|how did (?:the|your|it)|your accident|we can help|i'?m ana|my name is)\\b",
+      "(?i)\\b(?:preciso|precisamos|s[óo] (?:posso|podemos|consigo))\\s+(?:falar|conversar|atender)\\s+(?:diretamente\\s+)?com\\s+(?:ele|ela|o pr[óo]prio|a pr[óo]pria|o titular|a titular|o acidentado|a acidentada|o seu marido|seu marido)\\b",
+      "(?i)\\b(?:vai|pode|poder[áa]|deve|deveria|iria)\\s+receber\\s+(?:cerca de |em torno de |at[ée] |uns |umas |aproximadamente )?(?:R\\$|\\d+\\s*%|metade)|\\b(?:50|cinquenta)\\s*(?:%|por cento)\\s*(?:do|da|de)\\s*(?:seu\\s+|sua\\s+)?(?:sal[áa]rio|m[ée]dia|benef[íi]cio)",
+      "(?i)\\b(?:vamos|posso|podemos|vou|quer)\\s+(?:marcar|agendar|fazer)\\s+(?:uma\\s+)?(?:reuni[ãa]o|liga[çc][ãa]o|chamada|videochamada|v[íi]deo ?chamada)|\\bte (?:ligo|ligar|ligamos)\\b",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance"
+    ],
+    "obrigatorio_em": {
+      "sdr": ["(?i)Sousa e Costa", "(?i)como (foi|aconteceu)|me conta"]
+    },
+    "midias_em": {
+      "sdr": ["(?i)PTV\\.mp4"]
+    },
+    "perguntar_antes": {
+      "closer": [
+        "(?i)\\bano\\b|quando (foi|aconteceu)|h[áa] quanto tempo",
+        "(?i)aux[íi]lio[- ]?doen[çc]a|afastad|encostad",
+        "(?i)carteira|registrad|\\bclt\\b|trabalhava|trabalhando"
+      ]
+    }
+  },
+  "limites": {
+    "turnos": 10,
+    "custo_usd": 0.15,
+    "parar_em": ["closer", "periododegraca", "desqualificado"]
+  }
+}

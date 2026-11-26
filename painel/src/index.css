@@ -1,0 +1,742 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* AgentForge Design System — Dark-first, purple-driven, glassy */
+
+@layer base {
+  :root {
+    /* Lawchat-inspired: Indigo + Slate, flat, professional */
+    --background: 210 40% 96%;          /* Slate-100 #F1F5F9 */
+    --foreground: 217 33% 17%;          /* Slate-800 #1E293B */
+
+    --card: 0 0% 100%;
+    --card-foreground: 217 33% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 217 33% 17%;
+
+    --primary: 136 100% 37%;            /* LawChat --g2 #00BC33 */
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 117 36% 75%;        /* LawChat --g1 #A7D7A4 */
+
+    --secondary: 117 36% 95%;           /* Soft sálvia tint */
+    --secondary-foreground: 135 100% 22%;/* Deep green text */
+
+    --muted: 210 40% 96%;               /* Slate-100 */
+    --muted-foreground: 215 16% 47%;    /* Slate-500 */
+
+    --accent: 117 50% 94%;              /* Sálvia accent */
+    --accent-foreground: 135 100% 22%;  /* Deep green */
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 136 100% 37%;            /* same as primary --g2 */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 213 27% 84%;
+    --ring: 136 100% 37%;
+
+    /* Cantos mais generosos, alinhados à landing (12px base) */
+    --radius: 0.75rem;
+
+    /* LawChat green tokens (raw aliases) */
+    --g1: 167 215 164;                  /* sálvia */
+    --g2: 0 188 51;                     /* primário */
+    --g3: 0 153 38;                     /* escuro */
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 217 33% 17%;
+    --sidebar-primary: 136 100% 37%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 117 50% 94%;
+    --sidebar-accent-foreground: 135 100% 22%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 136 100% 37%;
+
+    /* Surfaces */
+    --surface-info: 214 100% 97%;       /* Blue-50 #EFF6FF system event cards */
+
+    /* Gradients — paleta LawChat */
+    --gradient-primary: linear-gradient(135deg, hsl(117 36% 75%), hsl(136 100% 37%));   /* g1 → g2 */
+    --gradient-primary-strong: linear-gradient(135deg, hsl(136 100% 37%), hsl(135 100% 30%)); /* g2 → g3 (Pro/featured) */
+    --gradient-hero: radial-gradient(ellipse at top, hsl(136 100% 37% / 0.12), transparent 60%);
+    --gradient-card: linear-gradient(135deg, hsl(0 0% 100%), hsl(0 0% 100%));
+    --gradient-mesh: none;
+
+    /* Shadows — flat, minimal + glow verde LawChat */
+    --shadow-sm: 0 1px 2px 0 hsl(217 33% 17% / 0.04);
+    --shadow-md: 0 2px 6px -2px hsl(217 33% 17% / 0.06);
+    --shadow-lg: 0 8px 24px -8px hsl(217 33% 17% / 0.08);
+    --shadow-glow: 0 0 12px hsl(136 100% 37% / 0.4);            /* g2 glow */
+    --shadow-elevate: 0 6px 22px hsl(136 100% 37% / 0.32);      /* CTA elevation */
+    --shadow-card: 0 1px 3px 0 hsl(217 33% 17% / 0.05);
+
+    --transition-smooth: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .dark {
+    --background: 222 44% 11%;
+    --foreground: 220 16% 96%;
+
+    --card: 219 33% 16%;
+    --card-foreground: 220 16% 96%;
+
+    --popover: 219 33% 14%;
+    --popover-foreground: 220 16% 96%;
+
+    --primary: 136 100% 42%;            /* LawChat --g2 (levemente mais clara no dark p/ contraste) */
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 117 36% 75%;        /* LawChat --g1 sálvia */
+
+    --secondary: 219 28% 20%;
+    --secondary-foreground: 220 16% 92%;
+
+    --muted: 219 28% 18%;
+    --muted-foreground: 220 12% 65%;
+
+    --accent: 219 28% 22%;
+    --accent-foreground: 220 16% 96%;
+
+    --destructive: 0 75% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 136 100% 42%;            /* LawChat --g2 */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 60%;
+    --warning-foreground: 222 44% 11%;
+
+    --border: 219 28% 22%;
+    --input: 219 28% 20%;
+    --ring: 136 100% 42%;
+
+    /* LawChat green tokens (raw aliases) */
+    --g1: 167 215 164;
+    --g2: 0 188 51;
+    --g3: 0 153 38;
+
+    --sidebar-background: 222 44% 9%;
+    --sidebar-foreground: 220 14% 70%;
+    --sidebar-primary: 136 100% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 219 28% 18%;
+    --sidebar-accent-foreground: 220 16% 96%;
+    --sidebar-border: 219 28% 18%;
+    --sidebar-ring: 136 100% 42%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(117 36% 75%), hsl(136 100% 42%));
+    --gradient-primary-strong: linear-gradient(135deg, hsl(136 100% 42%), hsl(135 100% 30%));
+    --gradient-hero: radial-gradient(ellipse at top, hsl(136 100% 42% / 0.18), transparent 60%);
+    --gradient-card: linear-gradient(135deg, hsl(219 33% 18% / 0.8), hsl(219 33% 14% / 0.6));
+    --gradient-mesh: none;
+
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
+    --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.4);
+    --shadow-lg: 0 12px 32px -8px hsl(0 0% 0% / 0.5);
+    --shadow-glow: 0 0 12px hsl(136 100% 42% / 0.4);
+    --shadow-elevate: 0 6px 22px hsl(136 100% 42% / 0.32);
+    --shadow-card: 0 4px 24px -8px hsl(0 0% 0% / 0.4);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-image: var(--gradient-mesh);
+    background-attachment: fixed;
+    font-weight: 400;
+    letter-spacing: -0.005em;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.02em;
+  }
+  ::selection {
+    @apply bg-primary/30 text-foreground;
+  }
+}
+
+/* Global type weight retune — lighter, more elegant */
+@layer utilities {
+  .font-medium { font-weight: 500; }
+  .font-semibold { font-weight: 550; }
+  .font-bold { font-weight: 600; }
+  .font-extrabold { font-weight: 650; }
+  .font-black { font-weight: 700; }
+}
+
+@layer components {
+  .glass {
+    @apply backdrop-blur-xl bg-card/60 border border-border/50;
+  }
+  .glass-strong {
+    @apply backdrop-blur-2xl bg-card/80 border border-border/60;
+  }
+  .gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .gradient-border {
+    position: relative;
+    background: hsl(var(--card));
+    background-clip: padding-box;
+    border: 1px solid transparent;
+  }
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    margin: -1px;
+    border-radius: inherit;
+    background: var(--gradient-primary);
+  }
+
+  /* Hover shine/lift effect removed globally per request */
+  .card-interactive {
+    @apply relative;
+  }
+  .shine-overlay {
+    display: none !important;
+  }
+
+  /* Animated multi-stop gradient (use as bg utility) */
+  .gradient-animated {
+    background: linear-gradient(
+      120deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--primary-glow)) 50%,
+      hsl(var(--primary)) 100%
+    );
+    background-size: 200% 200%;
+    animation: gradient-shift 8s ease infinite;
+  }
+
+  /* Soft grid pattern background */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, black 40%, transparent 100%);
+  }
+
+  /* Floating ambient orb */
+  .orb {
+    @apply absolute rounded-full blur-3xl pointer-events-none;
+    background: radial-gradient(circle at center, hsl(var(--primary) / 0.18), transparent 70%);
+    animation: orb-drift 14s ease-in-out infinite;
+  }
+
+  /* Icon pop on hover (apply to icon inside .group) */
+  .group:hover .icon-pop {
+    transform: scale(1.08) rotate(-3deg);
+  }
+  .icon-pop {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .shimmer {
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.1), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/50; }
+
+  /* Global smooth defaults — Linear/Notion-like micro-interactions */
+  button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"],
+  input, textarea, select, summary {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: 160ms;
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Subtle hover lift for cards/rows that opt-in */
+  .hover-lift {
+    @apply transition-transform duration-200 ease-out;
+  }
+  .hover-lift:hover { transform: translateY(-1px); }
+
+  /* Stagger children entrance (Linear-like list reveal) */
+  .stagger-children > * {
+    opacity: 0;
+    animation: fade-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .stagger-children > *:nth-child(1) { animation-delay: 30ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 90ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 120ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 150ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 180ms; }
+  .stagger-children > *:nth-child(7) { animation-delay: 210ms; }
+  .stagger-children > *:nth-child(8) { animation-delay: 240ms; }
+  .stagger-children > *:nth-child(n+9) { animation-delay: 270ms; }
+
+  /* Row hover for tables/lists */
+  .row-hover { @apply transition-colors duration-150 ease-out hover:bg-muted/50; }
+
+  .animation-delay-200 { animation-delay: 0.2s; }
+  .animation-delay-400 { animation-delay: 0.4s; }
+  .animation-delay-700 { animation-delay: 0.7s; }
+
+  /* ===== Efeitos inspirados na landing (verde LawChat) ===== */
+
+  /* Sheen diagonal contínuo (luz passando) — sutil */
+  .sheen { position: relative; overflow: hidden; }
+  .sheen::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(110deg, transparent 32%, hsl(var(--primary) / 0.08) 46%, hsl(0 0% 100% / 0.14) 50%, transparent 66%);
+    transform: translateX(-120%);
+    animation: sheen-sweep 6.5s ease-in-out infinite;
+  }
+
+  /* Sheen só no hover (cards/botões) */
+  .sheen-hover { position: relative; overflow: hidden; }
+  .sheen-hover::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(110deg, transparent 35%, hsl(0 0% 100% / 0.16) 50%, transparent 65%);
+    transform: translateX(-130%);
+    transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .sheen-hover:hover::after { transform: translateX(130%); }
+
+  /* Grade sutil em deriva (fundo do hero) */
+  .bg-grid {
+    background-image:
+      linear-gradient(hsl(var(--primary) / 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--primary) / 0.06) 1px, transparent 1px);
+    background-size: 30px 30px;
+    animation: grid-drift 24s linear infinite;
+  }
+
+  /* Glow verde pulsante (box-shadow) */
+  .glow-pulse { animation: glow-pulse 3.4s ease-in-out infinite; }
+
+  /* Brilho verde no texto (nome) */
+  .text-glow-success { text-shadow: 0 0 26px hsl(var(--primary) / 0.45); }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes orb-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(20px, -15px) scale(1.05); }
+  66% { transform: translate(-15px, 10px) scale(0.95); }
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.5); }
+  70% { box-shadow: 0 0 0 12px hsl(var(--primary) / 0); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
+}
+
+@keyframes bounce-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes sheen-sweep {
+  0% { transform: translateX(-120%); }
+  55%, 100% { transform: translateX(120%); }
+}
+
+@keyframes grid-drift {
+  0% { background-position: 0 0, 0 0; }
+  100% { background-position: 30px 30px, 30px 30px; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 10px 34px -14px hsl(var(--primary) / 0.28); }
+  50% { box-shadow: 0 14px 48px -10px hsl(var(--primary) / 0.5); }
+}
+
+/* ===== Dashboard premium (Apple-like, claro) — tokens do brief ===== */
+.lc-card {
+  background: rgba(255,255,255,0.82);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(226,232,240,0.9);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.055), inset 0 1px 0 rgba(255,255,255,0.7);
+
+  /* MagicBento (adaptado p/ tema claro, sem gsap) — vars alimentadas por useCardGlow */
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-intensity: 0;
+  --glow-radius: 280px;
+}
+/* halo de borda verde que acompanha o cursor (assinatura do MagicBento) */
+.lc-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(0,188,51, calc(var(--glow-intensity) * 0.9)) 0%,
+    rgba(52,224,107, calc(var(--glow-intensity) * 0.4)) 32%,
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: var(--glow-intensity);
+  transition: opacity .35s ease;
+  z-index: 3;
+}
+.lc-hero {
+  background:
+    radial-gradient(circle at 85% 40%, rgba(34,197,94,0.18), transparent 35%),
+    linear-gradient(135deg, #ffffff 0%, #f8fafc 55%, #ecfdf5 100%);
+  border-radius: 32px;
+  border: 1px solid rgba(209,250,229,0.9);
+  box-shadow: 0 24px 80px rgba(16,185,129,0.10);
+}
+.lc-primary {
+  background: linear-gradient(135deg, #22c55e, #00a63e);
+  color: #fff;
+  border-radius: 18px;
+  box-shadow: 0 14px 28px rgba(34,197,94,0.32), inset 0 1px 0 rgba(255,255,255,0.25);
+  transition: all .25s ease;
+}
+.lc-primary:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px rgba(34,197,94,0.38); }
+.lc-metric { transition: all .22s ease; }
+.lc-metric:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(15,23,42,0.08); }
+.lc-status-dot { width: 8px; height: 8px; background: #22c55e; border-radius: 999px; box-shadow: 0 0 0 6px rgba(34,197,94,.12); }
+.lc-glow { position: absolute; filter: blur(60px); background: rgba(34,197,94,0.22); border-radius: 999px; pointer-events: none; }
+.lc-float { animation: float 4s ease-in-out infinite; }
+
+/* ===== Loading screen premium (marca + anel + barra indeterminada) ===== */
+@keyframes lc-load-slide {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+.lc-loading-dots::after {
+  content: "";
+  animation: lc-dots 1.4s steps(1, end) infinite;
+}
+@keyframes lc-dots {
+  0%   { content: ""; }
+  25%  { content: "·"; }
+  50%  { content: "··"; }
+  75%  { content: "···"; }
+  100% { content: ""; }
+}
+
+/* ===== Recarga — estilo premium da landing (verde #A7D7A4 → #00BC33) ===== */
+.lc-rc-cta {
+  background: linear-gradient(135deg, #A7D7A4, #00BC33);
+  color: #fff;
+  box-shadow: 0 2px 16px rgba(0,188,51,.18), inset 0 1px 0 rgba(255,255,255,.22);
+  transition: transform .25s ease, box-shadow .25s ease, filter .25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.lc-rc-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0,188,51,.34), inset 0 1px 0 rgba(255,255,255,.24);
+  filter: brightness(1.06);
+}
+.lc-rc-cta::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.3) 50%, transparent 70%);
+  background-size: 250% 100%; background-position: -120% 0;
+}
+.lc-rc-cta:hover::before { animation: lcShine .9s ease forwards; }
+@keyframes lcShine { from { background-position: -120% 0; } to { background-position: 220% 0; } }
+
+.lc-rc-pop {
+  position: relative;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box,
+    linear-gradient(135deg, #A7D7A4, #00BC33, #34d399, #00BC33) border-box;
+  box-shadow: 0 12px 38px -12px rgba(0,188,51,.32), 0 0 0 1px rgba(0,188,51,.05);
+}
+.lc-rc-pop::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, transparent 38%, rgba(0,188,51,.05) 48%, rgba(167,215,164,.16) 50%, rgba(0,188,51,.05) 52%, transparent 62%);
+  background-size: 250% 100%;
+  animation: lcShimmer 4.5s ease-in-out infinite;
+}
+@keyframes lcShimmer { 0% { background-position: 160% 0; } 100% { background-position: -160% 0; } }
+
+.lc-rc-badge {
+  background: linear-gradient(135deg, #A7D7A4, #00BC33);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0,188,51,.4);
+  animation: lcBadgeBounce 3s ease-in-out infinite;
+}
+@keyframes lcBadgeBounce {
+  0%, 100% { transform: translate(-50%, 0); }
+  50% { transform: translate(-50%, -3px); }
+}
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-9deg); }
+  50% { transform: rotate(9deg); }
+}
+.lc-pay-btn {
+  background: linear-gradient(135deg, #00d23a 0%, #00bc33 45%, #009926 100%);
+  box-shadow: 0 12px 28px -8px rgba(0,188,51,.5), inset 0 1px 0 rgba(255,255,255,.25);
+  transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+}
+.lc-pay-btn:hover { transform: translateY(-2px); box-shadow: 0 18px 40px -8px rgba(0,188,51,.55); filter: brightness(1.04); }
+.lc-pay-btn:active { transform: translateY(0); }
+
+/* Glow de gradiente nos botões (técnica ButtonColorful) — verde por padrão,
+   cor sobrescrevível via --btn-glow (ex.: botões por categoria). */
+.btn-glow, .lc-pay-btn { position: relative; overflow: hidden; isolation: isolate; }
+.btn-glow::before, .lc-pay-btn::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  background: var(--btn-glow, linear-gradient(90deg, #34e06b, #00d23a, #14b8a6));
+  filter: blur(10px);
+  opacity: 0.32;
+  transition: opacity 0.5s ease;
+}
+.btn-glow:hover::before, .lc-pay-btn:hover::before { opacity: 0.78; }
+.btn-glow:disabled::before { opacity: 0.12; }
+.lc-notif { transition: all .2s ease; border-radius: 14px; }
+.lc-notif:hover { background: #f8fafc; transform: translateX(4px); }
+.link-arrow svg { transition: transform .2s ease; }
+.link-arrow:hover svg { transform: translateX(3px); }
+
+/* Construção do agente — loader premium (anel cônico girando + halo + dots + barra).
+   Tudo usa a cor do produto (passada via inline style), em vez do martelo/shake antigos. */
+@keyframes build-spin { to { transform: rotate(360deg); } }
+.animate-build-spin { animation: build-spin 1.4s linear infinite; }
+
+@keyframes build-halo {
+  0%, 100% { transform: scale(0.82); opacity: 0.12; }
+  50% { transform: scale(1.12); opacity: 0.34; }
+}
+.animate-build-halo { animation: build-halo 2.1s ease-in-out infinite; filter: blur(7px); }
+
+@keyframes build-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.88; }
+  50% { transform: scale(1.14); opacity: 1; }
+}
+.animate-build-pulse { animation: build-pulse 1.5s ease-in-out infinite; }
+
+@keyframes build-dot {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-1.5px); }
+}
+.animate-build-dot { animation: build-dot 1.2s ease-in-out infinite; display: inline-block; }
+
+@keyframes build-bar {
+  0% { transform: translateX(-130%); }
+  100% { transform: translateX(280%); }
+}
+.animate-build-bar { animation: build-bar 1.35s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+
+/* Acessibilidade: respeita "reduzir movimento" — congela o loader num estado limpo. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-build-spin, .animate-build-halo, .animate-build-pulse,
+  .animate-build-dot, .animate-build-bar { animation: none !important; }
+  .animate-build-halo { opacity: 0.2; }
+  .animate-build-dot { opacity: 0.7; }
+  .animate-build-bar { width: 60%; }
+}
+
+/* ============================================================
+   Apple-like native micro-interactions (global polish)
+   ============================================================ */
+
+/* Spring easing tokens */
+:root {
+  /* Único lugar onde --ease-spring é definido (estilo.css usa este mesmo valor).
+     Leve ultrapassagem no fim: é o que já valia na tela, pois estilo.css carregava depois. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-snap: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Smooth global defaults for interactive surfaces */
+@layer base {
+  a, button, [role="button"], [role="tab"], [role="menuitem"], [data-state] {
+    transition:
+      background-color 180ms var(--ease-spring),
+      border-color 180ms var(--ease-spring),
+      color 180ms var(--ease-spring),
+      box-shadow 220ms var(--ease-spring),
+      transform 200ms var(--ease-spring),
+      opacity 180ms var(--ease-spring);
+  }
+
+  /* Apple-like press feedback on solid buttons */
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active {
+    transform: scale(0.975);
+  }
+
+  /* Focus rings tuned for the spring easing */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.35);
+    /* sem border-radius: "inherit" copiava o raio do PAI e deformava botões redondos */
+  }
+}
+
+@layer utilities {
+  /* Reusable spring transitions */
+  .transition-spring { transition: all 280ms var(--ease-spring); }
+  .transition-snap   { transition: all 200ms var(--ease-snap); }
+
+  /* Card lift on hover (Apple-like elevation) */
+  .card-lift {
+    transition: transform 320ms var(--ease-spring), box-shadow 320ms var(--ease-spring);
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px -12px hsl(var(--foreground) / 0.12);
+  }
+  .card-lift:active { transform: translateY(0); }
+
+  /* Press scale (Apple tactile tap) */
+  .press { transition: transform 180ms var(--ease-spring); }
+  .press:active { transform: scale(0.96); }
+
+  /* Icon glide on hover (arrows, chevrons) */
+  .icon-glide { transition: transform 220ms var(--ease-spring); }
+  .group:hover .icon-glide { transform: translateX(2px); }
+  .group:hover .icon-glide-diag { transform: translate(2px, -2px); }
+
+  /* Soft shimmer for skeletons */
+  .skeleton-shimmer {
+    background: linear-gradient(90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted-foreground) / 0.10) 50%,
+      hsl(var(--muted)) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+}
+
+/* Smooth scrolling everywhere */
+html { scroll-behavior: smooth; }
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+
+
+/* Editor rich-text (TipTap) — estilo do conteúdo renderizado (markdown). */
+.lc-rich .ProseMirror { font-size: 13.5px; line-height: 1.7; color: #1d2433; }
+.lc-rich .ProseMirror:focus { outline: none; }
+.lc-rich .ProseMirror > * + * { margin-top: 0.5em; }
+.lc-rich .ProseMirror p { margin: 0; }
+.lc-rich .ProseMirror h1 { font-size: 1.5em; font-weight: 700; line-height: 1.3; }
+.lc-rich .ProseMirror h2 { font-size: 1.25em; font-weight: 700; line-height: 1.3; }
+.lc-rich .ProseMirror h3 { font-size: 1.1em; font-weight: 600; line-height: 1.35; }
+.lc-rich .ProseMirror strong { font-weight: 700; }
+.lc-rich .ProseMirror em { font-style: italic; }
+.lc-rich .ProseMirror ul { list-style: disc; padding-left: 1.25em; }
+.lc-rich .ProseMirror ol { list-style: decimal; padding-left: 1.25em; }
+.lc-rich .ProseMirror li { margin: 0.15em 0; }
+.lc-rich .ProseMirror li > p { margin: 0; }
+.lc-rich .ProseMirror blockquote { border-left: 3px solid #e2e8f0; padding-left: 0.8em; color: #475467; }
+.lc-rich .ProseMirror code { background: #f1f5f9; padding: 0.1em 0.3em; border-radius: 4px; font-size: 0.9em; }
+.lc-rich .ProseMirror pre { background: #f1f5f9; padding: 0.6em 0.8em; border-radius: 8px; overflow-x: auto; }
+.lc-rich .ProseMirror pre code { background: transparent; padding: 0; }
+.lc-rich .ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #98A2B3; float: left; height: 0; pointer-events: none; }
+/* Realce ao vivo dos tokens dentro do prompt (só cor — o texto continua literal). */
+/* Token {{campo}}: só cor (sem font-weight forçado) — senão sobrescreveria o negrito (<strong>). */
+.lc-rich .ProseMirror .lc-tok-field { color: #7c3aed; }
+/* Garante que o negrito vença dentro de tokens realçados ({{ }}, @, preenchidos). */
+.lc-rich .ProseMirror strong, .lc-rich .ProseMirror strong * { font-weight: 700 !important; }
+.lc-rich .ProseMirror .lc-tok-mention { color: #2563eb; font-weight: 600; background: #eff6ff; border-radius: 4px; padding: 0 2px; }
+/* Ferramenta "@ZapSign" / "@Buscar CEP" (roxo, igual à seção Ferramentas do menu @). */
+.lc-rich .ProseMirror .lc-tok-tool { color: #7c3aed; font-weight: 600; background: #f5f3ff; border-radius: 4px; padding: 0 2px; }
+/* Valor já preenchido pela Edição rápida (era {{campo}}) — verde p/ identificar. */
+.lc-rich .ProseMirror .lc-tok-filled { color: #15803d; font-weight: 600; background: #f0fdf4; border-radius: 4px; padding: 0 2px; }
+/* Marcador de áudio [[audio:nome]] (ciano) — variante de mídia. */
+.lc-rich .ProseMirror .lc-tok-audio { color: #0891b2; font-weight: 600; background: #ecfeff; border-radius: 4px; padding: 0 2px; }
+/* Frase de troca "@Transferência: Closer" (laranja): no bot vira o texto exato da frase. */
+.lc-rich .ProseMirror .lc-tok-transfer { color: #ea580c; font-weight: 600; background: #fff7ed; border-radius: 4px; padding: 0 2px; cursor: help; }
+
+/* Markdown completo: tabelas (GFM), imagens e listas de tarefas. */
+.lc-rich .ProseMirror table { border-collapse: collapse; width: 100%; margin: 0.6em 0; font-size: 0.9em; table-layout: fixed; }
+.lc-rich .ProseMirror th, .lc-rich .ProseMirror td { border: 1px solid hsl(var(--border)); padding: 4px 8px; text-align: left; vertical-align: top; }
+.lc-rich .ProseMirror th { background: hsl(var(--muted)); font-weight: 600; }
+.lc-rich .ProseMirror img { max-width: 100%; height: auto; border-radius: 8px; display: block; margin: 0.4em 0; }
+.lc-rich .ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 0.25em; }
+.lc-rich .ProseMirror ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5em; }
+.lc-rich .ProseMirror ul[data-type="taskList"] li > label { margin-top: 0.15em; user-select: none; }
+.lc-rich .ProseMirror ul[data-type="taskList"] li > div { flex: 1 1 auto; min-width: 0; }
+
+/* Centraliza o conteúdo na TELA INTEIRA (compensa metade da barra lateral) em telas grandes.
+   A barra publica --app-sidebar-w (76px recolhida / 248px expandida) em Sidebar.tsx. */
+@media (min-width: 1024px) {
+  .lc-screen-center { transform: translateX(calc(var(--app-sidebar-w, 76px) / -2)); }
+}
+
+/* Chip de mídia (@nome): esconde a URL crua e mostra o nome — visual igual ao @agente,
+ * limpo (sem emoji/borda). O TEXTO continua a URL (o bot recebe a URL). Preview no hover (JS). */
+.lc-rich .ProseMirror .lc-media-chip { font-size: 0; }
+.lc-rich .ProseMirror .lc-media-chip::before {
+  content: attr(data-name);
+  font-size: 13px; font-weight: 600;
+  color: #2563eb; background: #eff6ff;
+  border-radius: 4px; padding: 1px 5px;
+  cursor: pointer; transition: background .15s;
+}
+.lc-rich .ProseMirror .lc-media-chip:hover::before { background: #dbeafe; }

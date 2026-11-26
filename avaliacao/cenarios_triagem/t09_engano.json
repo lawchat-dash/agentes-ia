@@ -1,0 +1,38 @@
+{
+  "id": "t09_engano",
+  "descricao": "Número errado: 'boa tarde, é da pizzaria? queria fazer um pedido'. A triagem não entra no jogo nem faz perguntas de triagem: responde com a frase fixa de engano (convite curto para chamar se precisar de INSS) e o lead é encerrado com motivo triagem:engano, sem card de lead (ou com o card arquivado). Quando o lead pede desculpa, a IA não responde de novo com outra mensagem de triagem. Depende do formato novo: ver docs/AGENTE_TRIAGEM.md, seção 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000709",
+    "nome_whatsapp": "Bia",
+    "falas": [
+      {
+        "texto": "boa tarde, é da pizzaria? queria fazer um pedido",
+        "espera": {
+          "etapa": "triagem",
+          "contem": ["(?i)engano|n[úu]mero errado|n[ãa]o [ée] (a |uma )?pizzaria"],
+          "nao_contem": ["(?i)card[áa]pio|sabor|pedido anotado"]
+        }
+      },
+      {"texto": "ah desculpa, numero errado"}
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem"],
+    "estado_final": "encerrado",
+    "triagem": {
+      "destino": "engano",
+      "categoria": "indefinido",
+      "pula_triagem": false,
+      "max_perguntas": 0,
+      "card_na_helena": false
+    },
+    "sem_pergunta_em": ["triagem"],
+    "proibido": [
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b",
+      "(?i)https?://|www\\."
+    ]
+  },
+  "limites": {"turnos": 3, "custo_usd": 0.02}
+}

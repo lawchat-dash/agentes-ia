@@ -1,0 +1,49 @@
+/* Tela Início (dashboard). As classes base (lc-card, lc-metric, lc-pay-btn, lc-float, wiggle) já estão em index.css,
+   iguais às do agents-lawchat-main; aqui ficam só os ajustes desta tela e os alertas operacionais. */
+
+/* O conteúdo do dashboard usa a largura toda da área (o .page padrão limita em 1240px). */
+.lc-inicio { width: 100%; }
+.lc-inicio a { text-decoration: none; }
+.lc-inicio h1, .lc-inicio h2, .lc-inicio h3 { letter-spacing: inherit; }
+.lc-inicio .recharts-wrapper, .lc-inicio .recharts-surface { outline: none; }
+
+/* ---------- alertas operacionais (Helena, webhook, consumo, erros) ---------- */
+/* O bloco não é clicável: sem sombra de hover (só o botão reage). */
+.lc-alerta {
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* "Ver mais N avisos" abaixo dos dois primeiros */
+.lc-alertas-mais {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 8px; border: 0; background: transparent;
+  margin: -2px 0 8px; font-size: 12.5px; font-weight: 600; color: #475467; cursor: pointer;
+}
+.lc-alertas-mais:hover { background: rgba(15, 23, 42, 0.05); color: #101828; }
+.lc-alertas-mais svg { width: 14px; height: 14px; transition: transform .2s ease; }
+.lc-alertas-mais[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+.lc-alerta-btn {
+  position: relative; overflow: hidden; isolation: isolate;
+  box-shadow: 0 10px 22px -10px rgba(15, 23, 42, .35), inset 0 1px 0 rgba(255, 255, 255, .25);
+  transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+}
+.lc-alerta-btn:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 14px 28px -10px rgba(15, 23, 42, .4); }
+.lc-alerta-btn:active { transform: translateY(0); }
+.lc-alerta-btn svg { transition: transform .2s ease; }
+.lc-alerta-btn:hover svg { transform: translateX(3px); }
+
+/* anel que pulsa em volta do ícone do alerta crítico */
+.lc-alerta-pulso::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 14px;
+  border: 2px solid var(--pulso, #ef4444); opacity: 0;
+  animation: lc-alerta-pulso 2.2s ease-out infinite;
+}
+@keyframes lc-alerta-pulso {
+  0% { opacity: .55; transform: scale(.92); }
+  70%, 100% { opacity: 0; transform: scale(1.18); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-alerta-pulso::after, .lc-inicio .lc-float, .lc-inicio [class*="animate-[wiggle"] { animation: none; }
+}

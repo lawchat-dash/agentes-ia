@@ -1,0 +1,400 @@
+{
+  "id": "sc12_ja_tem_advogado",
+  "descricao": "Servente de obra CLT que menciona advogado escrito errado ('adevogado'). Regra do prompt do SDR, 'ADVOGADO — REGRA DE CONFIRMAÇÃO (ANTES DE QUALQUER AVANÇO)': perguntar 'você já tem um advogado atuando HOJE no seu caso de auxílio-acidente?' e decidir pela resposta. Destino fixo no cenário (o oráculo Regras() não tem o caso 'quer trocar'). sem_pergunta_em fica vazio: o prompt do Desqualificado manda confirmar o resumo ('me avisa se algo mudou') e pedir nota de 1 a 5; a regra genérica 'sem pergunta no encerramento' contradiz o prompt do escritório. Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado ('leva 3 a 6 meses', 'em até 5 dias úteis'), prometer incluir sequela no contrato e a pressão 'precisamos iniciar agora'.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000112",
+    "nome_whatsapp": "Gilmar",
+    "persona": "Homem de 44 anos, servente de obra, escreve tudo minúsculo e junta palavras.",
+    "abertura": [
+      {
+        "texto": "boa noite vi o anuncio"
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "queda de andaime na obra",
+      "acidente_mes": 8,
+      "acidente_ano": 2023,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "sequela": "sim",
+      "sequela_descricao": "manca",
+      "aposentado": false
+    },
+    "assuntos": [],
+    "gatilhos": [
+      {
+        "depois_de": "(?i)n[ãa]o se enquadra|por [ée]tica|n[ãa]o (posso|podemos|vai ser poss[íi]vel) (seguir|prosseguir)",
+        "fala": {
+          "texto": "ah entendi, obrigado mesmo assim"
+        }
+      }
+    ],
+    "padrao": "nao sei"
+  },
+  "variantes": [
+    {
+      "nome": "atuando_hoje",
+      "descricao": "tem advogado atuando hoje na mesma causa: 'NÃO qualificar nem coletar dados. Encerrar (...) e acionar Tool desqualificado'. Sem a frase de troca do desqualificado: o prompt manda a mensagem da ética ('por ética não posso seguir agora'), não a de 'APÓS DESQUALIFICAR'.",
+      "verdade": {
+        "tem_advogado_no_caso": true
+      },
+      "assuntos": [
+        {
+          "quando": [
+            "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+          ],
+          "responde": {
+            "picadas": [
+              "cai do andaime na obra",
+              "quebrei o calcanhar, hoje manco",
+              "mas esse caso ja ta na mao do adevogado"
+            ]
+          },
+          "fatos": [
+            "acidente_descricao",
+            "sequela",
+            "sequela_descricao"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+          ],
+          "responde": {
+            "texto": "foi em agosto de 2023"
+          },
+          "fatos": [
+            "acidente_mes",
+            "acidente_ano"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+          ],
+          "responde": {
+            "texto": "fiquei uns 4 mes encostado"
+          },
+          "fatos": [
+            "auxilio_doenca"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+          ],
+          "responde": {
+            "texto": "uns meses, nao lembro certinho"
+          }
+        },
+        {
+          "quando": [
+            "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+          ],
+          "responde": {
+            "texto": "registrado na construtora sim"
+          },
+          "fatos": [
+            "vinculo_na_data"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)sequela|limita[çc]|dificuldade|ficou com"
+          ],
+          "responde": {
+            "texto": "fiquei com essa limitação sim"
+          },
+          "fatos": [
+            "sequela",
+            "sequela_descricao"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)aposentad|aposentou"
+          ],
+          "responde": {
+            "texto": "nao sou aposentado nao"
+          }
+        },
+        {
+          "quando": [
+            "(?i)(?<!costa )(?<!dos )advogad"
+          ],
+          "responde": {
+            "texto": "tenho sim, ele ta cuidando ainda, entrou na justiça ano passado"
+          },
+          "fatos": [
+            "tem_advogado_no_caso"
+          ]
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": "desqualificado",
+        "trajetoria": [
+          "sdr",
+          "desqualificado"
+        ],
+        "estado_final": "ativo",
+        "perguntar_antes": {
+          "desqualificado": [
+            "(?i)advogad[^?]{0,40}hoje|hoje[^?]{0,40}advogad|advogad[^?]{0,30}atuando"
+          ]
+        }
+      }
+    },
+    {
+      "nome": "quer_trocar",
+      "descricao": "tem advogado mas quer trocar: 'orientar que precisa encerrar o contrato atual primeiro (...) Preencha a notificação analise_humana' → a IA pausa e a equipe assume.",
+      "verdade": {
+        "tem_advogado_no_caso": true
+      },
+      "assuntos": [
+        {
+          "quando": [
+            "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+          ],
+          "responde": {
+            "picadas": [
+              "cai do andaime na obra",
+              "quebrei o calcanhar, hoje manco",
+              "ja tenho um adevogado nisso mas ele sumiu"
+            ]
+          },
+          "fatos": [
+            "acidente_descricao",
+            "sequela",
+            "sequela_descricao"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+          ],
+          "responde": {
+            "texto": "foi em agosto de 2023"
+          },
+          "fatos": [
+            "acidente_mes",
+            "acidente_ano"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+          ],
+          "responde": {
+            "texto": "fiquei uns 4 mes encostado"
+          },
+          "fatos": [
+            "auxilio_doenca"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+          ],
+          "responde": {
+            "texto": "uns meses, nao lembro certinho"
+          }
+        },
+        {
+          "quando": [
+            "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+          ],
+          "responde": {
+            "texto": "registrado na construtora sim"
+          },
+          "fatos": [
+            "vinculo_na_data"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)sequela|limita[çc]|dificuldade|ficou com"
+          ],
+          "responde": {
+            "texto": "fiquei com essa limitação sim"
+          },
+          "fatos": [
+            "sequela",
+            "sequela_descricao"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)aposentad|aposentou"
+          ],
+          "responde": {
+            "texto": "nao sou aposentado nao"
+          }
+        },
+        {
+          "quando": [
+            "(?i)(?<!costa )(?<!dos )advogad"
+          ],
+          "responde": {
+            "texto": "tenho mas ele nao me responde faz meses, quero trocar pra vcs"
+          },
+          "fatos": [
+            "tem_advogado_no_caso"
+          ]
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": "analise_humana",
+        "trajetoria": [
+          "sdr"
+        ],
+        "estado_final": "pausado",
+        "obrigatorio_em": {
+          "sdr": [
+            "(?i)encerr",
+            "(?i)advogad[^?]{0,40}hoje|hoje[^?]{0,40}advogad|advogad[^?]{0,30}atuando"
+          ]
+        }
+      }
+    },
+    {
+      "nome": "so_no_passado",
+      "descricao": "teve advogado antes e não tem mais: 'Ter tido advogado no passado NÃO significa ter um atuando hoje' → 'NÃO tem mais / nunca teve → seguir o fluxo normal' → closer (CLT na data). No fluxo normal entra a pergunta 2 do SDR ('Em qual ano aconteceu o acidente?'): com o destino fixo o oráculo não cobra a data, então ela fica em perguntar_antes (na rodada real de 2026-11-25 a IA foi ao closer sem perguntar o ano e a conversa passou).",
+      "verdade": {
+        "tem_advogado_no_caso": false
+      },
+      "assuntos": [
+        {
+          "quando": [
+            "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+          ],
+          "responde": {
+            "picadas": [
+              "cai do andaime na obra",
+              "quebrei o calcanhar, hoje manco",
+              "uma vez eu ja peguei adevogado pra isso"
+            ]
+          },
+          "fatos": [
+            "acidente_descricao",
+            "sequela",
+            "sequela_descricao"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+          ],
+          "responde": {
+            "texto": "foi em agosto de 2023"
+          },
+          "fatos": [
+            "acidente_mes",
+            "acidente_ano"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+          ],
+          "responde": {
+            "texto": "fiquei uns 4 mes encostado"
+          },
+          "fatos": [
+            "auxilio_doenca"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+          ],
+          "responde": {
+            "texto": "uns meses, nao lembro certinho"
+          }
+        },
+        {
+          "quando": [
+            "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+          ],
+          "responde": {
+            "texto": "registrado na construtora sim"
+          },
+          "fatos": [
+            "vinculo_na_data"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)sequela|limita[çc]|dificuldade|ficou com"
+          ],
+          "responde": {
+            "texto": "fiquei com essa limitação sim"
+          },
+          "fatos": [
+            "sequela",
+            "sequela_descricao"
+          ]
+        },
+        {
+          "quando": [
+            "(?i)aposentad|aposentou"
+          ],
+          "responde": {
+            "texto": "nao sou aposentado nao"
+          }
+        },
+        {
+          "quando": [
+            "(?i)(?<!costa )(?<!dos )advogad"
+          ],
+          "responde": {
+            "texto": "hoje nao tenho ninguem, larguei ele antes de entrar com o pedido"
+          },
+          "fatos": [
+            "tem_advogado_no_caso"
+          ]
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": "closer",
+        "trajetoria": [
+          "sdr",
+          "closer"
+        ],
+        "transferencias_com_frase": [
+          "closer"
+        ],
+        "perguntar_antes": {
+          "closer": [
+            "(?i)advogad[^?]{0,40}hoje|hoje[^?]{0,40}advogad|advogad[^?]{0,30}atuando",
+            "(?i)\\b(?:qual|que)\\b[^?]{0,15}\\b(?:ano|data|m[êe]s)\\b(?![^?]{0,40}(?:demiss|demit|sa[íi]u|sa[íi]da|seguro|parcela))|\\b(?:lembra|sabe)\\b[^?]{0,20}\\b(?:ano|data|m[êe]s)\\b(?![^?]{0,40}(?:demiss|demit|sa[íi]u|sa[íi]da|seguro|parcela))|\\bquando (?:foi|aconteceu|ocorreu) (?:o|esse|seu|este) acidente"
+          ]
+        }
+      }
+    }
+  ],
+  "esperado": {
+    "contrato": {
+      "exatamente": 0
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+      "(?i)\\bcpf\\b|nome completo"
+    ],
+    "sem_pergunta_em": []
+  },
+  "limites": {
+    "turnos": 14,
+    "custo_usd": 0.2,
+    "parar_em": [
+      "closer"
+    ]
+  }
+}

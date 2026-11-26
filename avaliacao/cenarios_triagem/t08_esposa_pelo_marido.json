@@ -1,0 +1,47 @@
+{
+  "id": "t08_esposa_pelo_marido",
+  "descricao": "Parente falando pelo segurado: a esposa abre com 'é pro meu marido'. A triagem segue normalmente pelo assunto DELE, sem pedir que ele venha falar, e faz uma pergunta aberta sobre o que aconteceu com ele. Ela conta que ele caiu do andaime faz uns 3 anos, quebrou a perna e ficou mancando: é auxílio-acidente. A triagem passa com quem_fala = parente e parentesco = esposa, e o SDR do produto continua falando com ela sobre ele. Depende do formato novo: ver docs/AGENTE_TRIAGEM.md, seção 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000708",
+    "nome_whatsapp": "Cláudia",
+    "falas": [
+      {
+        "texto": "boa tarde, é pro meu marido",
+        "espera": {
+          "etapa": "triagem",
+          "contem": ["(?i)\\bele\\b|seu marido|seu esposo"],
+          "nao_contem": ["(?i)(pe[çc]a|pedir|chame|chamar) (para|pra|o) (ele|seu marido)|ele mesmo (precisa|tem que)|o pr[óo]prio (segurado|titular)"]
+        }
+      },
+      {
+        "texto": "ele caiu do andaime faz uns 3 anos, quebrou a perna e ficou mancando, hoje nao consegue mais trabalhar na obra",
+        "espera": {
+          "etapa": "auxilio-acidente/sdr",
+          "nao_contem": ["(?i)(em que (posso|podemos)|sobre o que)[^.!?]*\\?"]
+        }
+      }
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem", "auxilio-acidente/sdr"],
+    "estado_final": "ativo",
+    "triagem": {
+      "destino": "auxilio-acidente",
+      "categoria": "auxilio_acidente",
+      "pula_triagem": false,
+      "max_perguntas": 1,
+      "quem_fala": "parente",
+      "parentesco": "esposa",
+      "fatos_passados": {"sequela": "sim", "acidente_descricao": "andaime"}
+    },
+    "proibido": [
+      "(?i)(?<!se )(?<!se voc[êe] )(?<!se ele )\\b(tem|teria|ter[áa]) direito",
+      "\\d+ ?%",
+      "(?i)\\bcpf\\b|\\blaudo",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b"
+    ]
+  },
+  "limites": {"turnos": 4, "custo_usd": 0.05, "parar_em": ["auxilio-acidente/sdr"]}
+}

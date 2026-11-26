@@ -1,0 +1,55 @@
+{
+  "id": "t04_acidente_na_primeira_mensagem",
+  "descricao": "Sem anúncio, mas a primeira mensagem (picada em 4 balões) já diz tudo: caiu de moto indo para o trabalho em 2019, quebrou o tornozelo, manca até hoje e era registrado. A triagem NÃO pergunta nada: passa no mesmo turno para o SDR do auxílio-acidente e leva os fatos (acidente_descricao, acidente_ano = 2019, sequela = sim, vinculo_na_data = clt). Teste principal do pacote de passagem: a 1ª resposta do SDR não pode perguntar de novo o ano, o vínculo nem 'como aconteceu' (citar o que o lead disse sem '?' é permitido, como manda o FORMATO do catálogo). Depende do formato novo e dos fatos com fonte 'triagem': ver docs/AGENTE_TRIAGEM.md, seções 6 e 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000704",
+    "nome_whatsapp": "Edvaldo",
+    "falas": [
+      {
+        "picadas": [
+          "boa noite",
+          "em 2019 eu caí de moto indo pro trabalho e quebrei o tornozelo",
+          "até hoje manco e não consigo ficar muito tempo em pé",
+          "eu trabalhava registrado numa transportadora"
+        ],
+        "espera": {
+          "etapa": "auxilio-acidente/sdr",
+          "nao_contem": [
+            "(?i)(em que ano|qual (o |foi o )?ano|quando (foi|aconteceu|ocorreu))[^.!?]*\\?",
+            "(?i)(carteira assinada|\\bclt\\b|registrad)[^.!?]*\\?",
+            "(?i)(como (foi|aconteceu)|o que aconteceu)[^.!?]*\\?",
+            "(?i)(em que (posso|podemos)|sobre o que)[^.!?]*\\?"
+          ]
+        }
+      }
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem", "auxilio-acidente/sdr"],
+    "estado_final": "ativo",
+    "triagem": {
+      "destino": "auxilio-acidente",
+      "categoria": "auxilio_acidente",
+      "pula_triagem": false,
+      "max_perguntas": 0,
+      "fatos_passados": {
+        "acidente_ano": "2019",
+        "sequela": "sim",
+        "vinculo_na_data": "clt",
+        "acidente_descricao": "moto"
+      },
+      "nao_perguntar_no_destino": [
+        "(?i)(em que ano|qual (o |foi o )?ano|quando (foi|aconteceu|ocorreu))[^.!?]*\\?",
+        "(?i)(carteira assinada|\\bclt\\b|registrad)[^.!?]*\\?"
+      ]
+    },
+    "proibido": [
+      "(?i)(?<!se )(?<!se voc[êe] )\\b(tem|teria|ter[áa]) direito",
+      "\\d+ ?%",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b"
+    ]
+  },
+  "limites": {"turnos": 2, "custo_usd": 0.04, "parar_em": ["auxilio-acidente/sdr"]}
+}

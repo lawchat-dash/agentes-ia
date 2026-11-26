@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laboratório — LawChat IA</title>
+<style>
+  :root {
+    --fundo: #f4f5f7; --painel: #ffffff; --borda: #dfe2e7; --texto: #1c2430; --fraco: #667085;
+    --lead: #e7f0ff; --ia: #e9f7ee; --acento: #2457d6; --ok: #1a7f4b; --aviso: #a15c00; --erro: #b42318;
+    --codigo: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #12151a; --painel: #1b2027; --borda: #2e3540; --texto: #e6e9ee; --fraco: #9aa4b2;
+      --lead: #1f2f4d; --ia: #1d3528; --acento: #7ea2ff; --ok: #57c98b; --aviso: #e5a84b; --erro: #f97066;
+      --codigo: #232a33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fundo); color: var(--texto); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--borda); background: var(--painel); }
+  header h1 { font-size: 17px; margin: 0; }
+  .selo { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--borda); color: var(--fraco); }
+  .selo.forte { color: var(--acento); border-color: var(--acento); }
+  main { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; padding: 16px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--painel); border: 1px solid var(--borda); border-radius: 10px; min-width: 0; }
+  section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--fraco); margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--borda); }
+  #conversa { height: 56vh; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .bolha { max-width: 85%; padding: 8px 11px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; cursor: default; }
+  .bolha.lead { align-self: flex-end; background: var(--lead); }
+  .bolha.ia { align-self: flex-start; background: var(--ia); cursor: pointer; }
+  .bolha.nota { align-self: center; background: transparent; color: var(--fraco); font-size: 13px; border: 1px dashed var(--borda); }
+  form.envio { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--borda); }
+  textarea, input, select { width: 100%; font: inherit; color: inherit; background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px; }
+  textarea { resize: vertical; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--acento); background: var(--acento); color: #fff; cursor: pointer; white-space: nowrap; }
+  button.claro { background: transparent; color: var(--acento); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .abas { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid var(--borda); overflow-x: auto; }
+  .abas button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--fraco); padding: 8px 10px; }
+  .abas button.ativa { color: var(--acento); border-bottom-color: var(--acento); }
+  .aba { display: none; padding: 14px; overflow: auto; max-height: 72vh; }
+  .aba.ativa { display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--borda); vertical-align: top; overflow-wrap: anywhere; }
+  th { color: var(--fraco); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+  th:first-child, td:first-child { white-space: nowrap; overflow-wrap: normal; }
+  .aba { overflow-x: auto; }
+  pre { background: var(--codigo); padding: 10px; border-radius: 8px; overflow: auto; font: 12.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 14px; }
+  .ok { color: var(--ok); } .aviso { color: var(--aviso); } .erro { color: var(--erro); }
+  .vazio { color: var(--fraco); font-style: italic; }
+  .linha { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  label { display: block; font-size: 12px; color: var(--fraco); margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .03em; }
+  h3 { font-size: 14px; margin: 14px 0 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Laboratório</h1>
+  <span class="selo">nada é enviado ao WhatsApp</span>
+  <span class="selo forte" id="selo-etapa">etapa: sdr</span>
+  <span class="selo" id="selo-estado">estado: ativo</span>
+  <span class="selo" id="selo-custo">custo: US$ 0,0000</span>
+  <button class="claro" id="nova" style="margin-left:auto">Nova conversa</button>
+</header>
+
+<main>
+  <section>
+    <h2>Conversa (você é o lead)</h2>
+    <div id="conversa"></div>
+    <form class="envio" id="envio">
+      <textarea id="texto" rows="2" placeholder="Escreva como o lead escreveria. Enter envia; Shift+Enter quebra a linha."></textarea>
+      <button id="enviar">Enviar</button>
+    </form>
+  </section>
+
+  <section>
+    <div class="abas" id="abas">
+      <button data-aba="turno" class="ativa">Este turno</button>
+      <button data-aba="fatos">Fatos</button>
+      <button data-aba="contexto">O que a IA recebeu</button>
+      <button data-aba="config">Configuração</button>
+    </div>
+
+    <div class="aba ativa" id="aba-turno"><p class="vazio">Envie uma mensagem. Clique numa resposta da IA para rever o turno dela.</p></div>
+    <div class="aba" id="aba-fatos"><p class="vazio">Nenhum fato ainda.</p></div>
+    <div class="aba" id="aba-contexto"><p class="vazio">Aparece depois do primeiro turno.</p></div>
+    <div class="aba" id="aba-config">
+      <div class="linha">
+        <div style="flex:1;min-width:160px"><label>Nome da IA</label><input id="cfg-nome"></div>
+        <div style="flex:1;min-width:160px"><label>Escritório</label><input id="cfg-escritorio"></div>
+        <div style="flex:1;min-width:160px"><label>Modelo</label>
+          <select id="cfg-modelo">
+            <option value="gpt-4.1">GPT-4.1</option>
+            <option value="gpt-4.1-mini">GPT-4.1 mini</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5</option>
+            <option value="claude-fable-5-2">Claude Fable 5.2</option>
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
+            <option value="claude-haiku-5-5">Claude Haiku 5.5</option>
+          </select>
+        </div>
+      </div>
+      <label>Honorários (a IA só pode citar o que estiver aqui)</label>
+      <textarea id="cfg-honorarios" rows="2"></textarea>
+      <label>Instrução da etapa</label>
+      <select id="cfg-etapa"></select>
+      <textarea id="cfg-instrucao" rows="12" style="margin-top:6px"></textarea>
+      <div class="linha" style="margin-top:10px">
+        <button id="cfg-salvar">Salvar</button>
+        <span class="vazio" id="cfg-aviso">Vale para os próximos turnos, só no Laboratório.</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const senha = () => { try { return sessionStorage.getItem("lab-senha") || ""; } catch (e) { return ""; } };
+let conversa = null, custo = 0, config = null, ocupado = false;
+
+function texto(valor) { const d = document.createElement("div"); d.textContent = valor ?? ""; return d.innerHTML; }
+function json(valor) { return texto(JSON.stringify(valor, null, 2)); }
+
+async function api(caminho, corpo) {
+  const resposta = await fetch(caminho, {
+    method: corpo === undefined ? "GET" : "POST",
+    headers: { "Content-Type": "application/json", "x-lab-senha": senha() },
+    body: corpo === undefined ? undefined : JSON.stringify(corpo),
+  });
+  if (resposta.status === 401) {
+    const digitada = prompt("Senha do Laboratório:");
+    if (digitada) { try { sessionStorage.setItem("lab-senha", digitada); } catch (e) {} return api(caminho, corpo); }
+  }
+  if (!resposta.ok) throw new Error((await resposta.json().catch(() => ({}))).detail || ("Erro " + resposta.status));
+  return resposta.json();
+}
+
+function bolha(classe, conteudo, aoClicar) {
+  const div = document.createElement("div");
+  div.className = "bolha " + classe;
+  div.textContent = conteudo;
+  if (aoClicar) div.addEventListener("click", aoClicar);
+  $("conversa").appendChild(div);
+  $("conversa").scrollTop = $("conversa").scrollHeight;
+  return div;
+}
+
+function mostrarTurno(dados) {
+  const t = dados.turno;
+  if (!t) { $("aba-turno").innerHTML = '<p class="vazio">A IA não atendeu este turno.</p>'; return; }
+  const linhas = [];
+  linhas.push(`<p><b>Etapa:</b> ${texto(t.etapa_antes)} → <b>${texto(t.etapa_depois)}</b> &nbsp; <span class="vazio">(${texto(t.motivo || "sem motivo")})</span></p>`);
+  if (t.estado_lead) linhas.push(`<p class="aviso"><b>Lead ficou ${texto(t.estado_lead)}:</b> ${texto(t.motivo_estado)}</p>`);
+  if (t.situacao === "erro") linhas.push(`<p class="erro"><b>A IA falhou e não respondeu.</b></p>`);
+
+  linhas.push("<h3>Fatos que o extrator achou</h3>");
+  if (t.fatos_novos.length) {
+    linhas.push("<table><tr><th>Fato</th><th>Valor</th><th>Trecho do lead que prova</th></tr>" +
+      t.fatos_novos.map(f => `<tr><td>${texto(f.chave)}</td><td>${texto(String(f.valor))}</td><td>“${texto(f.trecho)}”</td></tr>`).join("") + "</table>");
+  } else linhas.push('<p class="vazio">Nenhum fato novo.</p>');
+  if (t.fatos_rejeitados.length) {
+    linhas.push('<h3 class="erro">Fatos descartados pelo código</h3><table><tr><th>Fato</th><th>Valor</th><th>Trecho alegado</th><th>Motivo</th></tr>' +
+      t.fatos_rejeitados.map(f => `<tr><td>${texto(f.chave)}</td><td>${texto(String(f.valor))}</td><td>“${texto(f.trecho)}”</td><td class="erro">${texto(f.motivo)}</td></tr>`).join("") + "</table>");
+  }
+
+  const ligadas = Object.entries(t.intencoes || {}).filter(([, v]) => v).map(([k]) => k);
+  if (ligadas.length || t.sinais.length) linhas.push(`<p><b>Intenções e sinais:</b> ${texto([...ligadas, ...t.sinais].join(", "))}</p>`);
+
+  linhas.push("<h3>Decisões do código</h3>");
+  if (t.decisoes.length) {
+    linhas.push("<table><tr><th>Função</th><th>Resultado</th><th>Motivo</th><th>Falta</th><th>Conta</th></tr>" +
+      t.decisoes.map(d => `<tr><td>${texto(d.funcao)}</td><td><b>${texto(d.resultado)}</b></td><td>${texto(d.motivo)}</td><td>${texto(d.faltam.join(", "))}</td><td>${Object.keys(d.conta).length ? "<pre>" + json(d.conta) + "</pre>" : ""}</td></tr>`).join("") + "</table>");
+  } else linhas.push('<p class="vazio">Nenhuma função de decisão rodou neste turno.</p>');
+  if (t.faltam.length) linhas.push(`<p><b>Próxima pergunta:</b> ${texto(t.faltam[0])} <span class="vazio">(depois: ${texto(t.faltam.slice(1).join(", ") || "nada")})</span></p>`);
+
+  linhas.push("<h3>Travas de saída</h3>");
+  if (!t.reprovacoes.length) linhas.push('<p class="vazio">O agente não foi chamado.</p>');
+  t.reprovacoes.forEach((lista, i) => {
+    linhas.push(lista.length
+      ? `<p class="erro">Tentativa ${i + 1} reprovada:</p><ul>` + lista.map(r => `<li><b>${texto(r.codigo)}</b>: ${texto(r.orientacao)}</li>`).join("") + "</ul>"
+      : `<p class="ok">Tentativa ${i + 1} aprovada.</p>`);
+  });
+
+  if (t.eventos.length) {
+    linhas.push("<h3>Eventos gravados</h3><table><tr><th>Tipo</th><th>Gravidade</th><th>Responsável</th><th>Descrição</th></tr>" +
+      t.eventos.map(e => `<tr><td>${texto(e.tipo)}</td><td class="${e.gravidade === "aviso" ? "aviso" : "erro"}">${texto(e.gravidade)}</td><td>${texto(e.responsavel)}</td><td>${texto(e.descricao)}</td></tr>`).join("") + "</table>");
+  }
+
+  linhas.push("<h3>Chamadas de IA</h3><table><tr><th>Papel</th><th>Modelo</th><th>Entrada</th><th>Cache</th><th>Saída</th><th>Tempo</th><th>Custo</th></tr>" +
+    t.chamadas.map(c => `<tr><td>${texto(c.papel)}</td><td>${texto(c.modelo)}</td><td>${c.tokens_entrada}</td><td>${c.tokens_cache}</td><td>${c.tokens_saida}</td><td>${(c.duracao_ms / 1000).toFixed(1)} s</td><td>${c.sucesso ? "US$ " + c.custo_usd.toFixed(4) : '<span class="erro">' + texto(c.erro) + "</span>"}</td></tr>`).join("") + "</table>");
+  $("aba-turno").innerHTML = linhas.join("");
+
+  const ctx = t.contexto || {};
+  $("aba-contexto").innerHTML =
+    (ctx.etapa ? `<h3>Agente da etapa: instruções</h3><pre>${texto(ctx.etapa.sistema)}</pre><h3>Agente da etapa: o que recebeu neste turno</h3><pre>${texto(ctx.etapa.conteudo)}</pre><h3>O que devolveu</h3><pre>${json(ctx.etapa.resposta)}</pre>` : '<p class="vazio">O agente da etapa não foi chamado.</p>') +
+    (ctx.extrator ? `<h3>Extrator: o que recebeu</h3><pre>${texto(ctx.extrator.conteudo)}</pre><h3>Extrator: o que devolveu</h3><pre>${json(ctx.extrator.resposta)}</pre>` : "");
+}
+
+function mostrarEstado(dados) {
+  $("selo-etapa").textContent = "etapa: " + (dados.etapa || "?");
+  $("selo-estado").textContent = "estado: " + (dados.estado || "?") + (dados.motivo_estado ? " (" + dados.motivo_estado + ")" : "");
+  const fatos = Object.entries(dados.fatos || {});
+  $("aba-fatos").innerHTML = fatos.length
+    ? "<table><tr><th>Fato</th><th>Valor</th></tr>" + fatos.map(([k, v]) => `<tr><td>${texto(k)}</td><td>${texto(String(v))}</td></tr>`).join("") + "</table>"
+    : '<p class="vazio">Nenhum fato ainda.</p>';
+}
+
+async function novaConversa() {
+  conversa = (await api("/lab/api/conversa", {})).id_conversa;
+  custo = 0;
+  $("conversa").innerHTML = "";
+  $("selo-custo").textContent = "custo: US$ 0,0000";
+  mostrarEstado({ etapa: "sdr", estado: "ativo", fatos: {} });
+  $("aba-turno").innerHTML = '<p class="vazio">Envie uma mensagem. Clique numa resposta da IA para rever o turno dela.</p>';
+  $("texto").focus();
+}
+
+async function enviar() {
+  const valor = $("texto").value.trim();
+  if (!valor || ocupado) return;
+  ocupado = true; $("enviar").disabled = true; $("texto").value = "";
+  bolha("lead", valor);
+  const espera = bolha("nota", "pensando…");
+  try {
+    const dados = await api("/lab/api/mensagem", { id_conversa: conversa, texto: valor });
+    espera.remove();
+    const turno = dados.turno;
+    if (turno) {
+      custo += turno.chamadas.reduce((soma, c) => soma + (c.custo_usd || 0), 0);
+      $("selo-custo").textContent = "custo: US$ " + custo.toFixed(4).replace(".", ",");
+      for (const m of turno.mensagens) bolha("ia", m.tipo === "texto" ? m.texto : "[mídia: " + m.chave + "]", () => { mostrarTurno(dados); abrir("turno"); });
+      if (!turno.mensagens.length) bolha("nota", turno.situacao === "erro" ? "A IA falhou e ficou em silêncio (" + turno.motivo + ")" : "Sem resposta neste turno");
+      if (turno.estado_lead) bolha("nota", "Lead " + turno.estado_lead + ": " + turno.motivo_estado + ". No atendimento real a IA para de responder aqui.");
+    }
+    mostrarTurno(dados); mostrarEstado(dados);
+  } catch (erro) {
+    espera.textContent = "Erro: " + erro.message;
+  } finally {
+    ocupado = false; $("enviar").disabled = false; $("texto").focus();
+  }
+}
+
+function abrir(nome) {
+  document.querySelectorAll("#abas button").forEach(b => b.classList.toggle("ativa", b.dataset.aba === nome));
+  document.querySelectorAll(".aba").forEach(a => a.classList.toggle("ativa", a.id === "aba-" + nome));
+}
+
+function preencherConfig() {
+  $("cfg-nome").value = config.nome; $("cfg-escritorio").value = config.escritorio;
+  $("cfg-honorarios").value = config.honorarios; $("cfg-modelo").value = config.modelo;
+  const seletor = $("cfg-etapa"), atual = seletor.value;
+  seletor.innerHTML = Object.keys(config.instrucoes).map(e => `<option>${texto(e)}</option>`).join("");
+  if (atual && config.instrucoes[atual] !== undefined) seletor.value = atual;
+  $("cfg-instrucao").value = config.instrucoes[seletor.value] || "";
+  if (config.modelo_falso) $("cfg-aviso").textContent = "Modelo de mentira ligado (AGENTESIA_MODELO_FALSO): as respostas não vêm da IA.";
+}
+
+$("abas").addEventListener("click", (e) => { if (e.target.dataset.aba) abrir(e.target.dataset.aba); });
+$("envio").addEventListener("submit", (e) => { e.preventDefault(); enviar(); });
+$("texto").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } });
+$("nova").addEventListener("click", novaConversa);
+$("cfg-etapa").addEventListener("change", () => { $("cfg-instrucao").value = config.instrucoes[$("cfg-etapa").value] || ""; });
+$("cfg-instrucao").addEventListener("input", () => { config.instrucoes[$("cfg-etapa").value] = $("cfg-instrucao").value; });
+$("cfg-salvar").addEventListener("click", async () => {
+  config = await api("/lab/api/config", {
+    nome: $("cfg-nome").value, escritorio: $("cfg-escritorio").value, honorarios: $("cfg-honorarios").value,
+    modelo: $("cfg-modelo").value, instrucoes: config.instrucoes,
+  });
+  preencherConfig();
+  $("cfg-aviso").textContent = "Salvo. Vale para os próximos turnos, só no Laboratório.";
+});
+
+(async () => {
+  try { config = await api("/lab/api/config"); preencherConfig(); await novaConversa(); }
+  catch (erro) { bolha("nota", "Não foi possível iniciar: " + erro.message); }
+})();
+</script>
+</body>
+</html>

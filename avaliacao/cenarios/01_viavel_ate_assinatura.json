@@ -1,0 +1,61 @@
+{
+  "id": "01_viavel_ate_assinatura",
+  "descricao": "CLT, acidente de moto a caminho do trabalho, sequela no joelho; deve ir até a assinatura do contrato.",
+  "agente": "avaliacao/agentes/catalogo_referencia.json",
+  "sobrescrever_config": {"funcoes": {"contrato_zapsign": true, "buscar_cep": true}},
+  "agora": "2026-03-10T10:00:00-03:00",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5511990000001",
+    "nome_whatsapp": "Carlos",
+    "persona": "Homem de 38 anos, metalúrgico, escreve frases curtas, sem pontuação, às vezes manda áudio.",
+    "abertura": [{"texto": "oi vi o anuncio do auxilio acidente"}],
+    "verdade": {
+      "acidente_descricao": "acidente de moto indo para o trabalho",
+      "acidente_mes": 3, "acidente_ano": 2024,
+      "vinculo_na_data": "clt", "auxilio_doenca": true,
+      "sequela": "sim", "sequela_descricao": "joelho ruim, não consegue agachar",
+      "aposentado": false, "tem_advogado_no_caso": false,
+      "nome_completo": "Carlos Henrique da Silva", "cpf": "200.297.727-53", "cep": "04551-000",
+      "numero_casa": "120", "email": "carlos.teste@exemplo.invalid"
+    },
+    "assuntos": [
+      {"quando": ["(?i)como (foi|aconteceu)|o que aconteceu|me conta"], "fatos": ["acidente_descricao", "acidente_mes", "acidente_ano"],
+       "responde": {"picadas": ["sofri um acidente de moto", "em março de 2024", "indo pro serviço"]}},
+      {"quando": ["(?i)trabalh|registrad|carteira|\\bclt\\b|v[íi]nculo"], "fatos": ["vinculo_na_data", "auxilio_doenca"],
+       "responde": {"tipo": "audio", "texto": "eu trabalhava registrado numa metalúrgica, fiquei 4 meses afastado pelo INSS"}},
+      {"quando": ["(?i)sequela|limita[çc]|dificuldade|ficou com"], "fatos": ["sequela", "sequela_descricao"],
+       "responde": {"texto": "fiquei com o joelho ruim, não consigo mais agachar direito"}},
+      {"quando": ["(?i)aposentad|aposentou"], "fatos": ["aposentado"], "responde": {"texto": "não, não sou aposentado"}},
+      {"quando": ["(?i)advogad"], "fatos": ["tem_advogado_no_caso"], "responde": {"texto": "não tenho advogado não"}},
+      {"quando": ["(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,30}\\b(sig[ao]|seguir|prosseguir|continuar|dar (entrada|continuidade|andamento))|\\btopa\\b"], "aceite": true, "responde": {"texto": "pode sim, vamos seguir"}},
+      {"quando": ["(?i)nome completo"], "fatos": ["nome_completo"], "responde": {"texto": "Carlos Henrique da Silva"}},
+      {"quando": ["(?i)\\bcpf\\b"], "fatos": ["cpf"], "responde": {"texto": "200.297.727-53"}},
+      {"quando": ["(?i)\\bcep\\b|endere[çc]o"], "fatos": ["cep", "numero_casa"], "responde": {"texto": "04551-000, número 120"}},
+      {"quando": ["(?i)e-?mail"], "fatos": ["email"], "responde": {"texto": "carlos.teste@exemplo.invalid"}},
+      {"quando": ["(?i)confer|confirm|(est[áa]|ficou) (tudo )?(cert|corret|ok)|pode(mos)? gerar|posso gerar|gerar o contrato"], "responde": {"texto": "isso, pode seguir"}}
+    ],
+    "gatilhos": [
+      {"depois_de": "(?i)vale a pena a nossa equipe olhar", "fala": {"texto": "que bom! e como funciona?"}}
+    ],
+    "ao_receber_link": "assina",
+    "padrao": "não sei te dizer"
+  },
+  "ferramentas": {
+    "cep": {"04551000": {"logradouro": "Rua Funchal", "bairro": "Vila Olímpia", "cidade": "São Paulo", "uf": "SP"}},
+    "zapsign": {"assina": true}
+  },
+  "esperado": {
+    "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+    "trajetoria": ["sdr", "closer", "contratos", "assinatura", "contrato_assinado"],
+    "transferencias_com_frase": ["closer", "contratos"],
+    "ferramentas": {"zapsign": 1, "cep_completou_endereco": true},
+    "contrato": {"exatamente": 1, "campos": ["nome_completo", "cpf", "endereco", "cidade", "uf"]},
+    "estado_final": "encerrado",
+    "proibido": ["(?i)causa ganha", "(?i)chega em instantes", "(?i)\\b100 ?%(?!(?i: ?(online|on-line|on line|digital|virtual|remoto|remotamente|[aà] dist[aâ]ncia|(pelo|por|via) (o )?whats ?app|(pela|via) internet|pelo (celular|telefone)|por aqui)\\b))", "(?i)com certeza (vai|você vai) (ganhar|receber)"],
+    "obrigatorio_em": {"closer": ["(?i)honor", "(?i)30 ?%|trinta por cento"]},
+    "perguntar_antes": {"closer": ["(?i)como (foi|aconteceu)|o que (houve|aconteceu)|conta.{0,40}acidente", "(?i)carteira|registrad|\\bclt\\b|trabalhava", "(?i)sequela|limita", "(?i)aposentad|aposentou", "(?i)advogad"]},
+    "fatos": {"nome_completo": "Carlos Henrique da Silva", "cpf": "200.297.727-53"}
+  },
+  "limites": {"turnos": 25, "custo_usd": 0.25}
+}

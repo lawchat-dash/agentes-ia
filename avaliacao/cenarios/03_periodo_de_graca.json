@@ -1,0 +1,68 @@
+{
+  "id": "03_periodo_de_graca",
+  "descricao": "Demitido em janeiro de 2023, acidente em maio de 2024 (16 meses depois). Caso de borda: com seguro-desemprego (24 meses) segue para o closer; sem seguro (12 meses) é desqualificado.",
+  "agente": "avaliacao/agentes/catalogo_referencia.json",
+  "agora": "2026-03-10T10:00:00-03:00",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5511990000003",
+    "nome_whatsapp": "Ana",
+    "persona": "Mulher de 41 anos, ex-auxiliar de cozinha, escreve bem e é direta.",
+    "abertura": [{"texto": "oi, queria saber sobre o auxílio-acidente"}],
+    "verdade": {
+      "acidente_descricao": "atropelada de bicicleta",
+      "acidente_mes": 5, "acidente_ano": 2024,
+      "vinculo_na_data": "desempregado",
+      "sequela": "sim", "sequela_descricao": "perna direita não firma",
+      "aposentado": false, "tem_advogado_no_caso": false,
+      "demissao_mes": 1, "demissao_ano": 2023,
+      "contribuiu_por_conta_propria": false
+    },
+    "assuntos": [
+      {"quando": ["(?i)como (foi|aconteceu)|o que aconteceu|me conta"], "fatos": ["acidente_descricao", "acidente_mes", "acidente_ano"],
+       "responde": {"texto": "fui atropelada de bicicleta em maio de 2024"}},
+      {"quando": ["(?i)sa[íi]u do (seu )?[úu]ltimo emprego|pagou o inss pela [úu]ltima vez|[úu]ltima vez que (voc[êe] )?(pagou|contribuiu)"], "fatos": ["demissao_mes", "demissao_ano"],
+       "responde": {"texto": "fui demitida em janeiro de 2023"}},
+      {"quando": ["(?i)carteira|registrad|\\bclt\\b|trabalhava"], "fatos": ["vinculo_na_data", "demissao_mes", "demissao_ano"],
+       "responde": {"texto": "não, eu tinha sido demitida em janeiro de 2023"}},
+      {"quando": ["(?i)sequela|limita[çc]|dificuldade|ficou com"], "fatos": ["sequela", "sequela_descricao"],
+       "responde": {"texto": "fiquei mancando, a perna direita não firma"}},
+      {"quando": ["(?i)aposentad|aposentou"], "fatos": ["aposentado"], "responde": {"texto": "não sou aposentada"}},
+      {"quando": ["(?i)advogad"], "fatos": ["tem_advogado_no_caso"], "responde": {"texto": "não"}},
+      {"quando": ["(?i)depois de sair|por conta pr[óo]pria|carn[êe]|\\bmei\\b"], "fatos": ["contribuiu_por_conta_propria"],
+       "responde": {"texto": "não paguei, estava procurando emprego"}}
+    ],
+    "gatilhos": [
+      {"depois_de": "(?i)mais algumas perguntas sobre o seu trabalho", "fala": {"texto": "pode perguntar"}},
+      {"depois_de": "(?i)n[ãa]o vai conseguir seguir", "fala": {"texto": "poxa, entendi"}}
+    ],
+    "padrao": "não sei te dizer"
+  },
+  "variantes": [
+    {"nome": "com_seguro", "descricao": "recebeu seguro-desemprego: dentro do prazo.",
+     "verdade": {"seguro_desemprego": true},
+     "assuntos": [{"quando": ["(?i)seguro.desemprego"], "fatos": ["seguro_desemprego"], "responde": {"texto": "recebi sim, as parcelas todas"}}]},
+    {"nome": "sem_seguro", "descricao": "não recebeu seguro-desemprego: fora do prazo. A lead conta a demissão com outras palavras ('a firma me mandou embora'), para conferir que a IA não pergunta de novo só quando reconhece uma frase conhecida.",
+     "verdade": {"seguro_desemprego": false},
+     "assuntos": [{"quando": ["(?i)seguro.desemprego"], "fatos": ["seguro_desemprego"], "responde": {"texto": "não recebi"}},
+                  {"quando": ["(?i)sa[íi]u do (seu )?[úu]ltimo emprego|pagou o inss pela [úu]ltima vez|[úu]ltima vez que (voc[êe] )?(pagou|contribuiu)"], "fatos": ["demissao_mes", "demissao_ano"],
+                   "responde": {"texto": "a firma me mandou embora em janeiro de 2023"}},
+                  {"quando": ["(?i)carteira|registrad|\\bclt\\b|trabalhava"], "fatos": ["vinculo_na_data", "demissao_mes", "demissao_ano"],
+                   "responde": {"texto": "não, tava parada, a firma me mandou embora em janeiro de 2023"}}]},
+    {"nome": "extrator_sozinho",
+     "descricao": "recebeu seguro-desemprego (dentro do prazo) e o AUDITOR fica DESLIGADO, como num escritório que o desliga: só o extrator decide os sinais. Se a IA perguntar de novo a data da demissão, a lead reclama ('já te falei') e uma reclamação só não pode virar pausa.",
+     "sobrescrever_config": {"auditor": false},
+     "verdade": {"seguro_desemprego": true},
+     "assuntos": [{"quando": ["(?i)sa[íi]u do (seu )?[úu]ltimo emprego|pagou o inss pela [úu]ltima vez|[úu]ltima vez que (voc[êe] )?(pagou|contribuiu)"], "fatos": ["demissao_mes", "demissao_ano"],
+                   "responde": {"texto": "já te falei isso, fui demitida em janeiro de 2023"}},
+                  {"quando": ["(?i)seguro.desemprego"], "fatos": ["seguro_desemprego"], "responde": {"texto": "recebi sim, as parcelas todas"}}]}
+  ],
+  "esperado": {
+    "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+    "transferencias_com_frase": ["periododegraca", "closer", "desqualificado"],
+    "contrato": {"exatamente": 0},
+    "proibido": ["(?i)causa ganha", "(?i)\\bcpf\\b", "(?i)qualidade de segurado|per[íi]odo de gra[çc]a", "(?i)\\d+ meses"],
+    "perguntar_antes": {"closer": ["(?i)seguro.desemprego"], "desqualificado": ["(?i)seguro.desemprego", "(?i)por conta pr[óo]pria|carn[êe]|\\bmei\\b|contribu"]}
+  },
+  "limites": {"turnos": 15, "custo_usd": 0.15, "parar_em": ["closer"]}
+}

@@ -1,0 +1,440 @@
+{
+  "id": "sc02_relato_completo_sem_laudo",
+  "descricao": "Inspirado no CHAT 2 do Sousa e Costa, com fatos, falas e dados inventados (só o jeito do lead foi aproveitado). O anúncio manda a mensagem padrão; a 1ª resposta do lead (à pergunta 'Me conta como aconteceu o acidente' das boas-vindas) já traz TUDO: sequela, uns 20 anos, registrado na época, 'encostado pelo INSS' (= auxílio-doença) e cortado. O SDR não pode perguntar de novo ano, carteira, auxílio-doença nem sequela: o cartão responde 'como eu falei, ...' e a checagem acusa pergunta_repetida. Pode perguntar POR QUANTO TEMPO ficou encostado (pergunta 3 do prompt). Depois: objeção de não ter mais documentação médica (no SDR e por áudio no Closer), RG por FOTO, 'Número 318 Fundos' numa mensagem só, contrato pelo ZapSign, dúvida se tem de imprimir, pergunta de prazo do processo e 'já fiz'. DESTINO pelo prompt do escritório, não pelas Regras(): pergunta 4 com SIM (CLT na data) aciona closer direto. Os 'Casos especiais' de periododegraca não valem: a própria tool exige confirmar que NÃO estava em CLT; a dúvida do lead é só o ano exato. Por isso destino fixo 'closer' (sem o oráculo): o oráculo genérico cobraria aposentado e advogado antes do closer (pulou_pergunta), e o SDR do escritório não faz essas perguntas. PROIBIDO: mandar imprimir, assinar à mão ou enviar foto do contrato (a assinatura é digital pela ZapSign), inventar prazo, prometer incluir sequela, pressionar ('precisamos agora') e desanimar ou dispensar a documentação médica. REPROVAÇÃO ESPERADA PELO PROMPT DO ESCRITÓRIO: o prompt real da Assinatura tem na FAQ 'Preciso imprimir todas as folhas? → Sim, é necessário imprimir todas as páginas, assinar e depois enviar a foto'. É a origem do erro do CHAT 2, e com o snapshot atual este cenário deve reprovar até o escritório corrigir essa linha (é o único cenário com essa pergunta: o sc10 deixou de perguntar para não esconder o resultado da regra do e-mail). LIMITE DO FORMATO: o 'no dia seguinte' do 'já fiz' não tem como ser representado (o relógio anda em minutos), e a dúvida de imprimir e a do prazo vêm ANTES da assinatura (objecoes_link), porque a simulação para em contrato_assinado. CARTÃO: o assunto 'dúvida' só casa com a PERGUNTA ('tem/ficou alguma dúvida'), não com o acolhimento 'Entendi sua dúvida...': sem '?' no balão o lead lê o balão inteiro, e o 'nao, ta tranquilo' respondia ao acolhimento no lugar do pedido de e-mail, abrindo sem querer o caminho 'sem e-mail' (rodada real 2026-11-25).",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "sobrescrever_config": {
+    "funcoes": {
+      "contrato_zapsign": true,
+      "buscar_cep": true
+    }
+  },
+  "agora": "2026-03-10T10:00:00-03:00",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5532990000202",
+    "nome_whatsapp": "Joel",
+    "persona": "Homem de 50 e poucos anos, auxiliar de produção numa fábrica de blocos. Escreve com reticências ('..'), erros de digitação ('muinto', 'epoca', 'q'), manda várias mensagens seguidas e às vezes áudio. Conta tudo de uma vez na primeira resposta e fica sem graça por não ter mais laudo nem receita.",
+    "abertura": [
+      {
+        "texto": "Olá! Tenho interesse e queria mais informações, por favor."
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "caiu de um andaime e quebrou o fêmur esquerdo, ficou com placa e 5 parafusos",
+      "acidente_ano": "não sabe o ano exato; uns 19, 20 anos atrás (por volta de 2006)",
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "auxilio_doenca_duracao": "não lembra; foi pouco tempo e cortaram",
+      "sequela": "sim",
+      "sequela_descricao": "a perna esquerda incha, dói quando o tempo muda e ele manca",
+      "documentacao_medica": "não tem mais laudo, receita nem exame da época",
+      "aposentado": false,
+      "tem_advogado_no_caso": false,
+      "nome_completo": "Joel Antunes Carvalho",
+      "cpf": "532.683.533-98",
+      "rg": "MG-14.207.385",
+      "estado_civil": "solteiro",
+      "profissao": "auxiliar de produção",
+      "cep": "39999-412",
+      "numero_casa": "318",
+      "complemento": "Fundos",
+      "email": "joel.teste@exemplo.invalid"
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que (houve|aconteceu)|me conta"
+        ],
+        "fatos": [
+          "acidente_descricao",
+          "acidente_ano",
+          "sequela",
+          "sequela_descricao",
+          "vinculo_na_data",
+          "auxilio_doenca"
+        ],
+        "responde": {
+          "picadas": [
+            "cai de um andaime e quebrei o femur da perna esquerda.. botei placa com 5 parafuso.. ja faz uns 19, 20 anos isso...",
+            "a perna nunca mais foi a msm .. incha e doi quando o tempo muda, manco um pouco.. mas sigo trabalhando normal",
+            "na epoca eu era registrado e o inss me deixou encostado uns tempo.. depois cortaram.. isso q é o tal auxilio doença?"
+          ]
+        }
+      },
+      {
+        "quando": [
+          "(?i)(qual|em que|que) ano|\\bano (foi|aconteceu)|quando (foi|aconteceu) (o|seu|esse)|h[áa] quanto tempo (foi|aconteceu)|faz quanto tempo"
+        ],
+        "fatos": [
+          "acidente_ano"
+        ],
+        "responde": {
+          "texto": "uns 19 ou 20 anos, pra saber o ano certo so olhando no aplicativo do inss 😐"
+        }
+      },
+      {
+        "quando": [
+          "(?i)carteira assinada|registrad[oa] (na|em|quando|no)|\\bclt\\b|trabalhava (de|com|registrad)|v[íi]nculo"
+        ],
+        "fatos": [
+          "vinculo_na_data"
+        ],
+        "responde": {
+          "texto": "trabalhava registrado sim, numa fabrica de blocos"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(recebeu|ficou|teve|chegou a)[^?.]{0,30}(aux[íi]lio[- ]?doen[çc]a|afastad|encostad|benef[íi]cio)"
+        ],
+        "fatos": [
+          "auxilio_doenca"
+        ],
+        "responde": {
+          "texto": "o inss me deixou encostado sim.. é isso o auxilio doença ne?"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(ficou|deixou|tem|teve|ficaram?)[^?.]{0,25}(sequela|limita[çc])|alguma (sequela|limita[çc])"
+        ],
+        "fatos": [
+          "sequela",
+          "sequela_descricao"
+        ],
+        "responde": {
+          "texto": "fiquei, a perna incha, doi e eu manco"
+        }
+      },
+      {
+        "quando": [
+          "(?i)por quanto tempo|quanto tempo (voc[êe] )?(ficou|recebeu|esteve)|durante quanto tempo"
+        ],
+        "responde": {
+          "picadas": [
+            "nao lembro direito.. sei q foi pouco tempo",
+            "cortaram logo e eu voltei pro serviço do jeito q deu rs"
+          ]
+        }
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "fatos": [
+          "aposentado"
+        ],
+        "responde": {
+          "texto": "nao sou aposentado nao, to na ativa"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\b(tem|possui|teve|contratou|algum|um|uma)\\b[^?.]{0,30}\\b(advogad|adevogad)"
+        ],
+        "fatos": [
+          "tem_advogado_no_caso"
+        ],
+        "responde": {
+          "texto": "nao tenho advogado nao"
+        }
+      },
+      {
+        "quando": [
+          "(?i)posso (te )?explicar|explicar como funciona"
+        ],
+        "responde": {
+          "picadas": [
+            "teve muito tempo q eu ia pro serviço mancando.. tomando remedio pra dor.. a perna latejava o dia inteiro",
+            "Sim"
+          ]
+        }
+      },
+      {
+        "quando": [
+          "(?i)entend\\w*[^?]{0,40}(funciona|benef[íi]cio)"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "entendi sim.. o problema é q faz tanto tempo q eu nem guardei nada, sem laudo, sem exame, sem receita.. mas se ainda der pra tentar eu quero tentar"
+        }
+      },
+      {
+        "quando": [
+          "(?i)vantage|diferen[çc]a"
+        ],
+        "responde": {
+          "picadas": [
+            "Demais",
+            "pra quem ganha pouco igual eu ajudaria muito"
+          ]
+        }
+      },
+      {
+        "quando": [
+          "(?i)entend\\w*[^?]{0,40}honor|honor[^?]{0,40}(claro|entend)"
+        ],
+        "uma_vez": false,
+        "responde": {
+          "texto": "Sim, ficou claro"
+        }
+      },
+      {
+        "quando": [
+          "(?i)honor|pode (ouvir|ver|assistir)|posso (te )?(enviar|mandar)"
+        ],
+        "uma_vez": false,
+        "responde": {
+          "texto": "sim pode mandar"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,30}\\b(sig[ao]|seguir|prosseguir|continuar|inici\\w*|avan[çc]\\w*|come[çc]\\w*|dar (entrada|continuidade|andamento))|\\btopa\\b|pr[óo]ximo passo"
+        ],
+        "aceite": true,
+        "uma_vez": false,
+        "responde": {
+          "texto": "Sim"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\b(tem|ficou|restou|alguma)\\s+(outra\\s+)?d[úu]vida"
+        ],
+        "uma_vez": false,
+        "responde": {
+          "texto": "nao, ta tranquilo"
+        }
+      },
+      {
+        "quando": [
+          "(?i)nome completo"
+        ],
+        "fatos": [
+          "nome_completo"
+        ],
+        "responde": {
+          "texto": "Joel Antunes Carvalho"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bcpf\\b"
+        ],
+        "fatos": [
+          "cpf"
+        ],
+        "responde": {
+          "texto": "53268353398"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\brg\\b|identidade|registro geral"
+        ],
+        "fatos": [
+          "rg"
+        ],
+        "responde": {
+          "tipo": "imagem",
+          "texto": "Tenho sim",
+          "descricao": "Foto de uma carteira de identidade (RG) de Minas Gerais, frente e verso, um pouco torta. Registro Geral: MG-14.207.385. Nome: JOEL ANTUNES CARVALHO. Data de expedição: 02/09/2011. Órgão expedidor: SSP/MG. Naturalidade: RIBEIRÃO DO EXEMPLO-MG."
+        }
+      },
+      {
+        "quando": [
+          "(?i)estado civil"
+        ],
+        "fatos": [
+          "estado_civil"
+        ],
+        "responde": {
+          "texto": "Solteiro"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bcep\\b"
+        ],
+        "fatos": [
+          "cep"
+        ],
+        "responde": {
+          "texto": "39999-412"
+        }
+      },
+      {
+        "quando": [
+          "(?i)complemento|n[úu]mero (d[aeo] )?(sua |seu )?(casa|resid[êe]ncia|im[óo]vel|endere[çc]o|porta)"
+        ],
+        "fatos": [
+          "numero_casa",
+          "complemento"
+        ],
+        "responde": {
+          "picadas": [
+            "Número 318 Fundos",
+            "Correto"
+          ]
+        }
+      },
+      {
+        "quando": [
+          "(?i)e-?mail"
+        ],
+        "fatos": [
+          "email"
+        ],
+        "responde": {
+          "texto": "joel.teste@exemplo.invalid"
+        }
+      },
+      {
+        "quando": [
+          "(?i)telefone|celular|n[úu]mero (de|para) contato"
+        ],
+        "responde": {
+          "texto": "pode ser esse mesmo do zap"
+        }
+      },
+      {
+        "quando": [
+          "(?i)profiss|ocupa[çc][ãa]o|trabalha (com|de) (o )?que"
+        ],
+        "fatos": [
+          "profissao"
+        ],
+        "responde": {
+          "texto": "auxiliar de produção"
+        }
+      },
+      {
+        "quando": [
+          "(?i)est[áa] (tudo )?corret|posso gerar|gerar o contrato|(est[áa]|ficou) (tudo )?(cert|corret|ok)|confere\\b"
+        ],
+        "uma_vez": false,
+        "responde": {
+          "texto": "Tudo certo"
+        }
+      }
+    ],
+    "gatilhos": [
+      {
+        "turno": 3,
+        "objecao": true,
+        "fala": {
+          "picadas": [
+            "nem sabia q existia esse direito..",
+            "so q eu nao guardei a documentação medica daquele tempo"
+          ]
+        }
+      },
+      {
+        "depois_de": "(?i)e-?mail",
+        "objecao": true,
+        "fala": {
+          "texto": "ah esqueci de falar.. de tanto mancar o joelho direito tbm começou a doer, da pra colocar junto no processo?"
+        }
+      }
+    ],
+    "ao_receber_link": "trava",
+    "objecoes_link": [
+      {
+        "texto": "assino so pelo celular msm ou depois tem q imprimir e mandar foto das folha?"
+      },
+      {
+        "texto": "e esse processo todo demora quanto tempo mais ou menos pra resolver?"
+      }
+    ],
+    "assinou": {
+      "texto": "bom dia.. ja assinei"
+    },
+    "padrao": "nao sei te dizer"
+  },
+  "ferramentas": {
+    "cep": {
+      "39999412": {
+        "logradouro": "Rua Exemplo dos Cedros",
+        "bairro": "Jardim Exemplo",
+        "cidade": "Ribeirão do Exemplo",
+        "uf": "MG"
+      }
+    },
+    "zapsign": {
+      "assina": true
+    }
+  },
+  "esperado": {
+    "destino_qualificacao": "closer",
+    "trajetoria": [
+      "sdr",
+      "closer",
+      "contratos",
+      "assinatura",
+      "contrato_assinado"
+    ],
+    "transferencias_com_frase": [
+      "closer",
+      "contratos"
+    ],
+    "ferramentas": {
+      "zapsign": 1,
+      "cep_completou_endereco": true
+    },
+    "contrato": {
+      "exatamente": 1,
+      "campos": [
+        "nome_completo",
+        "cpf",
+        "rg",
+        "estado_civil",
+        "endereco",
+        "numero_casa",
+        "complemento",
+        "bairro",
+        "cidade",
+        "uf",
+        "cep"
+      ]
+    },
+    "estado_final": "encerrado",
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)chega em instantes",
+      "(?i)\\b100 ?%(?!(?i: ?(online|on-line|on line|digital|virtual|remoto|remotamente|[aà] dist[aâ]ncia|(pelo|por|via) (o )?whats ?app|(pela|via) internet|pelo (celular|telefone)|por aqui)\\b))",
+      "(?i)com certeza (vai|você vai) (ganhar|receber)",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|nada|nenhum[ao]?)\\b)[^.!?\\n]*(?:\\b(?:precis\\w*|necess[áa]ri[oa]|tem que|ter[áa] que|deve\\w*|é preciso|basta|favor)\\b[^.!?\\n]{0,25}\\bimprim\\w*|\\bimprim\\w*[^.!?\\n]{0,40}\\b(?:assin\\w*|envi\\w*|mand\\w*|p[áa]ginas?|folhas?))",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|nada|nenhum[ao]?)\\b)[^.!?\\n]*(?:\\bassin\\w*[^.!?\\n]{0,20}(?:[àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta|no papel)|(?:[àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta|no papel)[^.!?\\n]{0,20}\\bassin\\w*)",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|nada|nenhum[ao]?)\\b)[^.!?\\n]*\\b(?:envi\\w*|mand\\w*|tir\\w*)\\b[^.!?\\n]{0,40}\\bfotos?\\b[^.!?\\n]{0,40}\\b(?:contrato|p[áa]ginas?|folhas?|assinad\\w*)",
+      "(?i)\\b\\d+\\s*dias? [úu]te(?:is|l)\\b",
+      "(?i)\\b\\d+\\s*(?:a|ou|-|à|e)\\s*\\d+\\s*(?:meses|semanas|anos)\\b",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*(?:retroativ|atrasad|acidente|aconteceu|minuto|boleto|parcel|salári))[^.!?\\n]*\\b(?:processo|pedido|a[çc][ãa]o|benef[íi]cio|an[áa]lise|resultado|resposta|concess[ãa]o|aprova\\w*|demora\\w*|leva\\w*|dura\\w*|prazo|sai\\w*)\\b[^.!?\\n]*\\b\\d+\\s*(?:meses|m[êe]s|semanas?|dias|anos?)\\b",
+      "(?i)(?:^|[.!?\\n])(?![^.!?\\n]*\\b(?:n[ãa]o|nem|sem|avali\\w*|analis\\w*|verific\\w*)\\b)[^.!?\\n]*(?:\\b(?:inclu\\w*|acrescent\\w*|coloc\\w*)\\b[^.!?\\n]{0,40}\\b(?:sequelas?|les[ãa]o|les[õo]es|joelho|tend[ãa]o)\\b|\\b(?:sequelas?|les[ãa]o|joelho|tend[ãa]o)\\b[^.!?\\n]{0,40}\\b(?:ser[áa]|vai ser|fica|entra|vai entrar)\\s+(?:\\w+\\s+)?(?:inclu[íi]d\\w*|junto|no (?:pedido|processo|caso|contrato)))",
+      "(?i)\\bprecisamos\\s+(?:\\w+\\s+){0,4}agora\\b|\\b(?:tem|teria|precisa) que ser agora\\b|\\bn[ãa]o (?:d[áa]|pode(?:mos)?) (?:pra |para )?(?:deixar|esperar) (?:pra|para) depois\\b|\\b(?:[úu]ltima|s[óo] hoje a) (?:chance|oportunidade)\\b",
+      "(?i)\\bsem (?:o |a |os |as )?(?:laudos?|documenta[çc][ãa]o|documentos? m[ée]dicos?|receitas?|exames?)\\b[^.!?\\n]{0,40}\\bn[ãa]o (?:d[áa]|tem como|consegu\\w*|é poss[íi]vel|tem direito)",
+      "(?i)\\bn[ãa]o (?:precisa|é necess[áa]ri[oa]|vai precisar)\\b(?!\\s+(?:se\\s+preocupar|ficar\\s+preocupad\\w*|se\\s+preocupe|esquentar))[^.!?\\n]{0,25}\\b(?:de )?(?:nenhum[ao]? )?(?:laudos?|documenta[çc][ãa]o m[ée]dica|documentos? m[ée]dicos?|receitas?|exames?)\\b"
+    ],
+    "obrigatorio_em": {
+      "sdr": [
+        "(?i)aux[íi]lio[- ]?doen[çc]a|benef[íi]cio por incapacidade"
+      ],
+      "closer": [
+        "(?i)honor"
+      ],
+      "assinatura": [
+        "(?i)digital|eletr[ôo]nic|pelo (celular|link|telefone)|n[ãa]o (precisa|[ée] necess[áa]rio)[^.!?\\n]{0,30}imprim"
+      ]
+    },
+    "fatos": {
+      "nome_completo": "Joel Antunes Carvalho",
+      "estado_civil": "solteiro",
+      "numero_casa": "318",
+      "complemento": "Fundos"
+    }
+  },
+  "limites": {
+    "turnos": 35,
+    "custo_usd": 0.35
+  }
+}

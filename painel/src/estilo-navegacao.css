@@ -1,0 +1,409 @@
+/* =========================================================================
+   Navegação do painel: menu lateral, barra do topo e gaveta do celular.
+   Desenho copiado do LawChat Gestão (menu flutuante a 12px da borda, seleção
+   que desliza, ícone ativo que se desenha, cartão do usuário com brilho, topo
+   de vidro), na cor de marca verde LawChat. Usado por componentes/Estrutura.tsx.
+   Carrega DEPOIS do estilo.css; as classes "lc-*" são só daqui.
+   ========================================================================= */
+:root {
+  --nav-largura: 248px;
+  --nav-largura-recolhido: 68px;
+  --nav-margem: 12px;
+  --nav-marca: var(--acento, #00BC33);
+  --nav-marca-forte: var(--acento-forte, #009926);
+  --nav-marca-suave: var(--acento-suave, #EAF6E9);
+  --nav-marca-brilho: rgba(0, 188, 51, .55);
+  --nav-degrade: linear-gradient(140deg, #3BE062 0%, #00BC33 48%, #00852A 100%);
+  --nav-fundo: var(--surface, #FFFFFF);
+  --nav-borda: var(--line, #E2E8F0);
+  --nav-texto: var(--ink, #1E293B);
+  --nav-texto-2: var(--ink-2, #475569);
+  --nav-texto-3: var(--ink-3, #64748B);
+  --nav-hover: rgba(30, 41, 59, .055);
+  --nav-sombra: 0 6px 24px rgba(30, 41, 59, .08);
+  --nav-sombra-forte: 0 18px 48px rgba(30, 41, 59, .12);
+  --nav-sombra-pilula: 0 10px 15px -3px rgba(30, 41, 59, .08), 0 4px 6px -4px rgba(30, 41, 59, .06);
+  --nav-suave: cubic-bezier(.22, 1, .36, 1);
+  --nav-mola: cubic-bezier(.32, .72, 0, 1);
+  --nav-salto: cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.lc-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+
+/* ------------------------------------------------------------ casca (grade) */
+.lc-casca {
+  --nav-w: var(--nav-largura);
+  display: grid;
+  grid-template-columns: calc(var(--nav-w) + var(--nav-margem)) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  height: 100dvh;
+  background:
+    radial-gradient(1200px 520px at 0% 0%, rgba(0, 188, 51, .05), transparent 60%),
+    var(--bg, #F1F5F9);
+  transition: grid-template-columns .22s var(--nav-suave);
+}
+.lc-casca.recolhido { --nav-w: var(--nav-largura-recolhido); }
+
+/* ------------------------------------------------------------ menu lateral */
+.lc-menu {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: var(--nav-margem) 0 var(--nav-margem) var(--nav-margem);
+  border: 1px solid var(--nav-borda);
+  border-radius: 16px;
+  background-color: var(--nav-fundo);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--nav-marca) 7%, var(--nav-fundo)) 0%, var(--nav-fundo) 40%);
+  color: var(--nav-texto);
+  box-shadow: var(--nav-sombra);
+  overflow: hidden;
+}
+
+.lc-menu-cab { display: flex; align-items: center; gap: 8px; height: 64px; flex: none; padding: 0 12px 0 16px; }
+.recolhido .lc-menu-cab { justify-content: center; padding: 0 8px; }
+.lc-marca { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--nav-texto); text-decoration: none; border-radius: 10px; }
+.lc-marca-icone {
+  position: relative; flex: none; width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center;
+  font-size: 14px; font-weight: 700; color: #fff; background: var(--nav-degrade);
+  box-shadow: 0 6px 14px -6px var(--nav-marca-brilho), inset 0 1px 0 rgba(255, 255, 255, .35);
+  transition: transform .35s var(--nav-salto);
+}
+.lc-marca:hover .lc-marca-icone { transform: rotate(-6deg) scale(1.06); }
+.lc-marca-ponto { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 50%; background: var(--ok, #00A32C); border: 2px solid var(--nav-fundo); }
+.lc-marca-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.lc-marca-txt b { font-size: 15px; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; }
+.lc-marca-txt small { font-size: 11px; color: var(--nav-texto-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.lc-cab-btn {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 7px;
+  background: transparent; color: var(--nav-texto-2); transition: background-color .15s, color .15s, transform .15s;
+}
+.lc-cab-btn:hover { background: var(--nav-hover); color: var(--nav-texto); }
+.lc-cab-btn:active { transform: scale(.94); }
+.lc-cab-btn svg { width: 16px; height: 16px; }
+.lc-recolher { margin-left: auto; }
+.lc-expandir { width: 32px; height: 32px; margin: 0 auto 8px; }
+.lc-fechar { display: none; width: 32px; height: 32px; margin-left: auto; }
+
+/* Seletor de escritório (equipe LawChat). */
+.lc-escritorio { flex: none; margin: 0 12px 14px; }
+.lc-escritorio-campo { position: relative; }
+.lc-escritorio-campo svg { position: absolute; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.lc-escritorio-icone { left: 11px; width: 15px; height: 15px; color: var(--nav-marca); stroke: url(#lc-grad-icone) var(--nav-marca); }
+.lc-escritorio-seta { right: 10px; width: 14px; height: 14px; color: var(--nav-texto-3); }
+.lc-escritorio select {
+  appearance: none; -webkit-appearance: none; width: 100%; height: 38px; padding: 0 30px 0 33px;
+  border: 1px solid var(--nav-borda); border-radius: 10px; background: color-mix(in srgb, var(--nav-fundo) 75%, transparent);
+  font-size: 13px; font-weight: 600; color: var(--nav-texto); cursor: pointer; text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04); transition: border-color .15s, box-shadow .2s, background-color .15s;
+}
+.lc-escritorio select:hover { border-color: color-mix(in srgb, var(--nav-marca) 40%, var(--nav-borda)); background: var(--nav-fundo); }
+.lc-escritorio select:focus-visible { outline: none; border-color: var(--nav-marca); box-shadow: 0 0 0 3px var(--nav-marca-suave); }
+
+/* Lista de seções. */
+.lc-nav {
+  flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 0 12px 12px;
+  overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent;
+}
+.lc-nav:hover { scrollbar-color: var(--nav-borda) transparent; }
+.recolhido .lc-nav { padding: 0 8px 12px; }
+.lc-secao { margin-bottom: 16px; }
+.recolhido .lc-secao { margin-bottom: 8px; padding-top: 8px; border-top: 1px solid var(--nav-borda); }
+.recolhido .lc-secao:first-child { padding-top: 0; border-top: 0; }
+.lc-secao-titulo {
+  margin: 0; padding: 0 10px 6px; font-family: var(--body); font-size: 10.5px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: color-mix(in srgb, var(--nav-texto-2) 80%, transparent);
+}
+.lc-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+
+/* Item do menu. */
+.lc-item {
+  position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px;
+  font-size: 13.5px; font-weight: 500; color: var(--nav-texto-2); text-decoration: none;
+  transition: background-color .15s, color .15s;
+}
+.lc-item > :not(.lc-item-ativo) { position: relative; }
+.lc-item:hover { background: var(--nav-hover); color: var(--nav-texto); }
+.lc-item.active { color: var(--nav-texto); font-weight: 600; }
+.lc-item.active:hover { background: transparent; }
+.recolhido .lc-item { justify-content: center; padding: 0; }
+.lc-item-rot { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Seleção que desliza: um único fundo (layoutId) que o framer-motion leva de um item ao outro. */
+.lc-item-ativo {
+  position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none;
+  background: color-mix(in srgb, var(--nav-marca) 15%, transparent);
+  box-shadow: 0 6px 18px -12px var(--nav-marca-brilho), inset 0 0 0 1px color-mix(in srgb, var(--nav-marca) 10%, transparent);
+}
+/* Brilho que respira no fundo do item ativo (só opacidade: leve para a placa de vídeo). */
+.lc-item-ativo::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(120% 160% at 0% 50%, color-mix(in srgb, var(--nav-marca) 30%, white 10%), transparent 65%);
+  animation: lc-respira 2.6s ease-in-out infinite;
+}
+@keyframes lc-respira { 0%, 100% { opacity: .15; } 50% { opacity: .6; } }
+
+.lc-item-icone { display: grid; place-items: center; flex: none; }
+.lc-item-icone svg, .lc-item-icone svg.i { width: 17px; height: 17px; transition: color .15s, transform .25s var(--nav-salto); }
+.lc-item:hover .lc-item-icone svg { transform: scale(1.08); }
+/* Ícone ativo: degradê verde e traço que se desenha ao entrar. */
+.lc-item.active .lc-item-icone svg {
+  color: var(--nav-marca); stroke: url(#lc-grad-icone) var(--nav-marca);
+  animation: lc-desenha .9s cubic-bezier(.65, 0, .35, 1) backwards;
+}
+@keyframes lc-desenha {
+  from { stroke-dasharray: 70; stroke-dashoffset: 70; }
+  to { stroke-dasharray: 70; stroke-dashoffset: 0; }
+}
+.lc-item-cnt {
+  flex: none; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 99px; display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700; line-height: 1; color: #fff; background: var(--bad, #DC2626);
+  box-shadow: 0 4px 10px -4px rgba(220, 38, 38, .6); animation: lc-marcar .35s var(--nav-salto) both;
+}
+.lc-item-ponto {
+  position: absolute; top: -3px; right: -4px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--bad, #DC2626); box-shadow: 0 0 0 2px var(--nav-fundo); animation: lc-marcar .35s var(--nav-salto) both;
+}
+@keyframes lc-marcar { from { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } to { transform: scale(1); } }
+
+/* Dica do menu recolhido. */
+.lc-dica.lc-dica { font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 8px; background: var(--nav-texto); color: #fff; border-color: transparent; box-shadow: var(--nav-sombra); }
+
+/* Submenu do agente aberto (no lugar das abas). */
+.lc-sub { margin: 2px 0 6px 16px; animation: lc-subir .25s var(--nav-suave) both; }
+.lc-sub-cab {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: 8px;
+  background: transparent; font-size: 12.5px; font-weight: 700; color: var(--nav-texto); text-align: left; transition: background-color .15s;
+}
+.lc-sub-cab:hover { background: var(--nav-hover); }
+.lc-sub-nome { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-sub-ponto { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn, #B26B00); }
+.lc-sub-ponto[data-ativo="true"] { background: var(--ok, #00A32C); box-shadow: 0 0 0 3px var(--ok-soft, #E3F7E8); }
+.lc-sub-seta { flex: none; color: var(--nav-texto-3); transform: rotate(-90deg); transition: transform .2s var(--nav-suave); }
+.lc-sub-seta.aberta { transform: none; }
+.lc-sub-itens { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 0 11px; padding-left: 10px; border-left: 1.5px solid var(--nav-borda); }
+.lc-sub-itens a {
+  position: relative; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 7px;
+  font-size: 12.5px; font-weight: 500; color: var(--nav-texto-2); text-decoration: none; transition: background-color .15s, color .15s;
+}
+.lc-sub-itens a span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-sub-itens a::before {
+  content: ""; position: absolute; left: -13.5px; top: 50%; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--nav-borda); transform: translateY(-50%); transition: background-color .2s, box-shadow .2s;
+}
+.lc-sub-itens a:hover { background: var(--nav-hover); color: var(--nav-texto); }
+.lc-sub-itens a.active { background: color-mix(in srgb, var(--nav-marca) 12%, transparent); color: var(--nav-texto); font-weight: 600; }
+.lc-sub-itens a.active::before { background: var(--nav-marca); box-shadow: 0 0 0 3px var(--nav-marca-suave); }
+.lc-sub-itens a.active svg { color: var(--nav-marca); stroke: url(#lc-grad-icone) var(--nav-marca); }
+@keyframes lc-subir { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ------------------------------------------------------------ cartão do usuário (rodapé) */
+.lc-rodape { flex: none; padding: 8px; border-top: 1px solid var(--nav-borda); }
+.lc-usuario {
+  position: relative; overflow: hidden; padding: 14px; border: 1px solid var(--nav-borda); border-radius: 16px;
+  background: color-mix(in srgb, var(--nav-fundo) 80%, transparent); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+  box-shadow: 0 14px 30px -18px rgba(30, 41, 59, .28); transition: border-color .3s;
+}
+.lc-usuario:hover { border-color: color-mix(in srgb, var(--nav-marca) 22%, var(--nav-borda)); }
+.lc-usuario-brilho { position: absolute; top: -48px; right: -48px; width: 96px; height: 96px; border-radius: 50%; background: rgba(0, 188, 51, .2); filter: blur(36px); pointer-events: none; }
+/* filete de marca na borda de baixo */
+.lc-usuario::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--nav-marca) 35%, transparent), transparent);
+}
+.lc-usuario-id { position: relative; display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.lc-av {
+  position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--nav-marca) 22%, transparent);
+  background: linear-gradient(135deg, var(--surface-2, #F8FAFC), var(--nav-fundo));
+  box-shadow: inset 0 2px 4px rgba(15, 23, 42, .05); font-size: 16px; font-weight: 700; line-height: 1;
+}
+.lc-av-letras { background: var(--nav-degrade); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lc-online {
+  position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--nav-fundo); background: var(--ok, #00A32C); box-shadow: 0 0 6px var(--ok, #00A32C);
+}
+.lc-usuario-txt { flex: 1; min-width: 0; }
+.lc-usuario-txt b { display: block; font-size: 14px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-usuario-txt span { display: block; margin-top: 1px; font-size: 11px; font-weight: 600; color: var(--nav-texto-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-usuario-acoes { position: relative; display: flex; align-items: center; gap: 8px; }
+.lc-sair {
+  position: relative; flex: 1; height: 36px; display: flex; align-items: center; justify-content: center; gap: 8px; overflow: hidden;
+  border: 1px solid var(--nav-borda); border-radius: 12px; background: rgba(30, 41, 59, .03);
+  font-size: 12px; font-weight: 600; color: var(--nav-texto-2); transition: background-color .3s, color .3s, transform .15s;
+}
+.lc-sair::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(30, 41, 59, .07), transparent); transition: transform .7s ease;
+}
+.lc-sair:hover { background: rgba(30, 41, 59, .07); color: var(--nav-texto); }
+.lc-sair:hover::before { transform: translateX(100%); }
+.lc-sair:active { transform: scale(.95); }
+.lc-sair svg { width: 14px; height: 14px; }
+.lc-config {
+  flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--nav-marca) 22%, transparent); background: var(--nav-marca-suave);
+  color: var(--nav-marca-forte); transition: background-color .3s, transform .15s;
+}
+.lc-config:hover { background: color-mix(in srgb, var(--nav-marca) 20%, transparent); }
+.lc-config:active { transform: scale(.95); }
+.lc-config svg { width: 16px; height: 16px; stroke: url(#lc-grad-icone) var(--nav-marca-forte); transition: transform .35s var(--nav-suave); }
+.lc-config:hover svg { transform: rotate(45deg); }
+.lc-usuario-mini { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0; }
+.lc-usuario-mini .lc-av { width: 40px; height: 40px; font-size: 14px; }
+
+/* ------------------------------------------------------------ conteúdo e barra do topo */
+.lc-veu { display: none; }
+.lc-conteudo { grid-column: 2; grid-row: 1; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.lc-topo {
+  position: relative; z-index: 30; flex: none; display: flex; align-items: center; gap: 10px; min-height: 56px;
+  margin: var(--nav-margem) 16px 0 var(--nav-margem); padding: 8px 8px 8px 18px;
+  border: 1px solid var(--nav-borda); border-radius: 16px;
+  background: color-mix(in srgb, var(--nav-fundo) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--nav-sombra);
+}
+.lc-topo-menu { display: none; }
+.lc-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: var(--nav-texto-3); }
+.lc-crumb-esc { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-crumb-sep { flex: none; width: 14px; height: 14px; color: var(--line-2, #CBD5E1); }
+.lc-crumb-atual { min-width: 0; display: flex; }
+.lc-crumb-atual b { color: var(--nav-texto); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: lc-crumb-entra .3s var(--nav-suave) both; }
+@keyframes lc-crumb-entra { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+.lc-sp { flex: 1; min-width: 0; }
+
+.lc-busca {
+  flex: none; display: flex; align-items: center; gap: 8px; min-width: 240px; height: 38px; padding: 0 6px 0 12px;
+  border: 1px solid var(--nav-borda); border-radius: 999px; background: color-mix(in srgb, var(--surface-2, #F8FAFC) 85%, transparent);
+  font-size: 13px; color: var(--nav-texto-3); transition: border-color .15s, box-shadow .2s, background-color .15s, color .15s;
+}
+.lc-busca svg { flex: none; width: 15px; height: 15px; }
+.lc-busca span { flex: 1; text-align: left; }
+.lc-busca kbd { border-radius: 999px; padding: 2px 8px; }
+.lc-busca:hover { border-color: color-mix(in srgb, var(--nav-marca) 40%, var(--nav-borda)); background: var(--nav-fundo); color: var(--nav-texto-2); box-shadow: 0 0 0 3px var(--nav-marca-suave); }
+.lc-busca:hover svg { color: var(--nav-marca); stroke: url(#lc-grad-icone) var(--nav-marca); }
+
+/* Pílula da direita (sino, ajuda, avatar), como a do Gestão. */
+.lc-pilula {
+  flex: none; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--nav-borda); border-radius: 999px;
+  background: color-mix(in srgb, var(--nav-fundo) 80%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: var(--nav-sombra-pilula);
+}
+.lc-ico {
+  position: relative; flex: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--nav-texto-2); text-decoration: none; transition: background-color .15s, color .15s, transform .15s;
+}
+.lc-ico:hover { background: var(--nav-hover); color: var(--nav-texto); }
+.lc-ico:active { transform: scale(.94); }
+.lc-ico svg { width: 18px; height: 18px; }
+.lc-ico:hover .lc-sino { animation: lc-balanca .6s ease-in-out; transform-origin: 50% 10%; }
+@keyframes lc-balanca { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(14deg); } 40% { transform: rotate(-10deg); } 60% { transform: rotate(6deg); } 80% { transform: rotate(-3deg); } }
+.lc-badge {
+  position: absolute; top: -2px; right: -2px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 99px;
+  display: grid; place-items: center; font-size: 10px; font-weight: 700; line-height: 1; color: #fff; pointer-events: none;
+  background: var(--bad, #DC2626); box-shadow: 0 0 0 2px var(--nav-fundo); animation: lc-marcar .35s var(--nav-salto) both;
+}
+.lc-topo-av {
+  flex: none; width: 32px; height: 32px; margin: 0 2px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--nav-degrade);
+  box-shadow: 0 0 0 2px var(--nav-fundo), 0 0 0 3.5px color-mix(in srgb, var(--nav-marca) 35%, transparent);
+}
+
+/* Busca Ctrl K: fundo com desfoque e item escolhido com ícone em degradê. */
+.busca-ov { background: rgba(15, 23, 42, .32); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.busca-caixa { box-shadow: var(--nav-sombra-forte), 0 0 0 1px rgba(255, 255, 255, .5) inset; }
+.busca-lista button { transition: background-color .12s, color .12s; }
+.busca-lista button.on svg { stroke: url(#lc-grad-icone) var(--nav-marca); }
+
+/* ------------------------------------------------------------ celular: menu vira gaveta */
+@media (max-width: 820px) {
+  /* Uma coluna só: o conteúdo ocupa a largura toda (antes caía numa coluna de 0px e sumia). */
+  .lc-casca, .lc-casca.recolhido { grid-template-columns: minmax(0, 1fr); }
+  .lc-conteudo { grid-column: 1; }
+
+  .lc-menu {
+    position: fixed; top: 8px; bottom: 8px; left: 8px; z-index: 60; margin: 0;
+    width: min(272px, calc(100vw - 56px));
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, .35);
+    transform: translateX(calc(-100% - 16px)); visibility: hidden;
+    transition: transform .42s var(--nav-mola), visibility 0s linear .42s;
+  }
+  .gaveta-aberta .lc-menu { transform: none; visibility: visible; transition: transform .42s var(--nav-mola), visibility 0s; }
+  .lc-fechar { display: grid; }
+  .lc-recolher, .lc-expandir { display: none; }
+
+  .lc-veu {
+    display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, .5);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); opacity: 0; pointer-events: none; transition: opacity .18s ease;
+  }
+  .gaveta-aberta .lc-veu { opacity: 1; pointer-events: auto; }
+
+  /* Topo vira a faixa de vidro de 64px, com o botão do menu à esquerda. */
+  .lc-topo {
+    gap: 8px; min-height: 64px; margin: 0; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--nav-borda); border-radius: 0;
+    background: color-mix(in srgb, var(--bg, #F1F5F9) 75%, transparent);
+    -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); box-shadow: none;
+  }
+  .lc-topo-menu {
+    flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+    border: 1px solid var(--nav-borda); border-radius: 12px; background: color-mix(in srgb, var(--nav-fundo) 80%, transparent);
+    color: var(--nav-texto-2); box-shadow: var(--nav-sombra); transition: transform .15s, color .15s;
+  }
+  .lc-topo-menu:hover { color: var(--nav-texto); }
+  .lc-topo-menu:active { transform: scale(.95); }
+  .lc-topo-menu svg { width: 20px; height: 20px; }
+  .lc-crumb-esc, .lc-crumb-sep { display: none; }
+  .lc-busca { min-width: 0; width: 40px; height: 40px; padding: 0; justify-content: center; background: color-mix(in srgb, var(--nav-fundo) 80%, transparent); box-shadow: var(--nav-sombra-pilula); }
+  .lc-busca svg { width: 17px; height: 17px; }
+  .lc-busca span, .lc-busca kbd { display: none; }
+  .lc-ico { width: 34px; height: 34px; }
+  .lc-escritorio select { font-size: 16px; } /* < 16px faz o iPhone dar zoom ao tocar */
+}
+@media (max-width: 360px) {
+  .lc-topo-av { display: none; }
+}
+
+/* Central de Atendimento: a Helena embutida ocupa a tela inteira; só a faixa com "Voltar ao painel". */
+.lc-modo-atendimento { position: fixed; inset: 0; display: flex; flex-direction: column; background: #fff; z-index: 40; }
+
+/* Modo superadmin: faixa fina no topo (uma linha), com o "Voltar para a conta". */
+.lc-faixa-superadmin { display: flex; align-items: center; gap: 8px; margin: 8px 24px 0; padding: 6px 8px 6px 12px; border-radius: 10px;
+  background: #155c31; color: #fff; font-size: 12.5px; line-height: 1.3; }
+.lc-faixa-superadmin > svg { width: 14px; height: 14px; flex-shrink: 0; color: #8ef0a8; }
+.lc-faixa-superadmin > span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-faixa-voltar { flex-shrink: 0; background: rgba(255,255,255,.14); color: #fff; font-weight: 600; font-size: 12px; padding: 4px 10px; border-radius: 7px; text-decoration: none; }
+.lc-faixa-voltar:hover { background: rgba(255,255,255,.24); }
+@media (max-width: 820px) { .lc-faixa-superadmin { margin: 8px 12px 0; } .lc-faixa-superadmin > span { white-space: normal; } }
+
+/* Menu lateral limpo: sem o degradê verde no topo nem o brilho no cartão do usuário. */
+.lc-menu { background-image: none; }
+.lc-usuario-brilho, .lc-usuario::after { display: none; }
+.lc-usuario { background: var(--nav-fundo); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
+
+/* Ícone da LawChat no topo do menu. */
+.lc-marca-logo { flex: none; width: 30px; height: 31px; object-fit: contain; display: block; }
+
+/* Busca rápida (Ctrl K): centralizada na tela, campo sem caixa verde. */
+.busca-ov { align-items: flex-start; justify-content: center; }
+.busca-caixa { margin: 14vh auto auto; width: min(600px, calc(100% - 32px)); border-radius: 16px; overflow: hidden; }
+.busca-campo { padding: 14px 16px; }
+.busca-campo input, .busca-campo input:focus, .busca-campo input:focus-visible { border: 0 !important; outline: 0 !important; box-shadow: none !important; padding: 0; height: auto; background: transparent; font-size: 15px; }
+
+/* Foto de perfil da equipe LawChat (no lugar das iniciais). */
+.lc-av-foto { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.lc-topo-av:has(.lc-av-foto), .lc-av:has(.lc-av-foto) { padding: 0; overflow: visible; background: #0b0d0f; }
+.lc-topo-av .lc-av-foto { width: 100%; height: 100%; }
+
+/* Botão "Admin" na barra de cima (equipe LawChat): entra no modo superadmin. */
+.lc-btn-admin { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  color: #0f3d22; background: #e8f9ee; border: 1px solid rgba(0,188,51,.25); text-decoration: none; margin-right: 4px; }
+.lc-btn-admin svg { width: 15px; height: 15px; color: #00a32c; }
+.lc-btn-admin:hover { background: #d6f5e0; }
+button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }

@@ -1,0 +1,353 @@
+{
+  "id": "sc10_contrato_sem_email",
+  "descricao": "CLT, queda de moto a caminho do serviço, joelho com sequela; vai até a assinatura. Regra do prompt do Agente Contrato, 'E-mail e RG são opcionais': o lead diz que não tem e-mail (e RG em mãos) e a IA responde só 'Sem problema, seguimos sem.', não pede para criar e-mail e gera o contrato sem ele ('O contrato pode ser gerado sem e-mail e sem RG'); CEP pelo buscarcep (3a). Recebe o link e assina sem perguntar nada: a dúvida de imprimir fica só no sc02 (reprovação esperada pelo prompt do escritório, cuja FAQ da Assinatura manda imprimir), para não esconder aqui o resultado da regra do e-mail. Destino pelo oráculo: CLT na data → closer, igual à pergunta 4 do SDR. Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado ('leva 3 a 6 meses', 'em até 5 dias úteis'), prometer incluir sequela no contrato e a pressão 'precisamos iniciar agora'. O CPF vem limpo ('205.096.961-98'): até a rodada real de 2026-11-25 o cartão mandava '205.096.961.98' (ponto no lugar do hífen) sem a descrição prever, a IA pediu o CPF 'correto' em laço e a regra do e-mail não chegou a ser exercida; a variação virou o cenário próprio sc20_cpf_pontuacao_torta. O assunto do número da casa usa '\\bnúmero\\b', para não casar com 'números e dígitos' de um pedido de CPF.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000110",
+    "nome_whatsapp": "Osvaldo",
+    "persona": "Homem de 46 anos, ajudante de pedreiro, escreve sem pontuação e manda áudio quando a frase é longa.",
+    "abertura": [
+      {
+        "texto": "Olá! Tenho interesse e queria mais informações, por favor."
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "queda de moto indo para a obra",
+      "acidente_mes": 4,
+      "acidente_ano": 2024,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "sequela": "sim",
+      "sequela_descricao": "joelho esquerdo falseia, não sobe escada direito",
+      "aposentado": false,
+      "tem_advogado_no_caso": false,
+      "nome_completo": "Osvaldo Brito Lacerda",
+      "cpf": "205.096.961-98",
+      "cep": "38402-915",
+      "numero_casa": "318"
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+        ],
+        "responde": {
+          "picadas": [
+            "eu cai de moto indo pra obra",
+            "machuquei o joelho esquerdo",
+            "ate hoje ele falseia e nao subo escada direito"
+          ]
+        },
+        "fatos": [
+          "acidente_descricao",
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+        ],
+        "responde": {
+          "texto": "foi em abril de 2024"
+        },
+        "fatos": [
+          "acidente_mes",
+          "acidente_ano"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "Recebi sim, fiquei uns 3 meses encostado pelo INSS"
+        },
+        "fatos": [
+          "auxilio_doenca"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+        ],
+        "responde": {
+          "texto": "uns meses, nao lembro certinho"
+        }
+      },
+      {
+        "quando": [
+          "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+        ],
+        "responde": {
+          "texto": "tava sim de carteira assinada na construtora"
+        },
+        "fatos": [
+          "vinculo_na_data"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)sequela|limita[çc]|dificuldade|ficou com"
+        ],
+        "responde": {
+          "texto": "fiquei com essa limitação sim"
+        },
+        "fatos": [
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "responde": {
+          "texto": "nao sou aposentado nao"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(?<!costa )(?<!dos )advogad"
+        ],
+        "responde": {
+          "texto": "nao tenho advogado nenhum"
+        }
+      },
+      {
+        "quando": [
+          "(?i)posso te explicar|quer que eu (te )?explique"
+        ],
+        "responde": {
+          "texto": "pode sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)conseguiu entender|ficou claro|entendeu"
+        ],
+        "responde": {
+          "texto": "entendi sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)fariam diferen[çc]a|dia a dia"
+        ],
+        "responde": {
+          "texto": "ia ajudar demais, to apertado"
+        }
+      },
+      {
+        "quando": [
+          "(?i)falar sobre (os )?honor|posso te (enviar|mandar)|pode ouvir"
+        ],
+        "responde": {
+          "texto": "pode mandar"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,40}\\b(sig[ao]|seguir|prosseguir|continuar|avan[çc]ar|iniciar a coleta|dar (entrada|continuidade|andamento))|\\btopa\\b|coleta dos (seus )?dados"
+        ],
+        "responde": {
+          "texto": "pode sim, vamos"
+        },
+        "aceite": true
+      },
+      {
+        "quando": [
+          "(?i)nome completo"
+        ],
+        "responde": {
+          "texto": "Osvaldo Brito Lacerda"
+        },
+        "fatos": [
+          "nome_completo"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\bcpf\\b"
+        ],
+        "responde": {
+          "texto": "205.096.961-98"
+        },
+        "fatos": [
+          "cpf"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\brg\\b|identidade"
+        ],
+        "responde": {
+          "texto": "o rg nao to com ele aqui agora"
+        }
+      },
+      {
+        "quando": [
+          "(?i)estado civil"
+        ],
+        "responde": {
+          "texto": "uniao estavio"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bcep\\b"
+        ],
+        "responde": {
+          "texto": "38402915"
+        },
+        "fatos": [
+          "cep"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\bn[úu]mero\\b(?!\\s+(?:d[eo]\\s+)?(?:seu\\s+|sua\\s+)?(?:telefone|contato|celular|whats|cpf|rg|documento|identidade))"
+        ],
+        "responde": {
+          "texto": "318, é casa"
+        },
+        "fatos": [
+          "numero_casa"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)complemento"
+        ],
+        "responde": {
+          "texto": "nao tem complemento, é casa"
+        },
+        "fatos": [
+          "complemento"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)e-?mail"
+        ],
+        "responde": {
+          "texto": "nao tenho email nao moça"
+        },
+        "fatos": [
+          "email"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)telefone|celular|whats"
+        ],
+        "responde": {
+          "texto": "(31) 99000-0110 esse mesmo do zap"
+        },
+        "fatos": [
+          "telefone_contrato"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)profiss"
+        ],
+        "responde": {
+          "texto": "ajudante de pedreiro"
+        }
+      },
+      {
+        "quando": [
+          "(?i)tudo (est[áa] )?corret|posso gerar|gerar o contrato|confirmar juntos|(est[áa]|ficou) tudo cert"
+        ],
+        "responde": {
+          "texto": "isso ta certo pode gerar"
+        },
+        "uma_vez": false
+      }
+    ],
+    "ao_receber_link": "assina",
+    "assinou": {
+      "texto": "pronto assinei, tirei a selfie e tudo"
+    },
+    "padrao": "nao sei te dizer"
+  },
+  "ferramentas": {
+    "cep": {
+      "38402915": {
+        "logradouro": "Rua Exemplo dos Ipês",
+        "bairro": "Jardim Exemplo",
+        "cidade": "Serra Azul do Exemplo",
+        "uf": "MG"
+      }
+    },
+    "zapsign": {
+      "assina": true
+    }
+  },
+  "esperado": {
+    "contrato": {
+      "exatamente": 1,
+      "campos": [
+        "nome_completo",
+        "cpf",
+        "endereco",
+        "bairro",
+        "cidade",
+        "uf"
+      ]
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+      "(?i)cri(e|ar|a|ando)\\s+(um|uma|o seu|seu)?\\s*e-?mail|e-?mail (novo|depois)|quando (tiver|criar) (o |um )?e-?mail",
+      "(?i)(enviad|mandad|receber|chegar|chega)\\w*\\s+[^.?!\\n]{0,25}por e-?mail"
+    ],
+    "destino_qualificacao": {
+      "oraculo": "auxilio_acidente"
+    },
+    "trajetoria": [
+      "sdr",
+      "closer",
+      "contratos",
+      "assinatura",
+      "contrato_assinado"
+    ],
+    "transferencias_com_frase": [
+      "closer",
+      "contratos"
+    ],
+    "ferramentas": {
+      "zapsign": 1,
+      "cep_completou_endereco": true
+    },
+    "estado_final": "encerrado",
+    "obrigatorio_em": {
+      "closer": [
+        "(?i)honor"
+      ],
+      "contratos": [
+        "(?i)seguimos sem|sem problema"
+      ]
+    },
+    "fatos": {
+      "nome_completo": "Osvaldo Brito Lacerda",
+      "cpf": "205.096.961-98",
+      "cidade": "Serra Azul do Exemplo"
+    }
+  },
+  "limites": {
+    "turnos": 30,
+    "custo_usd": 0.35
+  }
+}

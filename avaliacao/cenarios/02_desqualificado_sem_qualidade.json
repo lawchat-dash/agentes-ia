@@ -1,0 +1,52 @@
+{
+  "id": "02_desqualificado_sem_qualidade",
+  "descricao": "Autônomo sem contribuição desde junho de 2019, acidente em agosto de 2024: o período de graça confere e desqualifica, com despedida cordial e sem pedir CPF.",
+  "agente": "avaliacao/agentes/catalogo_referencia.json",
+  "agora": "2026-03-10T10:00:00-03:00",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5511990000002",
+    "nome_whatsapp": "Roberto",
+    "persona": "Homem de 52 anos, pedreiro autônomo, escreve com erros de digitação e responde curto.",
+    "abertura": [{"texto": "boa tarde, machuquei as costas numa obra, tenho direito a alguma coisa?"}],
+    "verdade": {
+      "acidente_descricao": "queda de escada numa obra",
+      "acidente_mes": 8, "acidente_ano": 2024,
+      "vinculo_na_data": "mei_autonomo_ci",
+      "sequela": "sim", "sequela_descricao": "dor na coluna, não carrega peso",
+      "aposentado": false, "tem_advogado_no_caso": false,
+      "demissao_mes": 6, "demissao_ano": 2019,
+      "seguro_desemprego": false, "contribuiu_por_conta_propria": false
+    },
+    "assuntos": [
+      {"quando": ["(?i)como (foi|aconteceu)|o que aconteceu|me conta"], "fatos": ["acidente_descricao", "acidente_mes", "acidente_ano"],
+       "responde": {"texto": "caí de uma escada numa obra em agosto de 2024"}},
+      {"quando": ["(?i)carteira|registrad|clt|trabalhava"], "fatos": ["vinculo_na_data"],
+       "responde": {"texto": "não, eu era autônomo, fazia bico de pedreiro"}},
+      {"quando": ["(?i)sequela|limita[çc]|dificuldade|ficou com"], "fatos": ["sequela", "sequela_descricao"],
+       "responde": {"texto": "fiquei com dor na coluna, não consigo carregar peso"}},
+      {"quando": ["(?i)aposentad|aposentou"], "fatos": ["aposentado"], "responde": {"texto": "não sou aposentado"}},
+      {"quando": ["(?i)advogad"], "fatos": ["tem_advogado_no_caso"], "responde": {"texto": "não tenho"}},
+      {"quando": ["(?i)[úu]ltima vez|quando (foi que )?(voc[êe] )?(pagou|contribuiu)|sa[íi]u do (seu )?[úu]ltimo emprego"],
+       "fatos": ["demissao_mes", "demissao_ano"], "responde": {"texto": "a última vez que paguei o INSS foi em junho de 2019"}},
+      {"quando": ["(?i)seguro.desemprego"], "fatos": ["seguro_desemprego"], "responde": {"texto": "não, nunca recebi seguro"}},
+      {"quando": ["(?i)depois disso|por conta pr[óo]pria|carn[êe]|\\bmei\\b"], "fatos": ["contribuiu_por_conta_propria"],
+       "responde": {"texto": "não, depois disso não paguei mais"}}
+    ],
+    "gatilhos": [
+      {"depois_de": "(?i)mais algumas perguntas sobre o seu trabalho", "fala": {"texto": "pode perguntar"}},
+      {"depois_de": "(?i)n[ãa]o vai conseguir seguir", "fala": {"texto": "ah, que pena. mas por quê?"}}
+    ],
+    "padrao": "não sei te dizer"
+  },
+  "esperado": {
+    "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+    "trajetoria": ["sdr", "periododegraca", "desqualificado"],
+    "transferencias_com_frase": ["periododegraca", "desqualificado"],
+    "contrato": {"exatamente": 0},
+    "estado_final": "ativo",
+    "proibido": ["(?i)causa ganha", "(?i)\\bcpf\\b", "(?i)n[ãa]o tem direito", "(?i)qualidade de segurado|per[íi]odo de gra[çc]a", "(?i)\\d+ meses"],
+    "perguntar_antes": {"desqualificado": ["(?i)[úu]ltima vez|pagou|contribu", "(?i)depois disso|por conta pr[óo]pria|carn[êe]"]}
+  },
+  "limites": {"turnos": 15, "custo_usd": 0.15}
+}

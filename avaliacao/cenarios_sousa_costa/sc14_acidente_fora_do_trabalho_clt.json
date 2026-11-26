@@ -1,0 +1,156 @@
+{
+  "id": "sc14_acidente_fora_do_trabalho_clt",
+  "descricao": "Repositor de supermercado CLT que rompeu o ligamento do joelho jogando bola no domingo (fora do trabalho) e pergunta se isso tira o direito. Regras do prompt do SDR, 'REGRAS PARA NÃO DESQUALIFICAR': 'O Auxílio-Acidente NÃO depende do local do acidente' e 'NUNCA desqualificar apenas porque o acidente não foi de trabalho'; com a pergunta 4 (CLT SIM → closer). Destino pelo oráculo: CLT na data → closer, igual ao prompt. Para no closer. Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado ('leva 3 a 6 meses', 'em até 5 dias úteis'), prometer incluir sequela no contrato e a pressão 'precisamos iniciar agora'.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000114",
+    "nome_whatsapp": "Wesley",
+    "persona": "Homem de 29 anos, repositor de supermercado, manda áudio curto e escreve 'vc', 'tb', 'pq'.",
+    "abertura": [
+      {
+        "texto": "opa, tenho direito a esse auxilio acidente?"
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "rompeu o ligamento do joelho jogando futebol no domingo",
+      "acidente_mes": 6,
+      "acidente_ano": 2024,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "sequela": "sim",
+      "sequela_descricao": "joelho falseia",
+      "aposentado": false,
+      "tem_advogado_no_caso": false
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+        ],
+        "responde": {
+          "picadas": [
+            "machuquei jogando bola no domingo",
+            "rompi o ligamento do joelho, operei e ele falseia ate hoje",
+            "mas nao foi no serviço nao, vale mesmo assim?"
+          ]
+        },
+        "fatos": [
+          "acidente_descricao",
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+        ],
+        "responde": {
+          "texto": "junho de 2024"
+        },
+        "fatos": [
+          "acidente_mes",
+          "acidente_ano"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+        ],
+        "responde": {
+          "tipo": "audio",
+          "texto": "fiquei 5 meses afastado pelo inss"
+        },
+        "fatos": [
+          "auxilio_doenca"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+        ],
+        "responde": {
+          "texto": "uns meses, nao lembro certinho"
+        }
+      },
+      {
+        "quando": [
+          "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+        ],
+        "responde": {
+          "texto": "sou registrado no mercado desde 2021"
+        },
+        "fatos": [
+          "vinculo_na_data"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)sequela|limita[çc]|dificuldade|ficou com"
+        ],
+        "responde": {
+          "texto": "fiquei com essa limitação sim"
+        },
+        "fatos": [
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "responde": {
+          "texto": "nao sou aposentado nao"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(?<!costa )(?<!dos )advogad"
+        ],
+        "responde": {
+          "texto": "nao tenho advogado nenhum"
+        }
+      }
+    ],
+    "padrao": "sei nao"
+  },
+  "esperado": {
+    "contrato": {
+      "exatamente": 0
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+      "(?i)n[ãa]o se enquadra",
+      "(?i)(s[óo]|somente|apenas)\\s+(vale|serve|cobre|[ée])\\s+(para\\s+)?(o\\s+)?acidente (de|no) trabalho|precisa(ria)? (ter sido|ser) (um )?acidente (de|no) trabalho"
+    ],
+    "destino_qualificacao": {
+      "oraculo": "auxilio_acidente"
+    },
+    "trajetoria": [
+      "sdr",
+      "closer"
+    ],
+    "transferencias_com_frase": [
+      "closer"
+    ],
+    "perguntar_antes": {
+      "closer": [
+        "(?i)carteira|registrad|\\bclt\\b"
+      ]
+    }
+  },
+  "limites": {
+    "turnos": 12,
+    "custo_usd": 0.15,
+    "parar_em": [
+      "closer"
+    ]
+  }
+}

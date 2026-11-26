@@ -1,0 +1,12 @@
+{
+  "name": "agentesia-testes-banco",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "testar": "node teste_migracoes.mjs ../migracoes"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.17",
+    "@electric-sql/pglite-socket": "^0.2.20"
+  }
+}

@@ -1,0 +1,359 @@
+{
+  "id": "sc11_cep_nao_encontrado",
+  "descricao": "CLT, mão prensada numa máquina, dedos sem força; vai até a assinatura. Regra do prompt do Agente Contrato, 'ENDEREÇO (FLUXO OBRIGATÓRIO)' 3b/3c: o CEP que o lead manda não existe (o CepFalso do cenário não tem esse CEP e devolve 'não encontrado'); a IA não pode inventar 'Buscamos nos Correios e o seu endereço é...', avisa que não localizou e o lead digita rua, número, bairro e cidade de uma vez. A IA não pede de novo o que ele já mandou ('Perguntar apenas o que faltar') e só gera o contrato com o endereço completo ('Bloqueio absoluto'). Sem cep_completou_endereco: o endereço vem do lead, não do sistema. Destino pelo oráculo: CLT na data → closer. Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado ('leva 3 a 6 meses', 'em até 5 dias úteis'), prometer incluir sequela no contrato e a pressão 'precisamos iniciar agora'. O assunto do número da casa usa '\\bnúmero\\b' (como o sc01), para não casar com 'números e dígitos' de um pedido de CPF.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000111",
+    "nome_whatsapp": "Rosangela",
+    "persona": "Mulher de 51 anos, operadora de máquina numa fábrica de embalagens, escreve rápido e erra letras.",
+    "abertura": [
+      {
+        "texto": "boa tarde queria saber do auxilio acidente"
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "mão prensada na máquina da fábrica",
+      "acidente_mes": 9,
+      "acidente_ano": 2023,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "sequela": "sim",
+      "sequela_descricao": "dois dedos da mão direita sem força",
+      "aposentado": false,
+      "tem_advogado_no_caso": false,
+      "nome_completo": "Rosângela Pires Moura",
+      "cpf": "714.970.940-03",
+      "cep": "39115-990",
+      "numero_casa": "77",
+      "email": "rosangela.teste@exemplo.invalid"
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+        ],
+        "responde": {
+          "picadas": [
+            "prensei a mão na maquina da fabrica",
+            "dois dedo da mao direita ficou sem força",
+            "nao consigo segurar as coisa"
+          ]
+        },
+        "fatos": [
+          "acidente_descricao",
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+        ],
+        "responde": {
+          "texto": "setembro de 2023"
+        },
+        "fatos": [
+          "acidente_mes",
+          "acidente_ano"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+        ],
+        "responde": {
+          "texto": "recebi sim uns 4 meses"
+        },
+        "fatos": [
+          "auxilio_doenca"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+        ],
+        "responde": {
+          "texto": "uns meses, nao lembro certinho"
+        }
+      },
+      {
+        "quando": [
+          "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+        ],
+        "responde": {
+          "texto": "sim registrada na fabrica de embalagem"
+        },
+        "fatos": [
+          "vinculo_na_data"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)sequela|limita[çc]|dificuldade|ficou com"
+        ],
+        "responde": {
+          "texto": "fiquei com essa limitação sim"
+        },
+        "fatos": [
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "responde": {
+          "texto": "nao sou aposentado nao"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(?<!costa )(?<!dos )advogad"
+        ],
+        "responde": {
+          "texto": "nao tenho advogado nenhum"
+        }
+      },
+      {
+        "quando": [
+          "(?i)posso te explicar|quer que eu (te )?explique"
+        ],
+        "responde": {
+          "texto": "pode sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)conseguiu entender|ficou claro|entendeu"
+        ],
+        "responde": {
+          "texto": "entendi sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)fariam diferen[çc]a|dia a dia"
+        ],
+        "responde": {
+          "texto": "ia ajudar demais, to apertado"
+        }
+      },
+      {
+        "quando": [
+          "(?i)falar sobre (os )?honor|posso te (enviar|mandar)|pode ouvir"
+        ],
+        "responde": {
+          "texto": "pode mandar"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,40}\\b(sig[ao]|seguir|prosseguir|continuar|avan[çc]ar|iniciar a coleta|dar (entrada|continuidade|andamento))|\\btopa\\b|coleta dos (seus )?dados"
+        ],
+        "responde": {
+          "texto": "pode sim vamos fazer"
+        },
+        "aceite": true
+      },
+      {
+        "quando": [
+          "(?i)nome completo"
+        ],
+        "responde": {
+          "texto": "Rosângela Pires Moura"
+        },
+        "fatos": [
+          "nome_completo"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\bcpf\\b"
+        ],
+        "responde": {
+          "texto": "71497094003"
+        },
+        "fatos": [
+          "cpf"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\brg\\b|identidade"
+        ],
+        "responde": {
+          "texto": "nao sei o numero de cabeça, pode seguir sem"
+        }
+      },
+      {
+        "quando": [
+          "(?i)estado civil"
+        ],
+        "responde": {
+          "texto": "casada"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bcep\\b"
+        ],
+        "responde": {
+          "texto": "39115-990"
+        },
+        "fatos": [
+          "cep"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)reenvi|localiz|n[ãa]o (consegui|encontr|achei)|\\brua\\b|logradouro|bairro|cidade"
+        ],
+        "responde": {
+          "texto": "o cep é esse mesmo, a rua é nova e nao aparece. é Rua Exemplo do Cascalho 77, bairro Vila Exemplo Nova, Pedra Branca do Exemplo MG"
+        },
+        "fatos": [
+          "endereco",
+          "numero_casa",
+          "bairro",
+          "cidade",
+          "uf"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\bn[úu]mero\\b(?!\\s+(?:d[eo]\\s+)?(?:seu\\s+|sua\\s+)?(?:telefone|contato|celular|whats|cpf|rg|documento|identidade))"
+        ],
+        "responde": {
+          "texto": "77"
+        },
+        "fatos": [
+          "numero_casa"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)complemento"
+        ],
+        "responde": {
+          "texto": "nao tem"
+        },
+        "fatos": [
+          "complemento"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)e-?mail"
+        ],
+        "responde": {
+          "texto": "rosangela.teste@exemplo.invalid"
+        },
+        "fatos": [
+          "email"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)telefone|celular|whats"
+        ],
+        "responde": {
+          "texto": "pode ser esse do whats mesmo, (31) 99000-0111"
+        },
+        "fatos": [
+          "telefone_contrato"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)profiss"
+        ],
+        "responde": {
+          "texto": "operadora de maquina"
+        }
+      },
+      {
+        "quando": [
+          "(?i)tudo (est[áa] )?corret|posso gerar|gerar o contrato|confirmar juntos|(est[áa]|ficou) tudo cert"
+        ],
+        "responde": {
+          "texto": "ta tudo certo"
+        },
+        "uma_vez": false
+      }
+    ],
+    "ao_receber_link": "assina",
+    "assinou": {
+      "texto": "assinei ja"
+    },
+    "padrao": "nao sei"
+  },
+  "ferramentas": {
+    "cep": {},
+    "zapsign": {
+      "assina": true
+    }
+  },
+  "esperado": {
+    "contrato": {
+      "exatamente": 1,
+      "campos": [
+        "nome_completo",
+        "cpf",
+        "endereco",
+        "numero_casa",
+        "bairro",
+        "cidade",
+        "uf"
+      ]
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+      "(?i)buscamos nos correios"
+    ],
+    "destino_qualificacao": {
+      "oraculo": "auxilio_acidente"
+    },
+    "trajetoria": [
+      "sdr",
+      "closer",
+      "contratos",
+      "assinatura",
+      "contrato_assinado"
+    ],
+    "transferencias_com_frase": [
+      "closer",
+      "contratos"
+    ],
+    "ferramentas": {
+      "zapsign": 1
+    },
+    "estado_final": "encerrado",
+    "obrigatorio_em": {
+      "closer": [
+        "(?i)honor"
+      ]
+    },
+    "fatos": {
+      "nome_completo": "Rosângela Pires Moura",
+      "cpf": "714.970.940-03",
+      "endereco": "Exemplo do Cascalho",
+      "bairro": "Vila Exemplo Nova",
+      "cidade": "Pedra Branca do Exemplo"
+    }
+  },
+  "limites": {
+    "turnos": 30,
+    "custo_usd": 0.35
+  }
+}

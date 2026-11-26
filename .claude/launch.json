@@ -1,0 +1,77 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lab-demonstracao",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8011"
+      ],
+      "port": 8011,
+      "env": {
+        "AGENTESIA_MODELO_FALSO": "1"
+      }
+    },
+    {
+      "name": "helena-falsa",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "db.testes.helena_falsa:app",
+        "--port",
+        "8020"
+      ],
+      "port": 8020
+    },
+    {
+      "name": "painel-demo",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8012"
+      ],
+      "port": 8012,
+      "env": {
+        "AGENTESIA_MODELO_FALSO": "1",
+        "AGENTESIA_BANCO_URL": "postgresql://postgres:postgres@127.0.0.1:55437/postgres",
+        "AGENTESIA_BANCO_CONEXOES": "1",
+        "AGENTESIA_HELENA_URL": "http://127.0.0.1:8020",
+        "AGENTESIA_URL_PUBLICA": "http://127.0.0.1:8012",
+        "AGENTESIA_WEBHOOK_SEGREDO": "segredo-demo",
+        "AGENTESIA_SEGREDO_SESSAO": "segredo-de-sessao-da-demonstracao-local",
+        "AGENTESIA_ZAPSIGN_URL_TESTE": "http://127.0.0.1:8020",
+        "AGENTESIA_HELENA_TOKEN_PARCEIRO": "pn_parceiro_de_teste_local",
+        "AGENTESIA_HELENA_CONTA_LAWCHAT": "11111111-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "name": "painel-real",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8014"
+      ],
+      "port": 8014,
+      "env": {
+        "AGENTESIA_MODELO_FALSO": "1",
+        "AGENTESIA_BANCO_URL": "postgresql://postgres:postgres@127.0.0.1:55438/postgres",
+        "AGENTESIA_BANCO_CONEXOES": "1",
+        "AGENTESIA_URL_PUBLICA": "http://127.0.0.1:8014",
+        "AGENTESIA_WEBHOOK_SEGREDO": "segredo-teste-real-local",
+        "AGENTESIA_SEGREDO_SESSAO": "segredo-de-sessao-do-teste-real-local",
+        "AGENTESIA_HELENA_CONTA_LAWCHAT": "ba415fc8-9be0-428d-a842-301635da35fe"
+      }
+    }
+  ]
+}

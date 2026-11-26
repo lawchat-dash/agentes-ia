@@ -1,0 +1,685 @@
+{
+  "id": "sc31_ferramentas",
+  "descricao": "Uso certo das ferramentas e das trocas do motor, uma variante por ponto: transferir_para na hora certa (responde a pergunta pendente antes; não transfere com pergunta própria em aberto; frase de troca presente), desqualificado vindo do Período de Graça (frase inserida pelo motor), zapsign só depois do 'sim' à confirmação final do prompt do Contratos ('Acionar Tool zapsign somente após confirmação final', 'apenas 1 vez'), buscar_cep com CEP válido, inválido (7 dígitos) e geral da cidade ('SE O CEP NÃO RETORNAR RUA E BAIRRO: pergunte Bairro, Rua e Número'), correção de dado depois do link (refaz o contrato: versão 2), 'já assinei' sem ter assinado (o motor confere na ZapSign e reenvia o link; a IA não confirma assinatura), avisos à equipe que o motor detecta (videochamada, 'quero falar com um humano', 'não sei ler', cliente antigo: pausam e avisam) e análise humana ('tenho advogado mas quero trocar'). Dados 100% inventados. COMO FICA CURTO: o formato não tem etapa nem fatos iniciais, então a abertura já traz o relato, a data e a sequela (o SDR vai direto ao vínculo) e, no Contratos, o lead manda os dados em bloco quando pedem o nome ('Interpretação Automática' do prompt). LIMITES DO FORMATO: a variante não troca ferramentas, limites nem o comportamento no link; por isso o cenário inteiro tem zapsign.assina=false e ao_receber_link='nada', e cada variante diz por gatilho o que o lead fala depois do link. As que chegam ao link terminam com o lead relatando erro na assinatura (dificuldade_assinatura: pausa e aviso à equipe), um fim curto e conferível. Os assuntos que repetem fatos da abertura não mapeiam 'fatos' (senão o oráculo cobraria pergunta que o roteiro manda não repetir). Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado, prometer incluir sequela no contrato, a pressão 'precisamos iniciar agora' e link de videochamada.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000131",
+    "nome_whatsapp": "Marcos",
+    "persona": "Homem de 39 anos, repositor de supermercado, escreve direto, sem acento e com abreviações.",
+    "abertura": [
+      {
+        "picadas": [
+          "boa tarde, vi o anuncio do auxilio acidente",
+          "em março de 2024 cai da escada aqui de casa e quebrei o punho direito",
+          "ate hoje a mao direita nao firma, nao consigo pegar peso"
+        ]
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "queda da escada de casa, punho direito quebrado",
+      "acidente_mes": 3,
+      "acidente_ano": 2024,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "sequela": "sim",
+      "sequela_descricao": "mão direita sem firmeza",
+      "aposentado": false,
+      "tem_advogado_no_caso": false,
+      "nome_completo": "Marcos Vinícius Teixeira Lobo",
+      "cpf": "318.645.207-44",
+      "cep": "39401-123",
+      "numero_casa": "145",
+      "email": "marcos.lobo.teste@exemplo.invalid"
+    },
+    "assuntos": [
+      {
+        "quando": ["(?i)como (foi|aconteceu)|o que aconteceu|me conta"],
+        "responde": {"texto": "cai da escada de casa, quebrei o punho direito e a mao nao firma mais"}
+      },
+      {
+        "quando": ["(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"],
+        "responde": {"texto": "março de 2024"}
+      },
+      {
+        "quando": ["(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"],
+        "responde": {"texto": "fiquei uns 3 meses encostado pelo inss"}
+      },
+      {
+        "quando": ["(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"],
+        "responde": {"texto": "uns 3 meses"}
+      },
+      {
+        "quando": ["(?i)carteira assinada|\\bclt\\b|registrad|fichad"],
+        "responde": {"texto": "sim, era registrado no supermercado, de repositor"},
+        "fatos": ["vinculo_na_data"]
+      },
+      {
+        "quando": ["(?i)sequela|limita[çc]|dificuldade|ficou com"],
+        "responde": {"texto": "fiquei sim, a mao direita nao firma"}
+      },
+      {
+        "quando": ["(?i)aposentad|aposentou"],
+        "responde": {"texto": "nao sou aposentado nao"}
+      },
+      {
+        "quando": ["(?i)(?<!costa )(?<!dos )advogad"],
+        "responde": {"texto": "nao tenho advogado nenhum"}
+      },
+      {
+        "quando": ["(?i)\\bmei\\b|aut[ôo]nomo|contribuinte individual"],
+        "responde": {"texto": "nao, nunca fui mei"}
+      },
+      {
+        "quando": ["(?i)segurado especial|rural|agricult|pescador|ro[çc]a"],
+        "responde": {"texto": "nao, moro na cidade"}
+      },
+      {
+        "quando": ["(?i)posso te explicar|quer que eu (te )?explique"],
+        "responde": {"texto": "pode sim"},
+        "uma_vez": false
+      },
+      {
+        "quando": ["(?i)conseguiu entender|ficou claro|entendeu"],
+        "responde": {"texto": "entendi sim"},
+        "uma_vez": false
+      },
+      {
+        "quando": ["(?i)fariam diferen[çc]a|dia a dia"],
+        "responde": {"texto": "ia ajudar muito, to com as contas apertadas"}
+      },
+      {
+        "quando": ["(?i)falar sobre (os )?honor|posso te (enviar|mandar)|pode ouvir|te mostr\\w*[^?]{0,40}honor"],
+        "responde": {"texto": "pode mandar"},
+        "uma_vez": false
+      },
+      {
+        "quando": ["(?i)vale a pena fazer tudo com a gente|s[óo] paga se o benef"],
+        "responde": {"texto": "entendi, ok"},
+        "uma_vez": false
+      },
+      {
+        "quando": ["(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,40}\\b(sig[ao]|seguir|prosseguir|continuar|avan[çc]ar|iniciar a coleta|dar (entrada|continuidade|andamento))|\\btopa\\b|coleta dos (seus )?dados"],
+        "responde": {"texto": "pode sim, vamos"},
+        "aceite": true
+      },
+      {
+        "quando": ["(?i)nome completo"],
+        "responde": {
+          "picadas": [
+            "vou te mandar tudo de uma vez",
+            "Marcos Vinícius Teixeira Lobo",
+            "cpf 318.645.207-44",
+            "rg nao tenho aqui comigo",
+            "sou casado",
+            "email marcos.lobo.teste@exemplo.invalid"
+          ]
+        },
+        "fatos": ["nome_completo", "cpf", "estado_civil", "email"]
+      },
+      {
+        "quando": ["(?i)\\bcpf\\b"],
+        "responde": {"texto": "31864520744"},
+        "fatos": ["cpf"]
+      },
+      {
+        "quando": ["(?i)\\brg\\b|identidade"],
+        "responde": {"texto": "nao tenho aqui comigo, pode seguir sem"}
+      },
+      {
+        "quando": ["(?i)estado civil"],
+        "responde": {"texto": "casado"}
+      },
+      {
+        "quando": ["(?i)\\bcep\\b"],
+        "responde": {"texto": "39401-123"},
+        "fatos": ["cep"]
+      },
+      {
+        "quando": ["(?i)\\bn[úu]mero\\b(?!\\s+(?:d[eo]\\s+)?(?:seu\\s+|sua\\s+)?(?:telefone|contato|celular|whats|cpf|rg|documento|identidade))"],
+        "responde": {"texto": "145, nao tem complemento"},
+        "fatos": ["numero_casa", "complemento"]
+      },
+      {
+        "quando": ["(?i)complemento"],
+        "responde": {"texto": "nao tem"},
+        "fatos": ["complemento"]
+      },
+      {
+        "quando": ["(?i)e-?mail"],
+        "responde": {"texto": "marcos.lobo.teste@exemplo.invalid"},
+        "fatos": ["email"]
+      },
+      {
+        "quando": ["(?i)telefone|celular|whats"],
+        "responde": {"texto": "pode ser esse do whats mesmo"}
+      },
+      {
+        "quando": ["(?i)profiss"],
+        "responde": {"texto": "repositor de supermercado"}
+      },
+      {
+        "quando": ["(?i)tudo (est[áa] )?corret|posso gerar|gerar o contrato|confirmar juntos|(est[áa]|ficou) tudo cert"],
+        "responde": {"texto": "ta tudo certo, pode gerar"},
+        "uma_vez": false
+      }
+    ],
+    "ao_receber_link": "nada",
+    "padrao": "nao sei"
+  },
+  "ferramentas": {
+    "cep": {
+      "39401-123": {
+        "logradouro": "Rua Exemplo das Acácias",
+        "bairro": "Jardim Exemplo",
+        "cidade": "Montes Exemplo",
+        "uf": "MG"
+      },
+      "39990-000": {
+        "logradouro": "",
+        "bairro": "",
+        "cidade": "Vila Exemplo do Norte",
+        "uf": "MG"
+      }
+    },
+    "zapsign": {
+      "assina": false
+    }
+  },
+  "variantes": [
+    {
+      "nome": "responde_antes_de_transferir",
+      "descricao": "na pergunta 4 do SDR (CLT), o lead diz que era registrado E pergunta se precisa ir ao escritório. 'Se SIM → acionar Tool closer', mas a pergunta dele vem antes: a resposta precisa responder (atendimento online, pelo WhatsApp) e a passagem não pode sair com outra pergunta da IA em aberto (sem_pergunta_ao_transferir). Fim curto: no Closer, logo depois da frase de troca, o lead pede uma pessoa (pediu_humano: o motor pausa e responde com a mensagem fixa). Destino fixo: o CLT vem de gatilho, não de assunto, e o oráculo cobraria o fato pelo assunto.",
+      "gatilhos": [
+        {
+          "depois_de": "(?i)carteira assinada|\\bclt\\b|registrad|fichad",
+          "objecao": true,
+          "fala": {
+            "picadas": [
+              "sim, era registrado no supermercado, de repositor",
+              "mas me tira uma duvida, vou ter que ir ate o escritorio de vcs ou é tudo por aqui pelo whats?"
+            ],
+            "espera": {
+              "contem": ["(?i)online|whats|por aqui|pelo celular|[àa] dist[âa]ncia|remot|n[ãa]o (precisa|[ée] necess[áa]rio) (vir|ir|se deslocar|sair)"]
+            }
+          }
+        },
+        {
+          "depois_de": "(?i)maravilha!? n[óo]s podemos te ajudar",
+          "objecao": true,
+          "fala": {
+            "texto": "antes de continuar quero falar com uma pessoa de verdade, nao com robo",
+            "espera": {
+              "contem": ["(?i)equipe|pessoa|atendente"]
+            }
+          }
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": "closer",
+        "trajetoria": ["sdr", "closer"],
+        "estado_final": "pausado"
+      }
+    },
+    {
+      "nome": "transfere_na_hora_com_frase",
+      "descricao": "o lead responde a pergunta 4 (CLT) já com o auxílio-doença: com tudo respondido, a passagem para o Closer sai NESTE turno ('Se SIM → acionar Tool closer'), com a frase de troca 'Maravilha! Nós podemos te ajudar no seu caso.' e sem pergunta da IA em aberto (espera: transferiu_para closer, frase_de_troca). Fim curto: no Closer o lead pede videochamada (quer_videochamada, prioridade máxima: o motor pausa e avisa a equipe; a IA nunca manda link de chamada).",
+      "assuntos": [
+        {
+          "quando": ["(?i)carteira assinada|\\bclt\\b|registrad|fichad"],
+          "responde": {
+            "texto": "sim, era registrado no supermercado de repositor, e fiquei uns 3 meses encostado pelo inss",
+            "espera": {
+              "transferiu_para": "closer",
+              "frase_de_troca": true
+            }
+          },
+          "fatos": ["vinculo_na_data"]
+        }
+      ],
+      "gatilhos": [
+        {
+          "depois_de": "(?i)maravilha!? n[óo]s podemos te ajudar",
+          "objecao": true,
+          "fala": {
+            "texto": "da pra gente fazer uma videochamada com o advogado? queria ver o rosto de quem vai cuidar do meu caso",
+            "espera": {
+              "nao_contem": ["(?i)meet\\.google|zoom\\.us|link (d[ae] )?(v[íi]deo ?)?chamada"]
+            }
+          }
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer"],
+        "estado_final": "pausado"
+      }
+    },
+    {
+      "nome": "desqualificado_vindo_do_periodo_de_graca",
+      "descricao": "estava desempregado na data (pergunta 4 'Já fui CLT' → 5, 6, 7.1 → Tool periododegraca); no Período de Graça: demissão 01/2023, sem seguro-desemprego e sem contribuir por conta própria, acidente 03/2024 = 14 meses > 12 → desqualificado. Confere as duas trocas com frase ('sdr>periododegraca' e 'periododegraca>desqualificado': o prompt do Período de Graça não tem a frase do Desqualificado, quem a insere é o motor) e que a decisão só sai depois das perguntas da demissão e do seguro. Destino pelo oráculo, igual ao prompt. A contribuição por conta própria tem resposta, mas não mapeia fato: o prompt do Período de Graça não pergunta ('Contribuição como autônomo não mantém qualidade'). Até 2 perguntas por turno (a frase do Período de Graça termina em 'tudo bem?'); o Desqualificado pede confirmação e nota, então sem_pergunta_em fica vazio. Para no 1º turno respondido no Desqualificado.",
+      "verdade": {
+        "vinculo_na_data": "desempregado",
+        "auxilio_doenca": false,
+        "ja_foi_clt": true,
+        "demissao_mes": 1,
+        "demissao_ano": 2023,
+        "seguro_desemprego": false,
+        "contribuiu_por_conta_propria": false
+      },
+      "assuntos": [
+        {
+          "quando": ["(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"],
+          "responde": {"texto": "nao recebi nada nao, tava sem emprego"}
+        },
+        {
+          "quando": ["(?i)carteira assinada|\\bclt\\b|registrad|fichad"],
+          "responde": {"texto": "nao, nessa epoca eu tava desempregado, ja tinha saido do supermercado"},
+          "fatos": ["vinculo_na_data"]
+        },
+        {
+          "quando": ["(?i)desempregad|segurado pelo inss|consegue lembrar"],
+          "responde": {"texto": "isso, tava desempregado"}
+        },
+        {
+          "quando": ["(?i)[úu]ltima vez que trabalhou|[úu]ltim[oa] (emprego|empresa|trabalho)"],
+          "responde": {"texto": "foi no supermercado, de carteira, de repositor"}
+        },
+        {
+          "quando": ["(?i)demiss|demitid|mandad[oa] embora|sa[íi]u (da|do)|quando saiu"],
+          "responde": {"texto": "sai em janeiro de 2023"},
+          "fatos": ["demissao_mes", "demissao_ano"]
+        },
+        {
+          "quando": ["(?i)seguro.?desemprego"],
+          "responde": {"texto": "nao recebi seguro nao"},
+          "fatos": ["seguro_desemprego"]
+        },
+        {
+          "quando": ["(?i)contribu|carn[êe]|pagou (o )?inss|por conta pr[óo]pria"],
+          "responde": {"texto": "nao, depois que sai nao paguei nada"}
+        }
+      ],
+      "gatilhos": [
+        {
+          "depois_de": "(?i)n[ãa]o se enquadra",
+          "objecao": false,
+          "fala": {"texto": "ah entendi, obrigado mesmo assim"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "periododegraca", "desqualificado"],
+        "estado_final": "ativo",
+        "sem_pergunta_em": [],
+        "max_perguntas_por_turno": 2,
+        "perguntar_antes": {
+          "desqualificado": ["(?i)seguro.?desemprego", "(?i)demiss|demitid|sa[íi]u (da|do)|[úu]ltim[oa] (emprego|empresa|vez que trabalhou)"]
+        }
+      }
+    },
+    {
+      "nome": "cep_valido_zapsign_uma_vez",
+      "descricao": "caminho limpo até o link: CEP válido → o sistema completa rua, bairro, cidade e UF ('Buscamos nos Correios e o seu endereço é...'); a IA não pergunta de novo rua, bairro nem cidade ('SE A BUSCA FOI BEM SUCEDIDA NÃO PERGUNTE NOVAMENTE'), confirma tudo ao final e aciona o zapsign 1 vez, depois do 'sim'. Fim: o lead relata erro ao assinar (dificuldade_assinatura → pausa).",
+      "assuntos": [
+        {
+          "quando": ["(?i)\\bcep\\b"],
+          "responde": {
+            "texto": "39401-123",
+            "espera": {
+              "contem": ["(?i)Exemplo das Ac[áa]cias|Jardim Exemplo|Montes Exemplo"],
+              "nao_contem": ["(?i)(qual|me (diga|informe|passa)|informe)[^?]{0,30}\\b(rua|bairro|cidade|logradouro)\\b"]
+            }
+          },
+          "fatos": ["cep"]
+        }
+      ],
+      "gatilhos": [
+        {
+          "depois_de": "zapsign\\.invalid/doc/1(?!\\d)",
+          "objecao": true,
+          "fala": {"texto": "tentei aqui mas nao consigo assinar, deu erro na assinatura"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer", "contratos", "assinatura"],
+        "estado_final": "pausado",
+        "ferramentas": {"zapsign": 1, "cep_completou_endereco": true},
+        "contrato": {"exatamente": 1, "campos": ["nome_completo", "cpf", "endereco", "numero_casa", "bairro", "cidade", "uf", "cep"]},
+        "obrigatorio_em": {
+          "closer": ["(?i)honor"],
+          "contratos": ["(?i)correios|seu endere[çc]o [ée]", "(?i)posso gerar o contrato|est[áa] tudo correto"]
+        },
+        "fatos": {
+          "nome_completo": "Marcos Vinícius Teixeira Lobo",
+          "cpf": "318.645.207-44",
+          "endereco": "Exemplo das Acácias",
+          "bairro": "Jardim Exemplo",
+          "cidade": "Montes Exemplo",
+          "numero_casa": "145"
+        }
+      }
+    },
+    {
+      "nome": "zapsign_so_depois_do_sim",
+      "descricao": "o lead digita o número da casa errado (154) e, na confirmação final, corrige ('é 145'): esse turno NÃO pode acionar o zapsign nem dizer que está gerando; a IA mostra o resumo corrigido e pergunta de novo (espera). Só no 'ta tudo certo, pode gerar' seguinte sai o zapsign, uma vez só (contagem 1; um zapsign antes do sim viraria 2 ou contrato com o número errado). Fim: erro ao assinar (pausa).",
+      "assuntos": [
+        {
+          "quando": ["(?i)\\bn[úu]mero\\b(?!\\s+(?:d[eo]\\s+)?(?:seu\\s+|sua\\s+)?(?:telefone|contato|celular|whats|cpf|rg|documento|identidade))"],
+          "responde": {"texto": "154, nao tem complemento"},
+          "fatos": ["numero_casa", "complemento"]
+        },
+        {
+          "quando": ["(?i)tudo (est[áa] )?corret|posso gerar|confirmar juntos"],
+          "responde": {
+            "texto": "quase! o numero da casa ta errado, é 145 e nao 154",
+            "espera": {
+              "contem": ["(?i)\\b145\\b", "(?i)corret|confirm|certinho|tudo cert"],
+              "nao_contem": ["(?i)estamos gerando|gerando (o |seu )?contrato|vou gerar (o |seu )?contrato|em alguns segundos"]
+            }
+          }
+        }
+      ],
+      "gatilhos": [
+        {
+          "depois_de": "zapsign\\.invalid/doc/1(?!\\d)",
+          "objecao": true,
+          "fala": {"texto": "tentei aqui mas nao consigo assinar, deu erro na assinatura"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer", "contratos", "assinatura"],
+        "estado_final": "pausado",
+        "ferramentas": {"zapsign": 1, "cep_completou_endereco": true},
+        "contrato": {"exatamente": 1, "campos": ["nome_completo", "cpf", "endereco", "numero_casa", "bairro", "cidade", "uf", "cep"]},
+        "obrigatorio_em": {
+          "contratos": ["(?i)posso gerar o contrato|est[áa] tudo correto"]
+        },
+        "fatos": {
+          "numero_casa": "145",
+          "endereco": "Exemplo das Acácias"
+        }
+      }
+    },
+    {
+      "nome": "correcao_depois_do_link",
+      "descricao": "o número da casa sai errado (154) no contrato; com o link na mão o lead corrige ('é 145'). A IA mostra o resumo corrigido e pede confirmação (espera: não diz que está gerando no mesmo turno); com o 'sim', aciona o zapsign de novo e o sistema refaz o contrato (versão 2, 'Contrato atualizado'). Contagem: 2 gerar_contrato, zapsign 2, fato final 145. ATENÇÃO: no snapshot (como no n8n) a Assinatura não tem o zapsign; a variante liga com sobrescrever_config (catalogo.papeis.assinatura.ferramentas.acoes) para provar o caminho de correção do motor ('Se o lead corrigir um dado de um contrato já enviado (...) acione zapsign de novo'). Fim: erro ao assinar o link novo (pausa).",
+      "sobrescrever_config": {
+        "catalogo": {"papeis": {"assinatura": {"ferramentas": {"acoes": ["zapsign"]}}}}
+      },
+      "assuntos": [
+        {
+          "quando": ["(?i)\\bn[úu]mero\\b(?!\\s+(?:d[eo]\\s+)?(?:seu\\s+|sua\\s+)?(?:telefone|contato|celular|whats|cpf|rg|documento|identidade))"],
+          "responde": {"texto": "154, nao tem complemento"},
+          "fatos": ["numero_casa", "complemento"]
+        }
+      ],
+      "gatilhos": [
+        {
+          "depois_de": "zapsign\\.invalid/doc/1(?!\\d)",
+          "objecao": true,
+          "fala": {
+            "texto": "opa, vi agora no contrato que o numero da casa ta errado, é 145 e nao 154",
+            "espera": {
+              "contem": ["(?i)\\b145\\b"],
+              "nao_contem": ["(?i)estamos gerando|gerando (o |seu )?(novo )?contrato|vou gerar (o |seu )?(novo )?contrato|em alguns segundos"]
+            }
+          }
+        },
+        {
+          "depois_de": "zapsign\\.invalid/doc/2(?!\\d)",
+          "objecao": true,
+          "fala": {"texto": "tentei esse novo mas nao consigo assinar, deu erro na assinatura"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer", "contratos", "assinatura"],
+        "estado_final": "pausado",
+        "ferramentas": {"zapsign": 2, "cep_completou_endereco": true},
+        "contrato": {"exatamente": 2, "campos": ["nome_completo", "cpf", "endereco", "numero_casa", "bairro", "cidade", "uf", "cep"]},
+        "fatos": {
+          "numero_casa": "145"
+        }
+      }
+    },
+    {
+      "nome": "cep_invalido",
+      "descricao": "o lead manda o CEP com 7 dígitos (3940112): a busca devolve 'CEP inválido' e a IA não pode inventar endereço nem dizer 'Buscamos nos Correios' ('Se Não: Peça para que reenvie o cep'); pede o CEP de novo (espera). Com o CEP certo, o sistema completa o endereço e o fluxo segue até o link (zapsign 1). O CEP errado vem por gatilho de objeção, então pedir o CEP de novo não conta como pergunta repetida. Fim: erro ao assinar (pausa).",
+      "gatilhos": [
+        {
+          "depois_de": "(?i)\\bcep\\b",
+          "objecao": true,
+          "fala": {
+            "texto": "3940112",
+            "espera": {
+              "contem": ["(?i)\\bcep\\b"],
+              "nao_contem": ["(?i)buscamos nos correios|seu endere[çc]o [ée]|Exemplo das Ac[áa]cias|Jardim Exemplo"]
+            }
+          }
+        },
+        {
+          "depois_de": "zapsign\\.invalid/doc/1(?!\\d)",
+          "objecao": true,
+          "fala": {"texto": "tentei aqui mas nao consigo assinar, deu erro na assinatura"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer", "contratos", "assinatura"],
+        "estado_final": "pausado",
+        "ferramentas": {"zapsign": 1, "cep_completou_endereco": true},
+        "contrato": {"exatamente": 1, "campos": ["nome_completo", "cpf", "endereco", "numero_casa", "bairro", "cidade", "uf", "cep"]},
+        "fatos": {
+          "endereco": "Exemplo das Acácias",
+          "bairro": "Jardim Exemplo"
+        }
+      }
+    },
+    {
+      "nome": "cep_geral_da_cidade",
+      "descricao": "o lead manda um CEP geral de cidade (39990-000): a busca traz só cidade e UF, sem rua nem bairro. 'SE E SOMENTE SE O CEP NÃO RETORNAR RUA E BAIRRO, PERGUNTE: Qual seu Bairro e Rua e o Número' (espera): a IA pede a rua e o bairro e não inventa logradouro; o contrato sai com a rua e o bairro que o lead digitou e a cidade do CEP. Sem cep_completou_endereco (a rua não vem do sistema). LIMITE: o CepFalso da avaliação devolve um CEP achado sempre como tipo 'rua' (o real marca 'geral' e válido=False); aqui o CEP volta achado, com rua e bairro vazios. Fim: erro ao assinar (pausa).",
+      "assuntos": [
+        {
+          "quando": ["(?i)\\bcep\\b"],
+          "responde": {
+            "texto": "39990-000",
+            "espera": {
+              "contem": ["(?i)\\brua\\b|logradouro|bairro"]
+            }
+          },
+          "fatos": ["cep"]
+        },
+        {
+          "quando": ["(?i)\\brua\\b|logradouro|bairro"],
+          "responde": {"texto": "Rua Exemplo do Ipê, bairro Centro Exemplo"},
+          "fatos": ["endereco", "bairro"]
+        }
+      ],
+      "gatilhos": [
+        {
+          "depois_de": "zapsign\\.invalid/doc/1(?!\\d)",
+          "objecao": true,
+          "fala": {"texto": "tentei aqui mas nao consigo assinar, deu erro na assinatura"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer", "contratos", "assinatura"],
+        "estado_final": "pausado",
+        "ferramentas": {"zapsign": 1},
+        "contrato": {"exatamente": 1, "campos": ["nome_completo", "cpf", "endereco", "numero_casa", "bairro", "cidade", "uf", "cep"]},
+        "fatos": {
+          "endereco": "Exemplo do Ipê",
+          "bairro": "Centro Exemplo",
+          "cidade": "Vila Exemplo do Norte",
+          "numero_casa": "145"
+        }
+      }
+    },
+    {
+      "nome": "ja_assinei_sem_assinar",
+      "descricao": "com o link na mão, o lead diz 'pronto, já assinei' sem ter assinado (a ZapSign falsa não acha a assinatura). O motor confere (verificar_assinatura) e manda 'Ainda não consta a sua assinatura (...) Segue o link novamente'; a IA desse turno não pode confirmar a assinatura (espera) e o lead não vai para contrato_assinado. Depois o lead relata erro ao assinar (dificuldade_assinatura → pausa).",
+      "gatilhos": [
+        {
+          "depois_de": "zapsign\\.invalid/doc/1(?!\\d)",
+          "objecao": false,
+          "fala": {
+            "texto": "pronto, ja assinei",
+            "espera": {
+              "nao_contem": ["(?i)(?<!n[ãa]o )assinatura (foi )?confirmada|(?<!n[ãa]o consta que o )(?<!n[ãa]o vi que o )contrato (j[áa] )?foi assinado|contrato j[áa] est[áa] assinado|recebemos (a |sua )?assinatura|deu tudo certo com (a |sua )?assinatura"]
+            }
+          }
+        },
+        {
+          "depois_de": "(?i)ainda n[ãa]o consta",
+          "objecao": true,
+          "fala": {"texto": "mas eu assinei sim! so que no final deu erro na assinatura e agora nao consigo assinar de novo"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer", "contratos", "assinatura"],
+        "estado_final": "pausado",
+        "ferramentas": {"zapsign": 1, "cep_completou_endereco": true},
+        "contrato": {"exatamente": 1, "campos": ["nome_completo", "cpf", "endereco", "numero_casa", "bairro", "cidade", "uf", "cep"]}
+      }
+    },
+    {
+      "nome": "aviso_videochamada_no_sdr",
+      "descricao": "na 2ª mensagem, ainda no SDR, pede videochamada (quer_videochamada): o motor confirma o sinal, pausa e avisa a equipe; a IA não manda link de chamada ('PROIBIDO sugerir reunião, ligação ou videochamada').",
+      "gatilhos": [
+        {
+          "turno": 2,
+          "objecao": true,
+          "fala": {
+            "texto": "antes de tudo, da pra fazer uma videochamada com o advogado? quero ver quem ta falando comigo",
+            "espera": {
+              "nao_contem": ["(?i)meet\\.google|zoom\\.us|link (d[ae] )?(v[íi]deo ?)?chamada"]
+            }
+          }
+        }
+      ],
+      "esperado": {
+        "trajetoria": ["sdr"],
+        "estado_final": "pausado"
+      }
+    },
+    {
+      "nome": "aviso_quer_humano_no_sdr",
+      "descricao": "na 2ª mensagem pede um atendente humano (intenção pediu_humano): o motor pausa sem chamar o agente e manda a mensagem fixa ('Vou chamar uma pessoa da equipe...').",
+      "gatilhos": [
+        {
+          "turno": 2,
+          "objecao": true,
+          "fala": {
+            "texto": "quero falar com um atendente humano, nao com robo",
+            "espera": {
+              "contem": ["(?i)equipe|pessoa|atendente"]
+            }
+          }
+        }
+      ],
+      "esperado": {
+        "trajetoria": ["sdr"],
+        "estado_final": "pausado"
+      }
+    },
+    {
+      "nome": "aviso_nao_sabe_ler_no_closer",
+      "descricao": "logo depois da frase de troca do Closer, diz que não sabe ler direito (nao_sabe_ler): o sinal vale no Closer também ('SISTEMA DE NOTIFICAÇÃO': o sistema percebe e avisa a equipe); pausa.",
+      "gatilhos": [
+        {
+          "depois_de": "(?i)maravilha!? n[óo]s podemos te ajudar",
+          "objecao": true,
+          "fala": {"texto": "moça eu nao sei ler direito, quem ta lendo pra mim é meu filho"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+        "trajetoria": ["sdr", "closer"],
+        "estado_final": "pausado"
+      }
+    },
+    {
+      "nome": "aviso_cliente_antigo",
+      "descricao": "na 2ª mensagem diz que já é cliente DESTE escritório (cliente_antigo): o motor confirma, pausa e encaminha ao setor operacional; a IA não informa andamento.",
+      "gatilhos": [
+        {
+          "turno": 2,
+          "objecao": true,
+          "fala": {"texto": "ah esqueci de falar, eu ja sou cliente de voces, o escritorio ja cuida de um processo meu"}
+        }
+      ],
+      "esperado": {
+        "trajetoria": ["sdr"],
+        "estado_final": "pausado"
+      }
+    },
+    {
+      "nome": "analise_humana_quer_trocar_advogado",
+      "descricao": "na 2ª mensagem conta que tem advogado no caso; a IA confirma se ele atua HOJE ('ADVOGADO — REGRA DE CONFIRMAÇÃO') e o lead diz que sim, mas quer trocar: 'orientar que precisa encerrar o contrato atual primeiro (...) Preencha a notificação analise_humana' → a IA pausa e a equipe assume. Destino fixo (o oráculo Regras() não tem o caso 'quer trocar').",
+      "verdade": {
+        "tem_advogado_no_caso": true
+      },
+      "assuntos": [
+        {
+          "quando": ["(?i)(?<!costa )(?<!dos )advogad"],
+          "responde": {"texto": "tenho sim, ele ainda ta no caso, mas nao me responde faz meses, quero trocar pra vcs"},
+          "fatos": ["tem_advogado_no_caso"]
+        }
+      ],
+      "gatilhos": [
+        {
+          "turno": 2,
+          "objecao": true,
+          "fala": {"texto": "ah, e eu ja tenho um advogado nesse caso, mas ele sumiu e quero trocar pra vcs"}
+        }
+      ],
+      "esperado": {
+        "destino_qualificacao": "analise_humana",
+        "trajetoria": ["sdr"],
+        "estado_final": "pausado",
+        "obrigatorio_em": {
+          "sdr": ["(?i)encerr"]
+        }
+      }
+    }
+  ],
+  "esperado": {
+    "contrato": {
+      "exatamente": 0
+    },
+    "ferramentas": {
+      "zapsign": 0
+    },
+    "transferencias_com_frase": [
+      "sdr>closer",
+      "closer>contratos",
+      "sdr>periododegraca",
+      "periododegraca>desqualificado"
+    ],
+    "sem_pergunta_ao_transferir": ["closer", "contratos"],
+    "nao_no_mesmo_turno": {
+      "contratos": [
+        ["(?i)tudo (est[áa] )?corret\\w*\\s*\\?|posso gerar (o |seu )?contrato\\s*\\?", "(?i)estamos gerando|gerando (o |seu )?contrato|em alguns segundos"]
+      ]
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+      "(?i)meet\\.google|zoom\\.us|link (d[ae] )?(v[íi]deo ?)?chamada"
+    ]
+  },
+  "limites": {
+    "turnos": 26,
+    "custo_usd": 0.3
+  }
+}

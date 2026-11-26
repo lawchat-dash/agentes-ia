@@ -1,0 +1,43 @@
+{
+  "id": "t07_dois_assuntos",
+  "descricao": "Dois assuntos na mesma mensagem: o próprio lead perdeu parte do dedo num acidente na obra em 2021 (auxílio-acidente, IA), e a mãe dele, de 66 anos, quer se aposentar (aposentadoria, equipe). Regra: um assunto por vez, primeiro o do próprio lead. A triagem passa para o SDR do auxílio-acidente, avisa em uma frase que a equipe também vai falar sobre a aposentadoria da mãe e anota assunto_secundario; o código põe a nota na Helena e dispara a automação triagem:assunto_secundario. A triagem não diz se a mãe já pode se aposentar. Depende do formato novo: ver docs/AGENTE_TRIAGEM.md, seções 5.3 e 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000707",
+    "nome_whatsapp": "Anderson",
+    "falas": [
+      {"texto": "boa tarde", "espera": {"etapa": "triagem"}},
+      {
+        "picadas": [
+          "sofri um acidente na obra em 2021, a serra pegou e perdi um pedaço do dedo",
+          "e minha mãe tem 66 anos e quer se aposentar, vcs ajudam nisso tbm?"
+        ],
+        "espera": {
+          "etapa": "auxilio-acidente/sdr",
+          "contem": ["(?i)(sua )?m[ãa]e|aposentadoria"],
+          "nao_contem": ["(?i)(em que ano|qual (o |foi o )?ano|quando (foi|aconteceu))[^.!?]*\\?"]
+        }
+      }
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem", "auxilio-acidente/sdr"],
+    "estado_final": "ativo",
+    "triagem": {
+      "destino": "auxilio-acidente",
+      "categoria": "auxilio_acidente",
+      "pula_triagem": false,
+      "max_perguntas": 1,
+      "assunto_secundario": "(?i)aposent",
+      "fatos_passados": {"acidente_ano": "2021", "acidente_descricao": "dedo"}
+    },
+    "proibido": [
+      "(?i)(sua m[ãa]e|ela) (j[áa] )?(pode|consegue|tem direito)",
+      "(?i)(?<!se )(?<!se voc[êe] )(?<!se ela )\\b(tem|teria|ter[áa]) direito",
+      "\\d+ ?%",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b"
+    ]
+  },
+  "limites": {"turnos": 4, "custo_usd": 0.05, "parar_em": ["auxilio-acidente/sdr"]}
+}

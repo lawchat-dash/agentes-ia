@@ -1,0 +1,54 @@
+{
+  "id": "t02_anuncio_acidente_pula_triagem",
+  "descricao": "Lead chega por anúncio claro de auxílio-acidente (TRACK com campanha, título e link). A camada 1 (classificar_origem, agora antes do 1º turno) devolve auxilio_acidente com confiança >= 0,75, e o produto está ativo no número: o lead vai DIRETO ao SDR do auxílio-acidente, sem nenhuma pergunta da triagem. A variante 'sempre_confirmar' liga a opção do escritório: a triagem faz UMA pergunta de confirmação citando o assunto do anúncio e passa. Depende do formato novo (lead.origem gera o evento TRACK antes da 1ª mensagem): ver docs/AGENTE_TRIAGEM.md, seção 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000702",
+    "nome_whatsapp": "Marcos",
+    "origem": {
+      "campanha": "AUX ACIDENTE - SEQUELA - BR",
+      "titulo": "Sofreu um acidente e ficou com sequela? Você pode ter direito a uma indenização do INSS",
+      "conteudo": "video_moto_01",
+      "url": "https://exemplo.invalid/anuncio/auxilio-acidente-01",
+      "clid": "clid-exemplo-702"
+    },
+    "falas": [
+      {"texto": "oi vi o anuncio"},
+      {"texto": "sim, caí da escada no trabalho e machuquei o ombro"}
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["auxilio-acidente/sdr"],
+    "estado_final": "ativo",
+    "triagem": {
+      "destino": "auxilio-acidente",
+      "categoria": "auxilio_acidente",
+      "fonte": "anuncio",
+      "pula_triagem": true,
+      "max_perguntas": 0
+    },
+    "proibido": [
+      "(?i)(em que (posso|podemos)|qual (é )?o assunto|sobre o que)[^.!?]*\\?",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b",
+      "\\d+ ?%"
+    ]
+  },
+  "variantes": [
+    {
+      "nome": "base",
+      "descricao": "escritório sem 'sempre confirmar': pula a triagem."
+    },
+    {
+      "nome": "sempre_confirmar",
+      "descricao": "escritório marcou 'sempre confirmar': uma pergunta de confirmação citando o acidente e depois o SDR.",
+      "sobrescrever_config": {"triagem": {"sempre_confirmar": true}},
+      "esperado": {
+        "trajetoria": ["triagem", "auxilio-acidente/sdr"],
+        "triagem": {"pula_triagem": false, "max_perguntas": 1},
+        "obrigatorio_em": {"triagem": ["(?i)acidente"]}
+      }
+    }
+  ],
+  "limites": {"turnos": 4, "custo_usd": 0.05, "parar_em": ["auxilio-acidente/sdr"]}
+}

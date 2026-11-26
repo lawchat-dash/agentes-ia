@@ -1,0 +1,362 @@
+{
+  "id": "sc20_cpf_pontuacao_torta",
+  "descricao": "CLT, pé prensado por uma empilhadeira no depósito, tornozelo com sequela; vai até a assinatura. Regra do prompt do Agente Contrato, 'Interpretar automaticamente dados enviados juntos' e 'Evitar repetições, loops e solicitações desnecessárias': o lead manda o CPF com PONTO no lugar do hífen ('386.417.259.46', jeito comum de digitar no celular). Os 11 dígitos estão certos e passam na validação: a IA aceita sem pedir reenvio, não diz que o CPF está incorreto e o contrato sai com 386.417.259-46. É o teste de regressão do laço de CPF da rodada real de 2026-11-25 (no sc10 o cartão mandava '205.096.961.98' sem a descrição prever, a IA pediu o CPF 'correto' em laço e a regra do e-mail, que o sc10 testa, nem chegou a ser exercida). O sc01 também manda CPF com ponto, mas lá o objetivo é o código que não chegou. Os outros dados vêm limpos (com e-mail), para o CPF ser a única variação. Destino pelo oráculo: CLT na data → closer, igual à pergunta 4 do SDR. Proibido (invenções vistas nos chats reais): imprimir as folhas, assinar à mão, enviar foto do contrato, prazo inventado ('leva 3 a 6 meses', 'em até 5 dias úteis'), prometer incluir sequela no contrato e a pressão 'precisamos iniciar agora'; e, deste cenário, dizer que o CPF está incorreto/inválido ou pedir para verificar e reenviar o CPF.",
+  "agente": "avaliacao/agentes/sousa_costa.json",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5531990000120",
+    "nome_whatsapp": "Gilmar",
+    "persona": "Homem de 44 anos, conferente de depósito, escreve rápido pelo celular, sem acento, e digita o CPF com ponto no lugar do hífen.",
+    "abertura": [
+      {
+        "texto": "Olá! Tenho interesse e queria mais informações, por favor."
+      }
+    ],
+    "verdade": {
+      "acidente_descricao": "pé prensado por uma empilhadeira no depósito",
+      "acidente_mes": 8,
+      "acidente_ano": 2023,
+      "vinculo_na_data": "clt",
+      "auxilio_doenca": true,
+      "sequela": "sim",
+      "sequela_descricao": "tornozelo direito trava e dói quando fica muito em pé",
+      "aposentado": false,
+      "tem_advogado_no_caso": false,
+      "nome_completo": "Gilmar Teixeira Prado",
+      "cpf": "386.417.259-46",
+      "cpf_como_digita": "386.417.259.46",
+      "cep": "38402-915",
+      "numero_casa": "52",
+      "email": "gilmar.teste@exemplo.invalid"
+    },
+    "assuntos": [
+      {
+        "quando": [
+          "(?i)como (foi|aconteceu)|o que aconteceu|me conta"
+        ],
+        "responde": {
+          "picadas": [
+            "a empilhadeira prensou meu pe no deposito",
+            "quebrou o tornozelo",
+            "ate hoje trava e doi se fico muito tempo em pe"
+          ]
+        },
+        "fatos": [
+          "acidente_descricao",
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)(\\bano\\b|\\bm[êe]s\\b|quando)(?![^?]{0,60}(demiss|empresa|sa[íi]d[oa]|emprego|carteira))[^?]{0,40}(acident|aconteceu)"
+        ],
+        "responde": {
+          "texto": "foi em agosto de 2023"
+        },
+        "fatos": [
+          "acidente_mes",
+          "acidente_ano"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aux[íi]lio.?doen[çc]a|encostad|afastad"
+        ],
+        "responde": {
+          "texto": "recebi sim, uns 5 meses"
+        },
+        "fatos": [
+          "auxilio_doenca"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)por quanto tempo|quanto tempo (ficou|recebeu|durou)"
+        ],
+        "responde": {
+          "texto": "uns 5 meses"
+        }
+      },
+      {
+        "quando": [
+          "(?i)carteira assinada|\\bclt\\b|registrad|fichad"
+        ],
+        "responde": {
+          "texto": "sim, registrado no deposito"
+        },
+        "fatos": [
+          "vinculo_na_data"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)sequela|limita[çc]|dificuldade|ficou com"
+        ],
+        "responde": {
+          "texto": "fiquei sim, o tornozelo trava"
+        },
+        "fatos": [
+          "sequela",
+          "sequela_descricao"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)aposentad|aposentou"
+        ],
+        "responde": {
+          "texto": "nao sou aposentado"
+        }
+      },
+      {
+        "quando": [
+          "(?i)(?<!costa )(?<!dos )advogad"
+        ],
+        "responde": {
+          "texto": "nao tenho advogado"
+        }
+      },
+      {
+        "quando": [
+          "(?i)posso te explicar|quer que eu (te )?explique"
+        ],
+        "responde": {
+          "texto": "pode sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)conseguiu entender|ficou claro|entendeu"
+        ],
+        "responde": {
+          "texto": "entendi sim"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)fariam diferen[çc]a|dia a dia"
+        ],
+        "responde": {
+          "texto": "ajudaria bastante"
+        }
+      },
+      {
+        "quando": [
+          "(?i)falar sobre (os )?honor|posso te (enviar|mandar)|pode ouvir|te mostr\\w*[^?]{0,40}honor"
+        ],
+        "responde": {
+          "texto": "pode mandar"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)vale a pena fazer tudo com a gente|s[óo] paga se o benef"
+        ],
+        "responde": {
+          "texto": "entendi, ok"
+        },
+        "uma_vez": false
+      },
+      {
+        "quando": [
+          "(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,40}\\b(sig[ao]|seguir|prosseguir|continuar|avan[çc]ar|iniciar a coleta|dar (entrada|continuidade|andamento))|\\btopa\\b|coleta dos (seus )?dados"
+        ],
+        "responde": {
+          "texto": "pode sim, vamos"
+        },
+        "aceite": true
+      },
+      {
+        "quando": [
+          "(?i)nome completo"
+        ],
+        "responde": {
+          "texto": "Gilmar Teixeira Prado"
+        },
+        "fatos": [
+          "nome_completo"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\bcpf\\b"
+        ],
+        "responde": {
+          "texto": "386.417.259.46"
+        },
+        "fatos": [
+          "cpf"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\brg\\b|identidade"
+        ],
+        "responde": {
+          "texto": "o rg nao ta comigo agora, pode seguir sem"
+        }
+      },
+      {
+        "quando": [
+          "(?i)estado civil"
+        ],
+        "responde": {
+          "texto": "casado"
+        }
+      },
+      {
+        "quando": [
+          "(?i)\\bcep\\b"
+        ],
+        "responde": {
+          "texto": "38402-915"
+        },
+        "fatos": [
+          "cep"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)\\bn[úu]mero\\b(?!\\s+(?:d[eo]\\s+)?(?:seu\\s+|sua\\s+)?(?:telefone|contato|celular|whats|cpf|rg|documento|identidade))"
+        ],
+        "responde": {
+          "texto": "52"
+        },
+        "fatos": [
+          "numero_casa"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)complemento"
+        ],
+        "responde": {
+          "texto": "nao tem"
+        },
+        "fatos": [
+          "complemento"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)e-?mail"
+        ],
+        "responde": {
+          "texto": "gilmar.teste@exemplo.invalid"
+        },
+        "fatos": [
+          "email"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)telefone|celular|whats"
+        ],
+        "responde": {
+          "texto": "pode ser esse mesmo do zap"
+        },
+        "fatos": [
+          "telefone_contrato"
+        ]
+      },
+      {
+        "quando": [
+          "(?i)profiss"
+        ],
+        "responde": {
+          "texto": "conferente de deposito"
+        }
+      },
+      {
+        "quando": [
+          "(?i)tudo (est[áa] )?corret|posso gerar|gerar o contrato|confirmar juntos|(est[áa]|ficou) tudo cert"
+        ],
+        "responde": {
+          "texto": "ta tudo certo, pode gerar"
+        },
+        "uma_vez": false
+      }
+    ],
+    "ao_receber_link": "assina",
+    "assinou": {
+      "texto": "pronto, assinei"
+    },
+    "padrao": "nao sei te dizer"
+  },
+  "ferramentas": {
+    "cep": {
+      "38402915": {
+        "logradouro": "Rua Exemplo dos Ipês",
+        "bairro": "Jardim Exemplo",
+        "cidade": "Serra Azul do Exemplo",
+        "uf": "MG"
+      }
+    },
+    "zapsign": {
+      "assina": true
+    }
+  },
+  "esperado": {
+    "contrato": {
+      "exatamente": 1,
+      "campos": [
+        "nome_completo",
+        "cpf",
+        "endereco",
+        "numero_casa",
+        "bairro",
+        "cidade",
+        "uf",
+        "cep",
+        "email"
+      ]
+    },
+    "proibido": [
+      "(?i)causa ganha",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!n[ãa]o [ée] necess[áa]rio )(?<!sem )(?<!nem )(?<!precisar )\\bimprim(ir|a|e)\\b",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!nem )(?<!sem )(?<!precisar )\\bassin(ar|e|ando)\\s+([àa] m[ãa]o|manualmente|de pr[óo]prio punho|com caneta)",
+      "(?i)(?<!n[ãa]o )(?<!n[ãa]o precisa )(?<!n[ãa]o tem que )(?<!precisar )(enviar|envie|mandar|mande|enviou|mandou)\\s+(a |uma )?foto\\s+(d[oa]s?\\s+)?(contrato|folhas?|p[áa]ginas?|documento assinado)",
+      "(?i)(processo|benef[íi]cio|inss|pedido|an[áa]lise|resultado|aprova\\w*|contato)[^.?!\\n]{0,40}\\b(leva|levar|demora|dura|sai|em at[ée]|em m[ée]dia|cerca de)\\D{0,15}\\d+\\s*(a\\s*\\d+\\s*)?(dias|semanas|meses|anos)\\b|\\d+\\s*dias [úu]teis",
+      "(?i)(incluiremos|vamos incluir|vou incluir|(ser[áa]|vai ser|fica|ficar[áa]) inclu[íi]d[oa]s?).{0,60}(sequela|les[ãa]o|tend[ãa]o|contrato|pedido|caso)",
+      "(?i)precis(amos|o que voc[êe])\\s+(iniciar|come[çc]ar|fazer|fechar|formalizar|seguir|enviar|mandar)[^.?!\\n]{0,40}\\bagora\\b|tem que ser (hoje|agora)|[úu]ltima chance",
+      "(?i)\\bcpf\\b[^.?!\\n]{0,60}\\b(incorret\\w*|inv[áa]lid\\w*|n[ãa]o passou|errad\\w*|n[ãa]o confere)|\\b(verifique|confira|reenvie|envie novamente|mande novamente|enviar novamente|mandar novamente)\\b[^.?!\\n]{0,60}\\bcpf\\b"
+    ],
+    "destino_qualificacao": {
+      "oraculo": "auxilio_acidente"
+    },
+    "trajetoria": [
+      "sdr",
+      "closer",
+      "contratos",
+      "assinatura",
+      "contrato_assinado"
+    ],
+    "transferencias_com_frase": [
+      "closer",
+      "contratos"
+    ],
+    "ferramentas": {
+      "zapsign": 1,
+      "cep_completou_endereco": true
+    },
+    "estado_final": "encerrado",
+    "obrigatorio_em": {
+      "closer": [
+        "(?i)honor"
+      ]
+    },
+    "fatos": {
+      "nome_completo": "Gilmar Teixeira Prado",
+      "cpf": "386.417.259-46",
+      "email": "gilmar.teste@exemplo.invalid"
+    }
+  },
+  "limites": {
+    "turnos": 30,
+    "custo_usd": 0.35
+  }
+}

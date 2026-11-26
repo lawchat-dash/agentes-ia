@@ -1,0 +1,21 @@
+# Fora da imagem: segredos, ambientes locais, dados de conversa e saídas de teste.
+.env
+.env.*
+!.env.example
+.venv/
+**/node_modules/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.claude/
+.backups/
+**/.backups/
+scratch/
+**/scratch/
+avaliacao/resultados/
+chats_reais*
+**/chats_reais*
+tests/dados/
+dados/
+painel/dist/

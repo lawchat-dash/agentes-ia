@@ -1,0 +1,21 @@
+.env
+.env.*
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+!.env.example
+
+# Mídia enviada pelos escritórios (servida em /midia)
+dados/
+
+# Saída das rodadas do teste do agente (modo real)
+avaliacao/resultados/
+
+# Front compilado: o Dockerfile.painel gera no build do Easypanel
+painel/dist/
+# Configuração local do Claude (permissões e afins); o launch.json pode ir
+.claude/settings.local.json
+# Logs locais
+*.log

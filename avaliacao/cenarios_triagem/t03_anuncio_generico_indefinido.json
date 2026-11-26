@@ -1,0 +1,38 @@
+{
+  "id": "t03_anuncio_generico_indefinido",
+  "descricao": "Anúncio genérico ('Teve um benefício negado? Fale com um especialista'): a camada 1 devolve nao_sei ou confiança baixa, e isso vira só PISTA para a triagem. O lead é vago nas duas respostas e no fim fala de 'coisa do cadastro' do INSS (CNIS), que não é produto ativo; o número tem outros_beneficios = humano. Com o limite de 2 perguntas atingido, a triagem NÃO faz a 3ª: passa para a equipe humana com a frase fixa, e o lead fica pausado com transferência para o departamento padrão. Depende do formato novo: ver docs/AGENTE_TRIAGEM.md, seção 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000703",
+    "nome_whatsapp": "Sueli",
+    "origem": {
+      "campanha": "INSS GERAL - BR",
+      "titulo": "Teve um benefício negado? Fale com um especialista",
+      "url": "https://exemplo.invalid/anuncio/inss-geral"
+    },
+    "falas": [
+      {"texto": "oi vi o anuncio de vcs", "espera": {"etapa": "triagem"}},
+      {"texto": "queria tirar uma duvida do inss", "espera": {"etapa": "triagem"}},
+      {"texto": "é coisa do meu cadastro, nao sei explicar direito"}
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem"],
+    "estado_final": "pausado",
+    "triagem": {
+      "destino": "humano",
+      "categoria": "outro_previdenciario",
+      "pula_triagem": false,
+      "max_perguntas": 2
+    },
+    "obrigatorio_em": {"triagem": ["(?i)equipe"]},
+    "proibido": [
+      "(?i)(?<!se )(?<!se voc[êe] )\\b(tem|teria|ter[áa]) direito",
+      "(?i)\\bcpf\\b|\\blaudo|documento",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b",
+      "(?i)https?://|www\\."
+    ]
+  },
+  "limites": {"turnos": 5, "custo_usd": 0.03}
+}

@@ -1,0 +1,58 @@
+{
+  "id": "05_lead_audio",
+  "descricao": "Lead que fala quase tudo por áudio (uma transcrição ruim), manda mensagens picadas e a foto do laudo; deve chegar ao link do contrato com nome e CPF vindos do áudio.",
+  "agente": "avaliacao/agentes/catalogo_referencia.json",
+  "agora": "2026-03-10T10:00:00-03:00",
+  "lead": {
+    "tipo": "cartao",
+    "telefone": "5511990000005",
+    "nome_whatsapp": "Maria",
+    "persona": "Mulher de 56 anos, auxiliar de limpeza, prefere mandar áudio e escreve pouco.",
+    "abertura": [{"tipo": "audio", "texto": "oi bom dia eu vi o anúncio de vocês sobre o auxílio acidente"}],
+    "verdade": {
+      "acidente_descricao": "queda na escada do serviço, fratura no punho",
+      "acidente_mes": 10, "acidente_ano": 2023,
+      "vinculo_na_data": "clt", "auxilio_doenca": true,
+      "sequela": "sim", "sequela_descricao": "punho esquerdo com limitação de movimento",
+      "aposentado": false, "tem_advogado_no_caso": false,
+      "nome_completo": "Maria Aparecida Souza", "cpf": "740.859.411-60", "cep": "13015-904", "numero_casa": "45"
+    },
+    "assuntos": [
+      {"quando": ["(?i)como (foi|aconteceu)|o que aconteceu|me conta"], "fatos": ["acidente_descricao", "acidente_mes", "acidente_ano"],
+       "responde": {"picadas": ["caí na escada do serviço", "foi em outubro de 2023", "quebrei o punho"]}},
+      {"quando": ["(?i)trabalh|registrad|carteira|clt"], "fatos": ["vinculo_na_data", "auxilio_doenca"],
+       "responde": {"tipo": "audio", "texto": "eu trabaiava registradu numa firma de limpeza fiquei afastada pelo inss uns tres meis"}},
+      {"quando": ["(?i)sequela|limita[çc]|dificuldade|ficou com"], "fatos": ["sequela", "sequela_descricao"],
+       "responde": {"tipo": "imagem", "texto": "olha o laudo",
+                    "descricao": "Laudo médico de ortopedia: fratura consolidada do punho esquerdo com limitação de movimento. Data ilegível."}},
+      {"quando": ["(?i)aposentad|aposentou"], "fatos": ["aposentado"], "responde": {"tipo": "audio", "texto": "não sou aposentada não"}},
+      {"quando": ["(?i)advogad"], "fatos": ["tem_advogado_no_caso"], "responde": {"tipo": "audio", "texto": "não tenho advogado"}},
+      {"quando": ["(?i)\\b(quer|podemos|vamos|posso|gostaria|deseja)\\b.{0,30}\\b(sig[ao]|seguir|prosseguir|continuar|dar (entrada|continuidade|andamento))|\\btopa\\b"], "aceite": true, "responde": {"texto": "pode sim"}},
+      {"quando": ["(?i)nome completo"], "fatos": ["nome_completo"], "responde": {"tipo": "audio", "texto": "meu nome completo é Maria Aparecida Souza"}},
+      {"quando": ["(?i)\\bcpf\\b"], "fatos": ["cpf"], "responde": {"tipo": "audio", "texto": "o cpf é 740.859.411-60"}},
+      {"quando": ["(?i)\\bcep\\b|endere[çc]o"], "fatos": ["cep", "numero_casa"], "responde": {"texto": "13015-904, número 45"}},
+      {"quando": ["(?i)e-?mail"], "responde": {"tipo": "audio", "texto": "não tenho email não"}},
+      {"quando": ["(?i)confer|confirm|(est[áa]|ficou) (tudo )?(cert|corret|ok)|pode(mos)? gerar|posso gerar|gerar o contrato"], "responde": {"tipo": "audio", "texto": "isso, pode seguir"}}
+    ],
+    "gatilhos": [
+      {"depois_de": "(?i)vale a pena a nossa equipe olhar", "fala": {"tipo": "audio", "texto": "que bom, e como funciona?"}}
+    ],
+    "ao_receber_link": "assina",
+    "padrao": "não sei te dizer"
+  },
+  "ferramentas": {
+    "cep": {"13015904": {"logradouro": "Rua Exemplo das Acácias", "bairro": "Centro", "cidade": "Campinas", "uf": "SP"}},
+    "zapsign": {"assina": true}
+  },
+  "esperado": {
+    "destino_qualificacao": {"oraculo": "auxilio_acidente"},
+    "transferencias_com_frase": ["closer", "contratos"],
+    "ferramentas": {"zapsign": 1, "cep_completou_endereco": true},
+    "contrato": {"exatamente": 1, "campos": ["nome_completo", "cpf", "endereco", "cidade", "uf"]},
+    "proibido": ["(?i)causa ganha", "(?i)chega em instantes", "(?i)(pode|consegue|poderia) (me )?(escrever|digitar)", "(?i)n[ãa]o (consigo|consegui) (ouvir|escutar)",
+                 "(?i)cirurgia|\\bpino\\b|\\bplaca\\b|\\bcid\\b"],
+    "obrigatorio_em": {"closer": ["(?i)honor", "(?i)30 ?%|trinta por cento"]},
+    "fatos": {"nome_completo": "Maria Aparecida Souza", "cpf": "740.859.411-60"}
+  },
+  "limites": {"turnos": 25, "custo_usd": 0.25, "parar_em": ["assinatura"]}
+}

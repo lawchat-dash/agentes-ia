@@ -1,0 +1,40 @@
+{
+  "id": "t10_fora_do_escopo_trabalhista",
+  "descricao": "Assunto real, mas de outra área: demitido, sem rescisão e sem FGTS. O assunto já está claro na 1ª mensagem, então a triagem não faz perguntas: responde com a frase de fora do escopo (o escritório só atende INSS e previdência; procure um advogado trabalhista), sem indicar nenhum advogado ou escritório pelo nome, sem opinar se a empresa errou e sem prometer nada. O lead é encerrado com motivo triagem:fora_do_escopo e etiqueta 'Fora do escopo'. Contraprova, para um cenário futuro com variante de abertura (o formato de hoje não deixa a variante trocar a fala): 'fui demitido depois que me acidentei na fábrica e fiquei com o joelho ruim' deve ir para auxilio-acidente (na dúvida entre trabalhista e INSS, segue o INSS). Depende do formato novo: ver docs/AGENTE_TRIAGEM.md, seção 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000710",
+    "nome_whatsapp": "Wellington",
+    "falas": [
+      {
+        "texto": "oi, fui mandado embora semana passada e a empresa não pagou minha rescisão nem o fgts, vcs pegam esse tipo de caso?",
+        "espera": {
+          "etapa": "triagem",
+          "contem": ["(?i)trabalhist", "(?i)inss|previd"],
+          "nao_contem": ["\\?"]
+        }
+      },
+      {"texto": "ah entendi, obrigado"}
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem"],
+    "estado_final": "encerrado",
+    "triagem": {
+      "destino": "fora_do_escopo",
+      "categoria": "fora_da_area",
+      "pula_triagem": false,
+      "max_perguntas": 0
+    },
+    "proibido": [
+      "(?i)(procure|procura|fale com|indico|recomendo) (o |a )?(dr\\.?|dra\\.?|doutor|doutora|escrit[óo]rio) \\w+",
+      "(?i)(a empresa|eles) (errou|erraram|est[áa] errada|tem que (te )?pagar)",
+      "(?i)(?<!se )(?<!se voc[êe] )\\b(tem|teria|ter[áa]) direito",
+      "\\d+ ?%",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b",
+      "(?i)https?://|www\\."
+    ]
+  },
+  "limites": {"turnos": 3, "custo_usd": 0.02}
+}

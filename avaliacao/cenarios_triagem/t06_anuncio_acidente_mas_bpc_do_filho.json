@@ -1,0 +1,52 @@
+{
+  "id": "t06_anuncio_acidente_mas_bpc_do_filho",
+  "descricao": "Divergência e mudança de assunto. O anúncio é claramente de auxílio-acidente (camada 1 com confiança alta), então o lead entra direto no SDR do auxílio-acidente. Mas a mãe escreve que o filho de 6 anos é autista e o INSS negou o BPC. Regra: vale o que o lead diz. O extrator marca outro_beneficio, o auditor confirma e, em vez de pausar como hoje, o lead VOLTA à triagem (1ª e única volta). Isso acontece no mesmo turno: o SDR não chega a responder sobre acidente. A triagem passa para o BPC/LOAS, que neste número é atendido pela equipe; anota subcategoria bpc_crianca, quem_fala = parente (mãe) e a divergência anúncio x conversa. Depende do formato novo e da volta à triagem no turno.py: ver docs/AGENTE_TRIAGEM.md, seções 4, 5.1 e 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000706",
+    "nome_whatsapp": "Patrícia",
+    "origem": {
+      "campanha": "AUX ACIDENTE - SEQUELA - BR",
+      "titulo": "Sofreu um acidente e ficou com sequela? Você pode ter direito a uma indenização do INSS",
+      "url": "https://exemplo.invalid/anuncio/auxilio-acidente-01",
+      "clid": "clid-exemplo-706"
+    },
+    "falas": [
+      {
+        "texto": "oi vi o anuncio de vcs. meu filho de 6 anos é autista e o inss negou o bpc dele, vcs fazem isso?",
+        "espera": {
+          "nao_contem": [
+            "(?i)(como (foi|aconteceu) o acidente|qual (foi o )?acidente)[^.!?]*\\?",
+            "(?i)(?<!se )\\b(tem|teria|ter[áa]) direito"
+          ],
+          "contem": ["(?i)bpc|loas|equipe"]
+        }
+      }
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["auxilio-acidente/sdr", "triagem"],
+    "estado_final": "pausado",
+    "triagem": {
+      "destino": "bpc-loas",
+      "categoria": "bpc_loas",
+      "subcategoria": "bpc_crianca",
+      "fonte": "conversa",
+      "pula_triagem": true,
+      "voltas": 1,
+      "divergencia": true,
+      "max_perguntas": 0,
+      "quem_fala": "parente",
+      "transferiu_para_equipe": "BPC/LOAS"
+    },
+    "proibido": [
+      "(?i)(?<!se )(?<!se voc[êe] )(?<!se ele )\\b(tem|teria|ter[áa]) direito",
+      "(?i)n[ãa]o (tem|teria|ter[áa]) direito",
+      "(?i)renda|cad[úu]nico|laudo|\\bcpf\\b",
+      "\\d+ ?%",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b"
+    ]
+  },
+  "limites": {"turnos": 3, "custo_usd": 0.04}
+}

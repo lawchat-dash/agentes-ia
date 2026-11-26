@@ -1,0 +1,50 @@
+{
+  "id": "t01_oi_sem_origem",
+  "descricao": "Lead novo, sem anúncio nem UTM, num número com auxílio-acidente (IA), BPC/LOAS (equipe) e aposentadoria (equipe). Manda só 'oi'. A triagem se apresenta e faz UMA pergunta aberta, sem chutar assunto. Na resposta o lead conta que se machucou no serviço e ficou com a mão sem fechar: é auxílio-acidente, passa no mesmo turno e o SDR do produto responde em seguida (passagem encadeada), sem perguntar de novo qual é o assunto. Depende do formato novo (lead.origem, esperado.triagem, snapshot com vários agentes, trajetória 'produto/etapa'): ver docs/AGENTE_TRIAGEM.md, seção 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000701",
+    "nome_whatsapp": "Rogério",
+    "falas": [
+      {
+        "texto": "oi",
+        "espera": {
+          "etapa": "triagem",
+          "contem": ["(?i)em que (posso|podemos)|como (posso|podemos)|me conta"],
+          "nao_contem": ["(?i)acidente|aposentadoria|bpc"]
+        }
+      },
+      {
+        "texto": "queria ver sobre o inss, me machuquei no serviço ano passado e minha mão não fecha mais",
+        "espera": {
+          "etapa": "auxilio-acidente/sdr",
+          "nao_contem": ["(?i)(em que (posso|podemos)|qual (é )?o assunto|sobre o que)[^.!?]*\\?"]
+        }
+      }
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem", "auxilio-acidente/sdr"],
+    "estado_final": "ativo",
+    "triagem": {
+      "destino": "auxilio-acidente",
+      "categoria": "auxilio_acidente",
+      "pula_triagem": false,
+      "max_perguntas": 1,
+      "fatos_passados": {"sequela": "sim", "acidente_descricao": "serviço"},
+      "quem_fala": "proprio"
+    },
+    "proibido": [
+      "(?i)(?<!se )(?<!se voc[êe] )(?<!se ele )(?<!se ela )\\b(tem|teria|ter[áa]) direito",
+      "(?i)n[ãa]o (tem|teria|ter[áa]) direito",
+      "\\d+ ?%",
+      "(?i)honor[áa]rio",
+      "(?i)\\bcpf\\b|\\blaudo",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b|\\brob[ôo]\\b",
+      "(?i)causa ganha|chance (alta|grande|boa)",
+      "(?i)https?://|www\\."
+    ]
+  },
+  "limites": {"turnos": 4, "custo_usd": 0.05, "parar_em": ["auxilio-acidente/sdr"]}
+}

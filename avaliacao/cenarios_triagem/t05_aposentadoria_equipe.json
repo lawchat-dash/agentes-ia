@@ -1,0 +1,37 @@
+{
+  "id": "t05_aposentadoria_equipe",
+  "descricao": "Lead pergunta quanto falta para se aposentar (58 anos, 30 anos registrado). No número de referência, aposentadoria é produto ATIVO com atendimento 'equipe' (departamento 'Aposentadoria' na Helena). A triagem não faz conta, não diz se já pode se aposentar nem quanto falta: manda a frase de passagem para a equipe do assunto, e o código transfere a sessão para o departamento do produto e pausa a IA. Depende do formato novo e de HelenaFalsa.transferir registrar o id_equipe: ver docs/AGENTE_TRIAGEM.md, seção 12.",
+  "agente": "avaliacao/agentes/triagem_referencia.json",
+  "lead": {
+    "tipo": "roteiro",
+    "telefone": "5511990000705",
+    "nome_whatsapp": "Lúcia",
+    "falas": [
+      {"texto": "boa tarde"},
+      {"texto": "quero saber quanto tempo falta pra eu me aposentar, tenho 58 anos e trabalhei uns 30 anos registrada"}
+    ]
+  },
+  "esperado": {
+    "trajetoria": ["triagem"],
+    "estado_final": "pausado",
+    "triagem": {
+      "destino": "aposentadoria",
+      "categoria": "aposentadoria",
+      "pula_triagem": false,
+      "max_perguntas": 1,
+      "transferiu_para_equipe": "Aposentadoria",
+      "fatos_passados": {"idade": "58"}
+    },
+    "obrigatorio_em": {"triagem": ["(?i)equipe"]},
+    "proibido": [
+      "(?i)falta(m)? (s[óo] )?(uns |cerca de )?\\d+ (anos|meses)",
+      "(?i)j[áa] (pode|consegue|d[áa] pra) (se )?aposentar",
+      "(?i)(?<!se )(?<!se voc[êe] )\\b(tem|teria|ter[áa]) direito",
+      "(?i)n[ãa]o (tem|teria|ter[áa]) direito",
+      "(?i)car[êe]ncia|tempo m[íi]nimo|regra de transi[çc][ãa]o",
+      "\\d+ ?%",
+      "(?i)\\btriagem\\b|\\btransferi|\\bsetor\\b|\\bagente\\b"
+    ]
+  },
+  "limites": {"turnos": 4, "custo_usd": 0.03}
+}
