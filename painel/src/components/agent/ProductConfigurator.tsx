@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import iconeLawChat from "@/assets/lawchat-icone.svg";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, ChevronDown, Rocket, Bot, Loader2, RefreshCw, Shield, FlaskConical, FileSignature, ExternalLink, Settings2, Braces, AlertTriangle, X, Sparkles, Building2, Headphones, BellRing, History, PencilLine } from "lucide-react";
@@ -2660,6 +2661,28 @@ const NavRow = ({
   </button>
 );
 
+const DICAS_CONSTRUCAO = [
+  "Depois de ativar, mande uma mensagem do seu celular para o número e veja a IA responder.",
+  "No Laboratório do agente você testa o atendimento sem gastar mensagens reais.",
+  "O follow-up já vem ligado: lembretes em 1 h, 24 h, 72 h e 7 dias.",
+  "Quando a IA não souber seguir, ela passa o caso para a equipe com a ficha pronta.",
+];
+/** Uma dica por vez, trocando a cada 4,5 s, enquanto o agente é construído. */
+function DicaRotativa() {
+  const [i, setI] = useState(0);
+  useEffect(() => { const t = setInterval(() => setI((n) => (n + 1) % DICAS_CONSTRUCAO.length), 4500); return () => clearInterval(t); }, []);
+  return (
+    <div className="mt-5 rounded-2xl bg-[#f6fef9] border border-[#d1fadf] px-4 py-3 text-left min-h-[64px]">
+      <div className="text-[10.5px] font-bold uppercase tracking-wider text-[#067a2b]">Enquanto isso</div>
+      <AnimatePresence mode="wait">
+        <motion.p key={i} className="text-[13px] text-[#344054] mt-0.5" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.25 }}>
+          {DICAS_CONSTRUCAO[i]}
+        </motion.p>
+      </AnimatePresence>
+    </div>
+  );
+}
+
 const fmtElapsed = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 /** Tela cheia de construção do agente — mostra o progresso real enquanto aguarda o
@@ -2683,14 +2706,20 @@ const BuildingOverlay = ({ c1, c2, stage, productName, agentCount, error, onGoPr
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-[60] grid place-items-center p-6"
-      style={{ backgroundImage: error ? "linear-gradient(135deg, #b42318, #7a271a)" : `linear-gradient(135deg, ${c1}, ${c2})` }}
+      style={{ backgroundImage: error ? "linear-gradient(135deg, #b42318, #7a271a)" : "radial-gradient(900px 520px at 18% 12%, rgba(0,188,51,.22), transparent 60%), radial-gradient(800px 520px at 85% 90%, rgba(59,224,98,.14), transparent 60%), linear-gradient(160deg, #0b1220, #101a2e 55%, #0b1220)" }}
     >
-      <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,.5) 1.5px, transparent 1.5px)", backgroundSize: "22px 22px" }} />
+      <div className="absolute inset-0 opacity-[.12]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,.6) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+      {!error && [0, 1, 2].map((k) => (
+        <motion.div key={k} className="absolute rounded-full pointer-events-none" aria-hidden
+          style={{ width: 260 + k * 120, height: 260 + k * 120, border: "1px solid rgba(0,188,51,.16)" }}
+          animate={{ scale: [0.9, 1.15], opacity: [0.5, 0] }} transition={{ duration: 3.2, repeat: Infinity, ease: "easeOut", delay: k * 1.05 }} />
+      ))}
       <motion.div
         key={error ? "err" : "build"}
         initial={{ scale: 0.94, y: 12, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 240, damping: 22 }}
-        className="relative w-full max-w-md rounded-3xl bg-white/95 backdrop-blur-xl shadow-2xl p-7 text-center"
+        className="relative w-full max-w-lg rounded-[28px] bg-white/[.97] backdrop-blur-xl p-8 text-center"
+        style={{ boxShadow: "0 40px 80px -24px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08)" }}
       >
         {error ? (
           <>
@@ -2712,57 +2741,79 @@ const BuildingOverlay = ({ c1, c2, stage, productName, agentCount, error, onGoPr
           </>
         ) : (
           <>
-            {/* Núcleo animado com onda + ponto orbitando */}
-            <div className="relative mx-auto size-20 mb-5">
-              <motion.div className="absolute inset-0 rounded-2xl" style={{ backgroundImage: `linear-gradient(135deg, ${c1}, ${c2})` }}
-                animate={{ scale: [1, 1.08, 1], rotate: [0, 3, -3, 0] }} transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }} />
-              <div className="absolute inset-0 grid place-items-center text-white"><Bot className="size-9" /></div>
+            {/* Núcleo: o ícone da LawChat com anéis e um ponto orbitando */}
+            <div className="relative mx-auto size-24 mb-5">
+              <motion.div className="absolute inset-0 rounded-[28px]" style={{ backgroundImage: "linear-gradient(135deg, #3BE062, #00BC33 55%, #00852A)", boxShadow: "0 18px 40px -14px rgba(0,188,51,.65)" }}
+                animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }} />
+              <div className="absolute inset-0 grid place-items-center"><img src={iconeLawChat} alt="" className="size-14 drop-shadow" /></div>
               {[0, 1].map((k) => (
-                <motion.div key={k} className="absolute -inset-2 rounded-3xl border-2" style={{ borderColor: `${c1}55` }}
-                  animate={{ scale: [1, 1.3], opacity: [0.55, 0] }} transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut", delay: k * 0.9 }} />
+                <motion.div key={k} className="absolute -inset-2 rounded-[34px] border-2" style={{ borderColor: "rgba(0,188,51,.35)" }}
+                  animate={{ scale: [1, 1.28], opacity: [0.6, 0] }} transition={{ duration: 1.9, repeat: Infinity, ease: "easeOut", delay: k * 0.95 }} />
               ))}
-              <motion.div className="absolute inset-0" animate={{ rotate: 360 }} transition={{ duration: 3, repeat: Infinity, ease: "linear" }}>
-                <div className="absolute -top-1 left-1/2 -ml-1 size-2 rounded-full" style={{ backgroundColor: c2, boxShadow: `0 0 8px ${c2}` }} />
+              <motion.div className="absolute -inset-3" animate={{ rotate: 360 }} transition={{ duration: 3.4, repeat: Infinity, ease: "linear" }}>
+                <div className="absolute -top-0.5 left-1/2 -ml-1.5 size-3 rounded-full bg-[#3BE062]" style={{ boxShadow: "0 0 12px #3BE062" }} />
               </motion.div>
             </div>
 
-            <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: c1 }}>Construindo seu agente</div>
-            <h2 className="text-xl font-bold tracking-tight text-[#101828] mt-1 truncate">{productName}</h2>
-            <p className="text-xs text-[#667085] mt-1">
-              {agentCount} agentes · {waiting ? "aguardando a confirmação do servidor" : "preparando tudo"}. Não feche a janela.
+            <div className="text-[11px] font-bold uppercase tracking-[.14em] text-[#00a32c]">Construindo seu agente</div>
+            <h2 className="text-2xl font-bold tracking-tight text-[#101828] mt-1 truncate">{productName}</h2>
+            <p className="text-[13px] text-[#667085] mt-1">
+              {waiting ? "Quase lá: aguardando a confirmação do servidor" : "Preparando tudo"} · não feche esta janela
             </p>
 
-            {/* Barra de progresso com shimmer */}
-            <div className="mt-5 h-2 rounded-full bg-[#eef1f5] overflow-hidden relative">
-              <motion.div className="h-full rounded-full relative overflow-hidden" style={{ backgroundImage: `linear-gradient(90deg, ${c1}, ${c2})` }}
-                initial={{ width: "8%" }} animate={{ width: `${pct}%` }} transition={{ ease: "easeOut", duration: 0.6 }}>
-                <motion.div className="absolute inset-0" style={{ backgroundImage: "linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent)" }}
-                  animate={{ x: ["-100%", "220%"] }} transition={{ duration: 1.4, repeat: Infinity, ease: "linear" }} />
-              </motion.div>
-            </div>
-            <div className="mt-1.5 flex justify-between text-[10px] text-[#98A2B3] tabular-nums">
-              <span>{waiting ? "Pode levar alguns minutos" : "Iniciando…"}</span>
-              <span>{fmtElapsed(elapsed)}</span>
+            {/* Os agentes do funil aparecendo um a um */}
+            <div className="mt-5 flex justify-center gap-2" aria-label={`${agentCount} agentes`}>
+              {Array.from({ length: Math.max(1, agentCount) }).map((_, i) => {
+                const pronto = i < Math.ceil(((stage + 1) / BUILD_STEPS.length) * Math.max(1, agentCount));
+                return (
+                  <motion.div key={i} className="size-9 rounded-xl grid place-items-center"
+                    initial={{ scale: 0.4, opacity: 0, y: 6 }} animate={{ scale: 1, opacity: 1, y: 0 }} transition={{ delay: 0.15 + i * 0.12, type: "spring", stiffness: 320, damping: 18 }}
+                    style={pronto ? { backgroundImage: "linear-gradient(135deg, #3BE062, #00A32C)", color: "#fff", boxShadow: "0 6px 14px -6px rgba(0,163,44,.7)" } : { backgroundColor: "#f2f4f7", color: "#98A2B3" }}>
+                    {pronto ? <Check className="size-4" strokeWidth={3} /> : <Bot className="size-4" />}
+                  </motion.div>
+                );
+              })}
             </div>
 
-            {/* Etapas */}
-            <div className="mt-4 space-y-2 text-left">
+            {/* Progresso: porcentagem grande + barra com brilho */}
+            <div className="mt-6 flex items-end justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#98A2B3]">{waiting ? "Pode levar alguns minutos" : "Progresso"}</span>
+              <span className="text-2xl font-bold tabular-nums text-[#101828]">{pct}<span className="text-sm text-[#98A2B3]">%</span></span>
+            </div>
+            <div className="mt-1.5 h-2.5 rounded-full bg-[#eef1f5] overflow-hidden relative">
+              <motion.div className="h-full rounded-full relative overflow-hidden" style={{ backgroundImage: "linear-gradient(90deg, #00A32C, #3BE062)" }}
+                initial={{ width: "6%" }} animate={{ width: `${pct}%` }} transition={{ ease: "easeOut", duration: 0.7 }}>
+                <motion.div className="absolute inset-0" style={{ backgroundImage: "linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent)" }}
+                  animate={{ x: ["-100%", "220%"] }} transition={{ duration: 1.3, repeat: Infinity, ease: "linear" }} />
+              </motion.div>
+            </div>
+            <div className="mt-1 text-right text-[11px] text-[#98A2B3] tabular-nums">{fmtElapsed(elapsed)}</div>
+
+            {/* Etapas numa linha do tempo */}
+            <div className="mt-3 text-left relative">
+              <div className="absolute left-[15px] top-4 bottom-4 w-0.5 bg-[#eef1f5]" aria-hidden />
+              <motion.div className="absolute left-[15px] top-4 w-0.5 bg-[#00BC33] origin-top" aria-hidden
+                animate={{ height: `calc(${(Math.min(stage, lastIdx) / lastIdx) * 100}% - 32px * ${Math.min(stage, lastIdx) / lastIdx})` }} transition={{ duration: 0.6, ease: "easeOut" }} />
               {BUILD_STEPS.map((s, i) => {
                 const isDone = i < stage;
                 const isActive = i === stage;
                 const label = (i === lastIdx && waiting) ? "Aguardando confirmação do servidor" : s.label;
                 return (
-                  <motion.div key={s.label} className="flex items-center gap-2.5"
+                  <motion.div key={s.label} className="relative flex items-center gap-3 py-1.5"
                     initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}>
-                    <div className="size-7 rounded-lg grid place-items-center shrink-0 transition-colors"
-                      style={isDone || isActive ? { backgroundImage: `linear-gradient(135deg, ${c1}, ${c2})`, color: "#fff" } : { backgroundColor: "#eef1f6", color: "#aab2c0" }}>
-                      {isDone ? <Check className="size-3.5" strokeWidth={3} /> : isActive ? <Loader2 className="size-3.5 animate-spin" /> : <s.Icon className="size-3.5" />}
+                    <div className="relative size-8 rounded-full grid place-items-center shrink-0 transition-colors"
+                      style={isDone ? { backgroundColor: "#00BC33", color: "#fff" } : isActive ? { backgroundColor: "#fff", color: "#00A32C", boxShadow: "0 0 0 2px #00BC33, 0 0 0 6px rgba(0,188,51,.15)" } : { backgroundColor: "#f2f4f7", color: "#aab2c0" }}>
+                      {isDone ? <Check className="size-4" strokeWidth={3} /> : isActive ? <Loader2 className="size-4 animate-spin" /> : <s.Icon className="size-4" />}
                     </div>
-                    <span className={`text-sm ${isDone || isActive ? "font-medium text-[#101828]" : "text-[#98A2B3]"}`}>{label}</span>
+                    <span className={`text-[14px] ${isActive ? "font-semibold text-[#101828]" : isDone ? "text-[#344054]" : "text-[#98A2B3]"}`}>{label}</span>
+                    {isDone && <span className="ml-auto text-[11px] font-semibold text-[#00A32C]">feito</span>}
                   </motion.div>
                 );
               })}
             </div>
+
+            {/* Dicas enquanto espera */}
+            <DicaRotativa />
           </>
         )}
       </motion.div>
