@@ -746,9 +746,22 @@ html { scroll-behavior: smooth; }
 .cr-destaque { background: linear-gradient(100deg, #00bc33 0%, #0a8f35 55%, #067a2c 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 /* Cartões brancos e o cartão principal verde-escuro liso (sem grade e sem brilho, pedido do dono). */
 .cr-cartao { background: #fff; border: 1px solid #e6ebe8; box-shadow: 0 1px 2px rgba(16,24,40,.04), 0 12px 32px -22px rgba(16,40,24,.18); }
-.cr-heroi { background: #0f3324; box-shadow: 0 20px 40px -28px rgba(6,40,22,.55), inset 0 1px 0 rgba(255,255,255,.05); }
-.cr-saldo-negativo { color: #ff9b85; }
-.cr-saldo-positivo { background: linear-gradient(180deg, #ffffff 30%, #b8f5cb 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.cr-heroi { background: linear-gradient(165deg, #113a29 0%, #0b2a1d 100%); box-shadow: 0 1px 2px rgba(16,24,40,.06), 0 18px 36px -26px rgba(6,40,22,.6); }
+/* Rodapé do cartão do saldo: três indicadores numa faixa, separados por linhas finas (no celular, um por linha). */
+.cr-indicador { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: baseline; padding: 8px 0; }
+.cr-indicador > :nth-child(1) { grid-column: 1; grid-row: 1; }
+.cr-indicador > :nth-child(2) { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.cr-indicador > :nth-child(3) { grid-column: 1; grid-row: 2; }
+.cr-indicador + .cr-indicador { border-top: 1px solid rgba(255,255,255,.08); }
+@media (min-width: 640px) {
+  .cr-indicador { display: block; padding: 0 16px; }
+  .cr-indicador:first-child { padding-left: 0; }
+  .cr-indicador:last-child { padding-right: 0; }
+  .cr-indicador + .cr-indicador { border-top: 0; border-left: 1px solid rgba(255,255,255,.08); }
+  .cr-indicador-valor { margin: 4px 0 2px; }
+}
+.cr-coluna { animation: cr-coluna .6s cubic-bezier(.2,.8,.2,1) both; transform-origin: bottom; }
+@keyframes cr-coluna { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 /* Botão verde com brilho. */
 .cr-botao-verde { background: linear-gradient(135deg, #00c936 0%, #0a9a38 55%, #08832f 100%);
   box-shadow: 0 10px 24px -8px rgba(0,170,50,.55), inset 0 1px 0 rgba(255,255,255,.22); transition: transform .2s ease, box-shadow .2s ease, filter .2s ease; }
@@ -783,7 +796,7 @@ html { scroll-behavior: smooth; }
 .cr-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: #fff; border: 5px solid #0a8f35; box-shadow: 0 2px 8px rgba(10,143,53,.4); cursor: pointer; }
 .cr-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(10,143,53,.25); }
 @media (prefers-reduced-motion: reduce) {
-  .cr-entra, .cr-barra, .cr-brilho { animation: none; }
+  .cr-entra, .cr-barra, .cr-brilho, .cr-coluna { animation: none; }
   .cr-barra, .cr-anel, .cr-botao-verde { transition: none; }
   .cr-botao-verde:hover { transform: none; }
 }

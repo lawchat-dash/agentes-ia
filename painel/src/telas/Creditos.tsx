@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useReducedMotion } from "framer-motion";
 import {
   Activity, AlertTriangle, ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen, Bot, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  Cpu, Download, FileCheck2, Heart, History, Info, LineChart as IconeLinha, MessageCircle, Receipt, Sparkles, Target, TrendingUp, Users, Zap,
+  Cpu, Download, FileCheck2, Heart, History, Info, LineChart as IconeLinha, MessageCircle, Receipt, Sparkles, Target, TrendingUp, Users, Wallet, Zap,
 } from "lucide-react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -197,83 +197,83 @@ function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim
   const negativo = c.disponivel_brl < 0;
   const cmp = p.comparativo;
   const variacao = cmp.anteriores_7_brl > 0 ? ((cmp.ultimos_7_brl - cmp.anteriores_7_brl) / cmp.anteriores_7_brl) * 100 : null;
-  // Barra de autonomia: hoje (cheio) + o que a recarga simulada acrescenta (translúcido), numa escala de 1 ano.
-  const escala = 365;
-  const larguraHoje = autonomia != null ? Math.max(autonomia > 0 ? 2 : 0, (autonomia / escala) * 100) : 0;
-  const larguraExtra = extra != null ? (extra / escala) * 100 : 0;
+  // Barra de autonomia: a escala é a autonomia com a recarga simulada; cheio = hoje, translúcido = o que a recarga acrescenta.
+  const total = autonomia != null ? autonomia + (extra ?? 0) : 0;
+  const larguraHoje = autonomia != null && total > 0 ? Math.max(autonomia > 0 ? 1.5 : 0, (autonomia / total) * 100) : 0;
+  // Um selo só: o mais importante.
+  const selo = nivel === "pausado" ? { cor: "#ff9b85", texto: "IA em pausa" }
+    : nivel === "baixo" ? { cor: "#ffc56b", texto: "Saldo baixo" }
+    : nivel === "ok" ? { cor: "#5ee38a", texto: cpl.estimativa ? "Saudável · estimativa" : "Saudável" }
+    : { cor: "#98A2B3", texto: "Sem consumo recente" };
   return (
     <section className="cr-heroi relative isolate flex min-w-0 flex-col overflow-hidden rounded-[22px] p-5 text-white md:p-6">
-      {/* Selos de situação */}
-      <div className="flex flex-wrap gap-2">
-        {nivel === "pausado" && <Selo ponto="#ff9b85">{negativo ? "Saldo negativo · IA em pausa" : "Saldo zerado · IA em pausa"}</Selo>}
-        {(nivel === "pausado" || nivel === "baixo") && <Selo icone={<AlertTriangle className="size-3.5" />}>Saldo baixo: recarregue logo</Selo>}
-        {nivel === "ok" && <Selo ponto="#5ee38a">Operação saudável</Selo>}
-        {nivel === "sem_ritmo" && <Selo ponto="#98A2B3">Sem consumo recente</Selo>}
-        {cpl.estimativa && cpl.valor_brl != null && <Selo icone={<Info className="size-3.5" />}>Estimativa</Selo>}
+      {/* Cabeçalho */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-white/[.08] text-[#7cf0a0]"><Wallet className="size-4" /></span>
+          <span className="truncate text-[14px] font-semibold text-white/85">Saldo disponível</span>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/[.07] px-2.5 py-1 text-[12px] font-semibold text-white/85">
+          <span className="size-1.5 rounded-full" style={{ background: selo.cor }} aria-hidden />{selo.texto}
+        </span>
       </div>
 
-      <div className="mt-4 text-[13px] text-white/70">Saldo disponível</div>
-      <div className={`mt-1 break-words text-[44px] font-extrabold leading-[1] tracking-[-0.04em] tabular-nums sm:text-[54px] md:text-[60px] ${negativo ? "cr-saldo-negativo" : "cr-saldo-positivo"}`}>
+      {/* Saldo e o que ele compra */}
+      <div className={`mt-5 break-words text-[44px] font-extrabold leading-[1] tracking-[-0.04em] tabular-nums sm:text-[52px] ${negativo ? "text-[#ff9b85]" : "text-white"}`}>
         {negativo ? "−" : ""}{reais(Math.abs(c.disponivel_brl))}
       </div>
-
-      <p className="mt-3 max-w-[520px] text-[14px] leading-relaxed text-white/85">
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         {cpl.leads_com_saldo != null ? (
-          <>Seu saldo atende cerca de <b className="font-bold text-white">{cpl.estimativa && "≈ "}<Contador valor={cpl.leads_com_saldo} formato={(v) => inteiro(Math.round(v))} /> {cpl.leads_com_saldo === 1 ? "lead" : "leads"}</b>
-            {autonomia != null && <>, {autonomia < 1 ? "menos de 1 dia" : formatarDias(autonomia)} no seu ritmo atual</>}.
-            {nivel === "pausado" && " A IA volta sozinha quando a recarga entra."}</>
-        ) : (
-          <>Assim que seus agentes atenderem os primeiros leads, mostramos aqui quantos leads o seu saldo paga, com o custo real do seu escritório.
-            {nivel === "pausado" && " A IA volta sozinha quando a recarga entra."}</>
-        )}
-      </p>
-
-      {c.bonus_do_mes_brl > 0 && (
-        <p className="mt-2 text-[12.5px] text-white/60">Bônus do mês: {reais(c.bonus_brl)} restantes · {pct(c.bonus_usado_pct ?? 0)} usado</p>
+          <>
+            <span className={`text-[22px] font-bold leading-none tracking-[-0.02em] tabular-nums ${cpl.leads_com_saldo > 0 ? "text-[#7cf0a0]" : "text-white/85"}`}>
+              {cpl.leads_com_saldo > 0 && "≈ "}<Contador valor={cpl.leads_com_saldo} formato={(v) => inteiro(Math.round(v))} /> {cpl.leads_com_saldo === 1 ? "lead" : "leads"}
+            </span>
+            {autonomia != null && <span className="text-[13.5px] text-white/60">{autonomia >= 1 && autonomia < 365 ? "≈ " : ""}{formatarDias(autonomia)} no seu ritmo</span>}
+          </>
+        ) : <span className="text-[13.5px] text-white/60">Quantos leads o saldo paga aparece aqui após os primeiros atendimentos.</span>}
+      </div>
+      {(nivel === "pausado" || c.bonus_do_mes_brl > 0) && (
+        <div className="mt-2 text-[12px] text-white/50">
+          {nivel === "pausado" ? "A IA volta sozinha quando a recarga entrar." : `Bônus do mês: ${reais(c.bonus_brl)} restantes · ${pct(c.bonus_usado_pct ?? 0)} usado`}
+        </div>
       )}
 
-      <div className="mt-4">
-        {autonomia != null ? (
-          <>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12.5px] text-white/75">
-              <span>Autonomia hoje: <b className="font-bold text-white">{formatarDias(autonomia)}</b></span>
-              {extra != null && <span>Com {reais(valorSim)}: <b className="font-bold text-white">{formatarDias(autonomia + extra)}</b></span>}
-            </div>
-            <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-white/10" role="img"
-              aria-label={`Autonomia hoje ${formatarDias(autonomia)}; com a recarga ${extra != null ? formatarDias(autonomia + extra) : ""}`}>
-              <div className="cr-barra h-full rounded-l-full bg-[#3ddc6f]" style={{ width: `${larguraHoje}%` }} />
-              <div className="cr-barra h-full rounded-r-full bg-gradient-to-r from-[#3ddc6f]/80 to-white/70" style={{ width: `${Math.min(100 - larguraHoje, larguraExtra)}%` }} />
-            </div>
-          </>
-        ) : <p className="text-[12.5px] text-white/60">Sem consumo nos últimos 30 dias para medir a autonomia.</p>}
-      </div>
+      {/* Autonomia */}
+      {autonomia != null && (
+        <div className="mt-5">
+          <div className="flex items-baseline justify-between gap-3 whitespace-nowrap text-[12px] text-white/55">
+            <span>Autonomia <b className="font-semibold text-white/90">{formatarDias(autonomia)}</b></span>
+            {extra != null && <span className="text-right"><span className="hidden sm:inline">com </span>+{reais(valorSim, 0)} <b className="font-semibold text-[#7cf0a0]">{formatarDias(total)}</b></span>}
+          </div>
+          <div className="mt-2 flex h-[5px] overflow-hidden rounded-full bg-white/[.09]" role="img"
+            aria-label={`Autonomia hoje ${formatarDias(autonomia)}; com a recarga ${formatarDias(total)}`}>
+            <div className="cr-barra h-full rounded-full bg-[#5ee38a]" style={{ width: `${larguraHoje}%` }} />
+            {extra != null && <div className="cr-barra h-full bg-[#5ee38a]/35" style={{ width: `${100 - larguraHoje}%` }} />}
+          </div>
+        </div>
+      )}
 
       <BarrasDoHeroi p={p} dias={dias} />
 
-      <div className="mt-auto grid gap-3 pt-4 sm:grid-cols-3">
-        <MiniCartao icone={<Target />} rotulo="Custo médio por lead" valor={rs(cpl.valor_brl)}
-          nota={cpl.valor_brl == null ? "ainda sem leads atendidos" : cpl.estimativa ? "estimativa pelo modelo de IA" : cpl.fonte === "historico_90d" ? "nos últimos 90 dias" : nomePeriodo(dias)} />
-        <MiniCartao icone={<Clock />} rotulo="Últimos 7 dias" valor={reais(cmp.ultimos_7_brl)}
-          nota={variacao == null ? (cmp.ultimos_7_brl > 0 ? "sem semana anterior para comparar" : "sem consumo") : `${variacao > 0 ? "+" : ""}${variacao.toFixed(0)}% vs. semana anterior`}
+      {/* Indicadores */}
+      <div className="cr-heroi-rodape mt-5 grid border-t border-white/10 pt-4 sm:grid-cols-3">
+        <Indicador rotulo="Custo médio por lead" valor={rs(cpl.valor_brl)}
+          nota={cpl.valor_brl == null ? "ainda sem leads" : cpl.estimativa ? "estimativa do modelo" : cpl.fonte === "historico_90d" ? "últimos 90 dias" : nomePeriodo(dias).replace(/^n(as|os) /, "")} />
+        <Indicador rotulo="Últimos 7 dias" valor={reais(cmp.ultimos_7_brl)}
+          nota={variacao == null ? (cmp.ultimos_7_brl > 0 ? "sem semana anterior" : "sem consumo") : `${variacao > 0 ? "+" : ""}${variacao.toFixed(0)}% vs. anterior`}
           alerta={variacao != null && variacao > 50} />
-        <MiniCartao icone={<CalendarDays />} rotulo="Consumo do mês" valor={reais(c.consumo_mes_brl)}
-          nota={`${c.plano ? `plano ${c.plano}` : "desde o dia 1º"}${p.media_dia_brl ? ` · ${rs(p.media_dia_brl)}/dia` : ""}`} />
+        <Indicador rotulo="Consumo do mês" valor={reais(c.consumo_mes_brl)}
+          nota={p.media_dia_brl ? `${rs(p.media_dia_brl)} por dia` : c.plano ? `plano ${c.plano}` : "desde o dia 1º"} />
       </div>
     </section>
   );
 }
 
-const Selo = ({ ponto, icone, children }: { ponto?: string; icone?: ReactNode; children: ReactNode }) => (
-  <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold text-white/90 backdrop-blur-sm">
-    {ponto && <span className="size-2 rounded-full" style={{ background: ponto, boxShadow: `0 0 8px ${ponto}` }} aria-hidden />}{icone}{children}
-  </span>
-);
-
-const MiniCartao = ({ icone, rotulo, valor, nota, alerta }: { icone: ReactNode; rotulo: string; valor: string; nota: string; alerta?: boolean }) => (
-  <div className="min-w-0 rounded-2xl border border-white/10 bg-white/[.06] p-4 backdrop-blur-sm">
-    <div className="flex items-center gap-1.5 text-[12.5px] text-white/70 [&>svg]:size-3.5">{icone}{rotulo}</div>
-    <div className="mt-2 truncate text-[22px] font-bold tracking-tight tabular-nums">{valor}</div>
-    <div className={`mt-1 text-[11.5px] leading-snug ${alerta ? "text-[#ffc56b]" : "text-white/55"}`}>{nota}</div>
+const Indicador = ({ rotulo, valor, nota, alerta }: { rotulo: string; valor: string; nota: string; alerta?: boolean }) => (
+  <div className="cr-indicador min-w-0">
+    <div className="truncate text-[12px] text-white/55">{rotulo}</div>
+    <div className="cr-indicador-valor truncate text-[18px] font-bold tracking-[-0.01em] tabular-nums">{valor}</div>
+    <div className={`truncate text-[11.5px] ${alerta ? "text-[#ffc56b]" : "text-white/45"}`}>{nota}</div>
   </div>
 );
 
@@ -288,7 +288,7 @@ function Simulador({ p, valor, setValor, aoRecarregar }: { p: PainelConsumo; val
   // Anel: proporção do valor no intervalo do controle (R$ 10 a R$ 2.000).
   const R = 52, C = 2 * Math.PI * R;
   return (
-    <section className="cr-cartao flex min-w-0 flex-col rounded-[26px] p-5 md:p-6">
+    <section className="cr-cartao flex min-w-0 flex-col rounded-[22px] p-5 md:p-6">
       <div className="flex items-start gap-3">
         <IconeCaixa cor="verde"><Zap /></IconeCaixa>
         <div className="min-w-0">
@@ -943,38 +943,42 @@ function Kpi({ icone, cor, rotulo, valor, nota, extra, pequeno }: { icone: React
   );
 }
 
-/** Mini linha do KPI "Créditos usados". */
-/** Gasto por dia dentro do cartão do saldo (últimos 14 pontos do período): preenche o meio do cartão com algo útil. */
+/** Gasto por dia dentro do cartão do saldo (últimos 14 dias, ou as horas em 24h): ocupa o meio do cartão. */
 function BarrasDoHeroi({ p, dias }: { p: PainelConsumo; dias: number }) {
-  const serie = useMemo(() => preencherSerie(p, dias).slice(-14), [p, dias]);
+  const porHora = p.granularidade === "hora";
+  const serie = useMemo(() => preencherSerie(p, dias).slice(porHora ? -24 : -14), [p, dias, porHora]);
   const max = Math.max(0, ...serie.map((s) => s.valor_brl));
   const total = serie.reduce((t, s) => t + s.valor_brl, 0);
-  const porHora = p.granularidade === "hora";
+  const iMax = serie.findIndex((s) => s.valor_brl === max);
   return (
-    <div className="mt-5 rounded-2xl border border-white/10 bg-white/[.04] p-4">
-      <div className="flex items-baseline justify-between gap-3 text-[12.5px] text-white/70">
-        <span>Gasto {porHora ? "por hora" : "por dia"} · {porHora ? "últimas 24 h" : `últimos ${serie.length} dias`}</span>
-        <b className="font-bold text-white">{reais(total)}</b>
+    <div className="mt-6 flex min-h-[132px] flex-1 flex-col">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[12px] text-white/55">Gasto {porHora ? "por hora · últimas 24 h" : `por dia · últimos ${serie.length} dias`}</span>
+        <span className="text-[13px] font-semibold tabular-nums text-white/90">{reais(total)}</span>
       </div>
       {max > 0 ? (
-        <div className="mt-3 flex h-[64px] items-end gap-[5px]" role="img" aria-label={`Gasto ${porHora ? "por hora" : "por dia"}`}>
-          {serie.map((s, i) => (
-            <div key={i} className="group relative flex-1" style={{ height: "100%" }} title={`${s.rotulo}: ${reais(s.valor_brl)}`}>
-              <div className="absolute bottom-0 w-full rounded-[4px] bg-[#3ddc6f]/80 transition-colors group-hover:bg-[#5ee38a]"
-                style={{ height: `${Math.max(s.valor_brl > 0 ? 6 : 2, (s.valor_brl / max) * 100)}%`, opacity: s.valor_brl > 0 ? 1 : .25 }} />
-            </div>
-          ))}
-        </div>
-      ) : <p className="mt-3 text-[12.5px] text-white/55">Sem gasto nesse intervalo.</p>}
-      {max > 0 && (
-        <div className="mt-1.5 flex justify-between text-[10.5px] text-white/45">
-          <span>{serie[0]?.rotulo}</span><span>{serie[serie.length - 1]?.rotulo}</span>
-        </div>
+        <>
+          <div className="relative mt-3 flex min-h-[72px] flex-1 items-end gap-[6px] border-b border-white/10" role="img"
+            aria-label={`Gasto ${porHora ? "por hora" : "por dia"}: total ${reais(total)}`}>
+            {serie.map((s, i) => (
+              <div key={i} className="group relative flex h-full flex-1 items-end justify-center" title={`${s.rotulo}: ${reais(s.valor_brl)}`}>
+                <div className={`cr-coluna w-full max-w-[14px] rounded-t-[3px] transition-colors ${i === iMax ? "bg-[#5ee38a]" : "bg-[#5ee38a]/45 group-hover:bg-[#5ee38a]/80"}`}
+                  style={{ height: s.valor_brl > 0 ? `${Math.max(4, (s.valor_brl / max) * 100)}%` : "2px", opacity: s.valor_brl > 0 ? 1 : .35 }} />
+              </div>
+            ))}
+          </div>
+          <div className="mt-1.5 flex justify-between text-[10.5px] tabular-nums text-white/40">
+            <span>{serie[0]?.rotulo}</span><span>pico {reais(max)}</span><span>{serie[serie.length - 1]?.rotulo}</span>
+          </div>
+        </>
+      ) : (
+        <div className="mt-3 grid flex-1 place-items-center rounded-xl border border-dashed border-white/10 text-[12.5px] text-white/45">Sem gasto nesse intervalo.</div>
       )}
     </div>
   );
 }
 
+/** Mini linha do KPI "Créditos usados". */
 function MiniLinha({ valores }: { valores: number[] }) {
   if (valores.length < 2) return null;
   const max = Math.max(...valores) || 1;
