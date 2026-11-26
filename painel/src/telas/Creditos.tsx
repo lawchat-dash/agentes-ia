@@ -99,7 +99,7 @@ export function TelaCreditos() {
       )}
 
       {p ? (
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.28fr)_minmax(0,1fr)]">
+        <div className="grid items-stretch gap-5 lg:grid-cols-2">
           <Heroi p={p} dias={dias} valorSim={valorSim} />
           <Simulador p={p} valor={valorSim} setValor={setValorSim} aoRecarregar={setPedir} />
         </div>
@@ -202,7 +202,7 @@ function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim
   const larguraHoje = autonomia != null ? Math.max(autonomia > 0 ? 2 : 0, (autonomia / escala) * 100) : 0;
   const larguraExtra = extra != null ? (extra / escala) * 100 : 0;
   return (
-    <section className="cr-heroi relative isolate min-w-0 overflow-hidden rounded-[26px] p-6 text-white md:p-8">
+    <section className="cr-heroi relative isolate flex min-w-0 flex-col overflow-hidden rounded-[22px] p-5 text-white md:p-6">
       {/* Selos de situação */}
       <div className="flex flex-wrap gap-2">
         {nivel === "pausado" && <Selo ponto="#ff9b85">{negativo ? "Saldo negativo · IA em pausa" : "Saldo zerado · IA em pausa"}</Selo>}
@@ -212,12 +212,12 @@ function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim
         {cpl.estimativa && cpl.valor_brl != null && <Selo icone={<Info className="size-3.5" />}>Estimativa</Selo>}
       </div>
 
-      <div className="mt-6 text-[14px] text-white/70">Saldo disponível</div>
-      <div className={`mt-1 break-words text-[52px] font-extrabold leading-[1] tracking-[-0.04em] tabular-nums sm:text-[72px] md:text-[86px] ${negativo ? "cr-saldo-negativo" : "cr-saldo-positivo"}`}>
+      <div className="mt-4 text-[13px] text-white/70">Saldo disponível</div>
+      <div className={`mt-1 break-words text-[44px] font-extrabold leading-[1] tracking-[-0.04em] tabular-nums sm:text-[54px] md:text-[60px] ${negativo ? "cr-saldo-negativo" : "cr-saldo-positivo"}`}>
         {negativo ? "−" : ""}{reais(Math.abs(c.disponivel_brl))}
       </div>
 
-      <p className="mt-6 max-w-[520px] text-[15px] leading-relaxed text-white/85">
+      <p className="mt-3 max-w-[520px] text-[14px] leading-relaxed text-white/85">
         {cpl.leads_com_saldo != null ? (
           <>Seu saldo atende cerca de <b className="font-bold text-white">{cpl.estimativa && "≈ "}<Contador valor={cpl.leads_com_saldo} formato={(v) => inteiro(Math.round(v))} /> {cpl.leads_com_saldo === 1 ? "lead" : "leads"}</b>
             {autonomia != null && <>, {autonomia < 1 ? "menos de 1 dia" : formatarDias(autonomia)} no seu ritmo atual</>}.
@@ -232,7 +232,7 @@ function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim
         <p className="mt-2 text-[12.5px] text-white/60">Bônus do mês: {reais(c.bonus_brl)} restantes · {pct(c.bonus_usado_pct ?? 0)} usado</p>
       )}
 
-      <div className="mt-6">
+      <div className="mt-4">
         {autonomia != null ? (
           <>
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12.5px] text-white/75">
@@ -248,7 +248,7 @@ function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim
         ) : <p className="text-[12.5px] text-white/60">Sem consumo nos últimos 30 dias para medir a autonomia.</p>}
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+      <div className="mt-auto grid gap-3 pt-4 sm:grid-cols-3">
         <MiniCartao icone={<Target />} rotulo="Custo médio por lead" valor={rs(cpl.valor_brl)}
           nota={cpl.valor_brl == null ? "ainda sem leads atendidos" : cpl.estimativa ? "estimativa pelo modelo de IA" : cpl.fonte === "historico_90d" ? "nos últimos 90 dias" : nomePeriodo(dias)} />
         <MiniCartao icone={<Clock />} rotulo="Últimos 7 dias" valor={reais(cmp.ultimos_7_brl)}

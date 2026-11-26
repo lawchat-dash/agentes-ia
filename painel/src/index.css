@@ -744,19 +744,10 @@ html { scroll-behavior: smooth; }
 /* ===== Créditos & Consumo (telas/Creditos.tsx) ===== */
 /* Destaque de título: mesma fonte do painel (Inter), no verde LawChat com gradiente sutil. */
 .cr-destaque { background: linear-gradient(100deg, #00bc33 0%, #0a8f35 55%, #067a2c 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-/* Cartões brancos e o cartão principal verde-escuro (grade sutil + brilho). */
+/* Cartões brancos e o cartão principal verde-escuro liso (sem grade e sem brilho, pedido do dono). */
 .cr-cartao { background: #fff; border: 1px solid #e6ebe8; box-shadow: 0 1px 2px rgba(16,24,40,.04), 0 12px 32px -22px rgba(16,40,24,.18); }
-.cr-heroi {
-  background:
-    radial-gradient(ellipse 60% 55% at 38% 18%, rgba(46,204,104,.34), transparent 70%),
-    radial-gradient(ellipse 55% 50% at 100% 100%, rgba(120,72,36,.38), transparent 70%),
-    linear-gradient(160deg, #0f3a24 0%, #0b2a1b 55%, #0a2017 100%);
-  box-shadow: 0 30px 60px -30px rgba(6,40,22,.6), inset 0 1px 0 rgba(255,255,255,.06);
-}
-.cr-heroi::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
-  background-size: 34px 34px; -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.35) 100%); mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.35) 100%); }
-.cr-saldo-negativo { color: #ff9b85; text-shadow: 0 0 40px rgba(255,140,110,.25); }
+.cr-heroi { background: #0f3324; box-shadow: 0 20px 40px -28px rgba(6,40,22,.55), inset 0 1px 0 rgba(255,255,255,.05); }
+.cr-saldo-negativo { color: #ff9b85; }
 .cr-saldo-positivo { background: linear-gradient(180deg, #ffffff 30%, #b8f5cb 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 /* Botão verde com brilho. */
 .cr-botao-verde { background: linear-gradient(135deg, #00c936 0%, #0a9a38 55%, #08832f 100%);
