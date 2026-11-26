@@ -12,7 +12,8 @@ Configuração em agentesia_agentes.config["followup"], editável no painel:
                  {"apos_horas": 24, "modo": "texto", "texto": "Oi {nome}! ..."}, ...],
       "modelo_oficial": {"id_modelo": "...", "nome": "..."},              # canal oficial com janela de 24 h fechada
       "desistir": {"ativo": true, "apos_horas": 24, "nota": "..."},
-      "limites": {"max_toques_sem_resposta": 2, "oferecer_parar": true, "lead_parado_apos": 3}
+      "limites": {"max_toques_sem_resposta": 2, "oferecer_parar": true, "lead_parado_apos": 3},
+      "decidir": true                                                      # o agente de follow-up decide antes (agente.py)
     }
 Os tempos contam a partir da última resposta da IA (o momento em que o lead parou de responder).
 
@@ -97,6 +98,7 @@ class Config:
     max_sem_resposta: int | None = None  # quem nunca respondeu à IA recebe no máximo isso (None = sem limite)
     oferecer_parar: bool = False         # penúltimo toque com FRASE_PARAR
     lead_parado_apos: int = LEAD_PARADO_APOS
+    decidir: bool = True                 # o agente de follow-up decide (enviar, adiar, não enviar) antes de escrever
 
     @classmethod
     def de(cls, bruto: dict[str, Any] | None) -> "Config":
@@ -119,6 +121,7 @@ class Config:
             max_sem_resposta=int(limites["max_toques_sem_resposta"]) if limites.get("max_toques_sem_resposta") else None,
             oferecer_parar=bool(limites.get("oferecer_parar")),
             lead_parado_apos=int(limites.get("lead_parado_apos", LEAD_PARADO_APOS) or 0),
+            decidir=b.get("decidir") is not False,
         )
 
     def total_de_toques(self, respondeu_a_ia: bool) -> int:
@@ -191,6 +194,11 @@ def validar(bruto: dict[str, Any], anterior: dict[str, Any] | None = None) -> di
     }
     if limites is not None:
         limpo["limites"] = limites
+    # O agente de follow-up decide por padrão; só sai se alguém desligar ("decidir": false). A tela que não conhece o
+    # campo guarda o que a config anterior tinha.
+    decidir = bruto["decidir"] if "decidir" in bruto else (anterior or {}).get("decidir", True)
+    if decidir is False:
+        limpo["decidir"] = False
     return limpo
 
 

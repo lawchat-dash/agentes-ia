@@ -1,9 +1,15 @@
 """Follow-up contra o banco: agendar, cancelar e o disparador (roda em segundo plano no servidor).
 
-O disparador reserva até 5 envios vencidos ("for update skip locked": dois servidores nunca pegam o mesmo),
-confere TUDO de novo na hora (lead respondeu? equipe falou? IA desligada? etapa mudou? fora do horário?),
-escreve a mensagem (IA, texto fixo ou modelo aprovado) e envia pela Helena. Depois agenda o passo seguinte
-ou, no fim, a desistência.
+A cada AGENTESIA_FOLLOWUP_INTERVALO_S (padrão 60 s) o disparador:
+1. reserva até 5 envios vencidos ("for update skip locked": dois servidores nunca pegam o mesmo);
+2. confere TUDO de novo na hora (lead respondeu? equipe falou? lead pausado/encerrado/desqualificado? IA ou agente
+   desligado? saldo acabou? limite de tentativas? fora do horário? intervalo mínimo?);
+3. roda o agente de follow-up (agente.py), que DECIDE com as funções de follow-up: enviar, adiar (o lead pediu para
+   ser chamado depois) ou não enviar;
+4. o agente do lead (o da etapa atual, com a voz dele) escreve a mensagem (ou sai o texto fixo / modelo aprovado);
+5. confere de novo logo antes de enviar, envia pela conta do escritório, grava na conversa (memória da IA), deixa a
+   nota "Follow-up N de T enviado" no atendimento e agenda o passo seguinte (ou, no fim, a desistência).
+Lead parado (todas as tentativas sem resposta) vira tarefa da equipe em varrer_parados.
 
 Regras da OAB e da Meta (regras.py): quem nunca respondeu à IA recebe no máximo `max_toques_sem_resposta`; o penúltimo
 toque oferece parar; pedido para parar na última mensagem do lead cancela tudo (lead_pediu_para_parar). Lead parado:
@@ -16,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -24,7 +30,7 @@ import asyncpg
 
 from app.canal.helena import normalizar_telefone
 from app.canal.helena_conta import ErroHelenaApi, HelenaConta
-from app.followup import regras
+from app.followup import agente as agente_fu, regras
 from app.modelo import ErroModelo, Modelo
 
 log = logging.getLogger("agentesia.followup")
@@ -32,8 +38,10 @@ RESERVA_MIN = 15
 MAX_TENTATIVAS = 3
 TEXTO_RESERVA = "Oi{virgula}{nome}! Passando para saber se ficou alguma dúvida. Quando puder, é só me responder por aqui."
 
-ESQUEMA = {"type": "object", "additionalProperties": False,
-           "properties": {"mensagens": {"type": "array", "items": {"type": "string"}}}, "required": ["mensagens"]}
+ESQUEMA = agente_fu.ESQUEMA_MENSAGENS
+INTERVALO_PADRAO_S = 60.0
+HISTORICO = 40                       # mensagens da conversa que os dois agentes leem
+NOTA_ENVIO = "Follow-up {n} de {total} enviado pela IA (etapa {etapa})."
 
 
 def agora() -> datetime:
@@ -93,6 +101,16 @@ def _etapas_de_conversa(lead: dict[str, Any]) -> set[str]:
     return {e.codigo for e in produto.etapas if e.tipo == "conversa" and e.codigo != "desqualificado"}
 
 
+def _nome_da_etapa(lead: dict[str, Any]) -> str:
+    from app.cerebro import produto as produtos
+    codigo = lead.get("etapa") or ""
+    try:
+        produto = produtos.carregar(lead.get("produto"), lead.get("config_agente"))
+        return next((e.nome for e in produto.etapas if e.codigo == codigo), codigo) or "conversa"
+    except Exception:
+        return codigo or "conversa"
+
+
 async def agendar(pool: asyncpg.Pool, id_lead: str, base: datetime) -> datetime | None:
     """Depois de cada resposta da IA: troca o follow-up pendente pelo primeiro passo a partir de agora. Depois (fora da
     transação, sem derrubar o agendamento) roda o gancho de fim de turno: a nota do lead."""
@@ -145,7 +163,13 @@ class Disparador:
         self._modelo_padrao = modelo_padrao
         self._parar = asyncio.Event()
 
-    async def rodar(self, intervalo_s: float = 60.0) -> None:
+    async def rodar(self, intervalo_s: float | None = None) -> None:
+        """Laço de fundo (app/main.py, lifespan): de intervalo_s em intervalo_s confere a fila e os leads parados."""
+        if intervalo_s is None:
+            try:
+                intervalo_s = max(5.0, float(os.environ.get("AGENTESIA_FOLLOWUP_INTERVALO_S", INTERVALO_PADRAO_S)))
+            except ValueError:
+                intervalo_s = INTERVALO_PADRAO_S
         while not self._parar.is_set():
             try:
                 await self.rodar_uma_vez()
@@ -199,6 +223,11 @@ class Disparador:
         if total <= f["passo"] < len(config.passos):
             # Nunca respondeu à IA e já recebeu o máximo (regras da OAB e da Meta): para aqui.
             return await self._fechar(f, "cancelado", "limite_sem_resposta")
+        if f["passo"] < len(config.passos) and f["tentativas"] > 1 and await self._ja_saiu(f):
+            # O servidor caiu entre o envio e a marcação: a mensagem deste passo já está na conversa. Não reenvia.
+            await self._pool.execute("update agentesia_followups set situacao = 'enviado', enviado_em = now(), motivo = 'enviado_antes_da_queda' "
+                                     "where id = $1 and situacao = 'reservado'", f["id"])
+            return await self._proximo(f, lead, config, total)
         momento = agora()
         dentro = regras.ajustar_ao_horario(momento, config, str(f["id_lead"]))
         if dentro > momento + timedelta(minutes=1):
@@ -213,7 +242,8 @@ class Disparador:
 
         helena = await self._helena(lead)
         if helena is None:
-            return await self._fechar(f, "falhou", "escritorio_sem_token_helena", evento=("cadastro", "Follow-up sem token da Helena."))
+            return await self._fechar(f, "falhou", "escritorio_sem_conexao_whatsapp", evento=(
+                "cadastro", "Follow-up não enviado: a conexão do WhatsApp do escritório não está configurada."))
         passo = config.passos[f["passo"]]
         janela_fechada = lead["tipo_canal"] == "oficial" and (
             not lead["ultima_mensagem_lead_em"] or momento - lead["ultima_mensagem_lead_em"] >= timedelta(hours=24))
@@ -222,7 +252,18 @@ class Disparador:
         if modelo_aprovado and not id_modelo:
             return await self._fechar(f, "falhou", "janela_fechada_sem_modelo", evento=(
                 "cadastro", "Follow-up no número oficial depois de 24 h precisa de modelo aprovado (Agente › Follow-up)."))
-        textos = [] if modelo_aprovado else await self._textos(f, lead, config, passo, total)
+        sem_ia = await self._consumo_estourado(lead)
+        historico = await self._historico(f["id_lead"])
+        decisao = agente_fu.Decisao() if sem_ia or not config.decidir else await self._decidir(f, lead, config, total, historico)
+        if decisao.funcao == "adiar_followup" and not await self._ja_adiou(f):
+            return await self._adiar(f, config, decisao)
+        if decisao.funcao == "nao_enviar":
+            return await self._fechar(f, "cancelado", "agente_decidiu_nao_enviar", evento=(
+                "lead", "O agente de follow-up decidiu não mandar a retomada agora"
+                        + (f": {decisao.motivo}" if decisao.motivo else ".") + " A cadência volta na próxima resposta da IA."),
+                gravidade="info")
+        textos = [] if modelo_aprovado else await self._textos(f, lead, config, passo, total, historico=historico,
+                                                                orientacao=decisao.orientacao, sem_ia=sem_ia)
         if textos and config.leva_opcao_de_parar(f["passo"], total):
             textos = regras.com_opcao_de_parar(textos)         # penúltimo toque: "se preferir que eu não mande mais..."
         # A IA levou segundos escrevendo: o lead (ou a equipe) pode ter falado nesse meio tempo, ou o follow-up pode ter
@@ -242,7 +283,7 @@ class Disparador:
                     enviadas.append(texto)
         except ErroHelenaApi as erro:
             if not enviadas and erro.motivo != "talvez_enviado":
-                return await self._adiar_ou_falhar(f, f"helena: {erro.motivo}")
+                return await self._adiar_ou_falhar(f, f"envio: {erro.motivo}")
             # Uma parte saiu (ou pode ter saído): a cadência conta como feita e nada é reenviado (senão o lead
             # receberia a 1ª mensagem de novo uma hora depois). A equipe fica sabendo pelo evento.
             await self._pool.execute(
@@ -254,7 +295,58 @@ class Disparador:
             """update agentesia_followups set situacao = 'enviado', enviado_em = now(), mensagens = $2::jsonb, motivo = null
                where id = $1 and situacao = 'reservado' returning id""", f["id"], json.dumps(enviadas, ensure_ascii=False))
         if atualizado:                                 # cancelado no meio do envio: não agenda o passo seguinte
+            await self._nota_do_envio(f, lead, total)
             await self._proximo(f, lead, config, total)
+
+    # ---------------------------------------------------------------- agente de follow-up (decide)
+    async def _decidir(self, f: dict[str, Any], lead: dict[str, Any], config: regras.Config, total: int,
+                       historico: list[dict[str, Any]]) -> agente_fu.Decisao:
+        """Roda o agente de follow-up. Sem resposta dele (erro, saída estranha), segue enviando como antes."""
+        from app.cerebro import contexto
+        sistema = agente_fu.sistema_do_decisor(lead, config, f["passo"], total, contexto.linha_de_hoje())
+        try:
+            resultado = await self._modelo.gerar(
+                papel="followup_decisor", sistema=sistema, esquema=agente_fu.ESQUEMA_DECISAO,
+                conteudo="Conversa até aqui (mais antiga primeiro):\n" + (agente_fu.conversa_em_texto(historico) or "(vazia)"),
+                modelo=self._nome_modelo(lead, config), esforco="low")
+        except ErroModelo:
+            return agente_fu.Decisao()
+        await self._gravar_chamadas(lead, resultado.chamadas)
+        return agente_fu.ler_decisao(resultado.dados)
+
+    async def _ja_adiou(self, f: dict[str, Any]) -> bool:
+        """Adia uma vez só por ciclo (desde a última resposta da IA): depois disso o agente não adia de novo."""
+        return bool(await self._pool.fetchval(
+            "select 1 from agentesia_eventos where id_lead = $1 and tipo = 'followup_adiado' and criado_em > $2 limit 1",
+            f["id_lead"], f["base"]))
+
+    async def _adiar(self, f: dict[str, Any], config: regras.Config, decisao: agente_fu.Decisao) -> None:
+        quando = regras.ajustar_ao_horario(agora() + timedelta(hours=decisao.horas or 24), config, str(f["id_lead"]))
+        await self._reagendar(f, quando, "lead_pediu_para_esperar")
+        await self._pool.execute(
+            """insert into agentesia_eventos (id_escritorio, id_lead, tipo, gravidade, responsavel, descricao, detalhe)
+               values ($1, $2, 'followup_adiado', 'info', 'lead', $3, $4::jsonb)""", f["id_escritorio"], f["id_lead"],
+            f"O lead pediu para ser chamado depois: o follow-up {f['passo'] + 1} foi adiado"
+            + (f" ({decisao.motivo})" if decisao.motivo else "") + ".",
+            json.dumps({"id_followup": str(f["id"]), "horas": decisao.horas, "para": quando.isoformat()}, ensure_ascii=False))
+
+    async def _ja_saiu(self, f: dict[str, Any]) -> bool:
+        """Reserva retomada depois de vencer: a IA já escreveu ao lead depois que esta linha nasceu?"""
+        return bool(await self._pool.fetchval(
+            "select 1 from agentesia_mensagens where id_lead = $1 and autor = 'ia' and enviada_em > $2 limit 1",
+            f["id_lead"], f["criado_em"]))
+
+    async def _nota_do_envio(self, f: dict[str, Any], lead: dict[str, Any], total: int) -> None:
+        """Nota no atendimento para a equipe ver que o follow-up saiu (como o "realizado na cadência" do n8n)."""
+        try:
+            texto = NOTA_ENVIO.format(n=f["passo"] + 1, total=total, etapa=_nome_da_etapa(lead))
+            await self._pool.execute(
+                """insert into agentesia_acoes (id_escritorio, id_lead, tipo, chave_unica, dados)
+                   values ($1, $2, 'nota', $3, $4::jsonb) on conflict (chave_unica) do nothing""",
+                f["id_escritorio"], f["id_lead"], f"{f['id_lead']}:followup:{f['id']}:enviado",
+                json.dumps({"texto": texto}, ensure_ascii=False))
+        except Exception:                                  # a nota nunca desfaz o envio
+            log.exception("falha ao pôr a nota do follow-up %s", f["id"])
 
     async def _ainda_vale(self, f: dict[str, Any]) -> bool:
         """Ainda reservado e ninguém falou desde a base? Renova a reserva no mesmo comando. Se o lead ou a equipe falou,
@@ -301,7 +393,7 @@ class Disparador:
         if equipe:
             return "equipe_falou"
         if not lead["id_sessao_helena"]:
-            return "lead_sem_atendimento_na_helena"
+            return "lead_sem_atendimento"
         from app import cobranca
         if await cobranca.bloqueado(self._pool, lead["id_escritorio"]):
             # Saldo da IA acabou: cancela (não adia). Quando o crédito voltar não sai uma rajada de follow-ups
@@ -309,42 +401,38 @@ class Disparador:
             return cobranca.MOTIVO
         return None
 
+    async def _historico(self, id_lead: Any) -> list[dict[str, Any]]:
+        linhas = await self._pool.fetch(
+            """select autor, coalesce(texto_extraido, texto) as texto from agentesia_mensagens
+               where id_lead = $1 and coalesce(texto_extraido, texto) is not null order by enviada_em desc limit $2""",
+            id_lead, HISTORICO)
+        return [dict(m) for m in reversed(linhas)]
+
+    def _nome_modelo(self, lead: dict[str, Any], config: regras.Config) -> str:
+        return config.modelo or (lead["config_agente"].get("modelos") or {}).get("followup") or self._modelo_padrao
+
     async def _textos(self, f: dict[str, Any], lead: dict[str, Any], config: regras.Config, passo: regras.Passo,
-                      total: int | None = None) -> list[str]:
+                      total: int | None = None, *, historico: list[dict[str, Any]] | None = None, orientacao: str = "",
+                      sem_ia: bool | None = None) -> list[str]:
+        """A mensagem: texto fixo do passo ou o agente do lead (o da etapa, com a voz dele) escrevendo a retomada."""
         if passo.modo == "texto" and passo.texto:
             return [regras.preencher(passo.texto, nome=lead["nome"])]
-        historico = await self._pool.fetch(
-            """select autor, coalesce(texto_extraido, texto) as texto from agentesia_mensagens
-               where id_lead = $1 and coalesce(texto_extraido, texto) is not null order by enviada_em desc limit 24""", f["id_lead"])
-        conversa = "\n".join(f"{'lead' if m['autor'] == 'lead' else 'você' if m['autor'] == 'ia' else 'equipe'}: {m['texto']}"
-                             for m in reversed(historico))
+        primeiro = (lead["nome"] or "").split(" ")[0]
+        reserva = [TEXTO_RESERVA.format(virgula=", " if primeiro else "", nome=primeiro)]
+        if sem_ia if sem_ia is not None else await self._consumo_estourado(lead):
+            return reserva                    # limite de consumo do mês acabou: texto de reserva, sem gastar IA
+        historico = historico if historico is not None else await self._historico(f["id_lead"])
         total = total or len(config.passos)
-        instrucao = passo.instrucao or regras.INSTRUCAO_PASSO_PADRAO.get(f["passo"], "Retomada breve e gentil.")
-        if f["passo"] == total - 1:
-            instrucao += " Esta é a última tentativa: diga que fica à disposição quando a pessoa puder."
-        sistema = "\n\n".join(filter(None, [
-            f"Você é {lead['nome_agente'] or 'a atendente'}, do escritório {lead['escritorio']}.",
-            config.prompt,
-            config.por_etapa.get(lead["etapa"] or ""),
-            f"Tentativa {f['passo'] + 1} de {total}. {instrucao}",
-            "Devolva de 1 a 3 mensagens curtas em 'mensagens'.",
-        ]))
-        nome_modelo = config.modelo or (lead["config_agente"].get("modelos") or {}).get("followup") or self._modelo_padrao
-        if await self._consumo_estourado(lead):
-            # Limite de consumo do mês acabou: o follow-up sai com o texto de reserva, sem gastar IA.
-            primeiro = (lead["nome"] or "").split(" ")[0]
-            return [TEXTO_RESERVA.format(virgula=", " if primeiro else "", nome=primeiro)]
+        sistema = agente_fu.sistema_do_agente_do_lead(lead, config, f["passo"], total, orientacao)
         try:
-            resultado = await self._modelo.gerar(papel="followup", sistema=sistema, conteudo="Conversa até aqui:\n" + conversa,
-                                                 esquema=ESQUEMA, modelo=nome_modelo, esforco="low")
+            resultado = await self._modelo.gerar(papel="followup", sistema=sistema, esquema=ESQUEMA,
+                                                 conteudo="Conversa até aqui:\n" + agente_fu.conversa_em_texto(historico),
+                                                 modelo=self._nome_modelo(lead, config), esforco="low")
             await self._gravar_chamadas(lead, resultado.chamadas)
-            textos = [t.strip() for t in resultado.dados.get("mensagens") or [] if str(t).strip()][:3]
+            textos = agente_fu.limpar_mensagens(resultado.dados.get("mensagens"))
         except ErroModelo:
             textos = []
-        if not textos or any(re.search(r"https?://|R\$\s*\d", t) for t in textos):
-            primeiro = (lead["nome"] or "").split(" ")[0]
-            return [TEXTO_RESERVA.format(virgula=", " if primeiro else "", nome=primeiro)]
-        return textos
+        return textos or reserva
 
     async def _consumo_estourado(self, lead: dict[str, Any]) -> bool:
         from app import consumo
@@ -367,6 +455,11 @@ class Disparador:
         seguinte = f["passo"] + 1
         if seguinte < total:
             quando = regras.horario_do_passo(f["base"], seguinte, config, str(f["id_lead"]))
+            if quando is not None and f["passo"] < len(config.passos):
+                # Atrasou (servidor fora do ar, adiamento): o toque seguinte guarda pelo menos metade do espaço da
+                # cadência, em vez de sair logo depois (dois lembretes seguidos).
+                metade = (config.passos[seguinte].apos_horas - config.passos[f["passo"]].apos_horas) / 2
+                quando = max(quando, regras.ajustar_ao_horario(agora() + timedelta(hours=metade), config, f"{f['id_lead']}:{seguinte}"))
         elif seguinte == total and config.desistir_ativo:
             seguinte = len(config.passos)
             quando = regras.ajustar_ao_horario(agora() + timedelta(hours=config.desistir_apos_horas), config, str(f["id_lead"]))
@@ -420,12 +513,14 @@ class Disparador:
                                        id_lead=str(lead["id"]), id_agente=str(lead["id_agente"]) if lead.get("id_agente") else None,
                                        codigo_etapa=lead.get("etapa"))
 
-    async def _fechar(self, f: dict[str, Any], situacao: str, motivo: str, evento: tuple[str, str] | None = None) -> None:
+    async def _fechar(self, f: dict[str, Any], situacao: str, motivo: str, evento: tuple[str, str] | None = None,
+                      gravidade: str = "aviso") -> None:
         await self._pool.execute("update agentesia_followups set situacao = $2, motivo = $3 where id = $1", f["id"], situacao, motivo)
         if evento:
             await self._pool.execute(
                 """insert into agentesia_eventos (id_escritorio, id_lead, tipo, gravidade, responsavel, descricao)
-                   values ($1, $2, $3, 'aviso', $4, $5)""", f["id_escritorio"], f["id_lead"], f"followup_{motivo}", evento[0], evento[1])
+                   values ($1, $2, $3, $4, $5, $6)""", f["id_escritorio"], f["id_lead"], f"followup_{motivo}", gravidade,
+                evento[0], evento[1])
 
     async def _reagendar(self, f: dict[str, Any], quando: datetime, motivo: str) -> None:
         await self._pool.execute(
@@ -434,6 +529,8 @@ class Disparador:
 
     async def _adiar_ou_falhar(self, f: dict[str, Any], erro: str) -> None:
         """Falha de envio: tenta de novo em 1 hora; na 3ª, desiste deste passo e segue a cadência."""
+        if await self._pool.fetchval("select situacao from agentesia_followups where id = $1", f["id"]) != "reservado":
+            return                                     # já foi enviado/cancelado (erro depois do envio): não mexe
         if f["tentativas"] >= MAX_TENTATIVAS:
             await self._fechar(f, "falhou", erro[:200], evento=("provedor", f"Follow-up não enviado depois de {MAX_TENTATIVAS} tentativas ({erro[:120]})."))
             lead = await _contexto_do_lead(self._pool, str(f["id_lead"]))
@@ -443,7 +540,7 @@ class Disparador:
             return
         await self._pool.execute(
             """update agentesia_followups set situacao = 'pendente', agendado_para = now() + interval '1 hour', motivo = $2,
-                      reservado_ate = null where id = $1""", f["id"], erro[:200])
+                      reservado_ate = null where id = $1 and situacao = 'reservado'""", f["id"], erro[:200])
 
 
 # ------------------------------------------------------------------ lead parado (B12)
@@ -452,11 +549,18 @@ _PARADOS = """
     from agentesia_followups f
     join agentesia_leads l on l.id = f.id_lead
     join agentesia_agentes a on a.id = f.id_agente
+    cross join lateral (select coalesce((a.config->'followup'->'limites'->>'lead_parado_apos')::int, $2) as apos) lp
     left join agentesia_agente_etapas et on et.id = l.id_etapa
     where f.situacao = 'enviado' and f.enviado_em <= now() - make_interval(hours => $1)
       and f.enviado_em > now() - interval '30 days'
-      and f.passo + 1 = coalesce((a.config->'followup'->'limites'->>'lead_parado_apos')::int, $2)
-      and f.passo < jsonb_array_length(coalesce(a.config->'followup'->'passos', '[]'::jsonb))
+      and lp.apos > 0 and f.passo < jsonb_array_length(coalesce(a.config->'followup'->'passos', '[]'::jsonb))
+      -- o toque lead_parado_apos (3º) ou o último que este lead recebeu, se o ciclo acabou antes (quem nunca respondeu
+      -- recebe só 2; o agente de follow-up decidiu não enviar; falhou sem próximo)
+      and (f.passo + 1 = lp.apos
+           or (f.passo + 1 < lp.apos and not exists (
+                 select 1 from agentesia_followups g where g.id_lead = f.id_lead and g.base = f.base and g.passo > f.passo
+                   and g.situacao in ('pendente', 'reservado', 'enviado'))))
+      and a.situacao = 'ativo' and coalesce(a.config->'followup'->>'ativo', 'false') = 'true'
       and l.estado = 'ativo' and coalesce(et.codigo, '') not in ('desqualificado', 'contrato_assinado')
       and not exists (select 1 from agentesia_mensagens m where m.id_lead = f.id_lead and m.autor in ('lead', 'humano')
                       and m.enviada_em > f.base)
@@ -466,7 +570,8 @@ _PARADOS = """
 
 
 async def varrer_parados(pool: asyncpg.Pool, limite: int = 20) -> int:
-    """Lead parado vira tarefa da equipe: 24 h depois do 3º toque (lead_parado_apos) sem resposta do lead nem da equipe,
+    """Lead parado vira tarefa da equipe: 24 h depois do 3º toque (lead_parado_apos) sem resposta do lead nem da equipe
+    (ou do último toque, se este lead recebeu menos: quem nunca respondeu à IA fica nos 2),
     põe na fila a nota "Lead parado: retomar contato", a etiqueta/coluna/aviso do gatilho "lead_parado" e grava o
     evento lead_parado. Uma vez por ciclo de follow-up (a chave da nota leva o id do toque). Devolve quantos."""
     from app import automacoes

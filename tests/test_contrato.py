@@ -168,7 +168,8 @@ async def test_gera_manda_link_e_confere_assinatura():
         assert await pool.fetchval("select situacao from agentesia_acoes where id_lead = $1 and tipo = 'lembrar_assinatura'", lead) == "cancelada"
         await executor.rodar_uma_vez()                                          # resumo do contrato assinado
         assert "sequela no joelho" in (await pool.fetchval("select resumo from agentesia_contratos where id_lead = $1", lead) or "")
-        assert any(n.startswith("📄 RESUMO DO CONTRATO ASSINADO") for n in notas)
+        await executor.rodar_uma_vez()                                          # a nota do assinado (com o resumo)
+        assert any(n.startswith("📄 Contrato Assinado!") and "sequela no joelho" in n for n in notas)
 
         # ZapSign fora do ar na geração de outro lead: avisa o lead uma vez e tenta de novo depois.
         contato2 = await pool.fetchval("insert into agentesia_contatos (id_escritorio, telefone_normalizado) values ($1, '5511977776666') returning id", esc)

@@ -97,7 +97,8 @@ def test_plano_consulta_periodica_e_config_do_resumo():
     assert servico.momento_da_consulta(AGORA - timedelta(days=3), AGORA) == "d2026-11-25"
     assert servico.momento_da_consulta(AGORA - timedelta(days=31), AGORA) is None
     padrao = cresumo.configuracao({}, {})
-    assert padrao["ativo"] and padrao["origem"] == "padrao" and "Pontos de atenção" in padrao["prompt"]
+    assert padrao["ativo"] and padrao["origem"] == "padrao" and "RESUMO PÓS-CONTRATO" in padrao["prompt"]
+    assert "Pontos de atenção" in cresumo.configuracao({}, {}, "BPC/LOAS")["prompt"]          # outro benefício: o geral
     escritorio = cresumo.configuracao({}, {"resumo": {"prompt": "do escritório", "no_aviso": True}})
     assert (escritorio["prompt"], escritorio["no_aviso"]) == ("do escritório", True)
     agente = cresumo.configuracao({"resumo_contrato": {"prompt": "do agente", "no_aviso": False}}, {"resumo": {"prompt": "x", "no_aviso": True}})
@@ -465,7 +466,7 @@ async def test_assinado_guarda_pdf_e_resumo_com_prompt_do_agente_no_card_e_no_av
         # Resumo: prompt do agente, uma vez, no banco, na nota, no card e no aviso à equipe.
         assert [p["sistema"] for p in modelo.pedidos] == ["PROMPT DO AGENTE"]
         assert "sequela no joelho" in contrato["resumo"]
-        assert any(n.startswith("📄 RESUMO DO CONTRATO ASSINADO") for n in notas)
+        assert any(n.startswith("📄 Contrato Assinado!") and "sequela no joelho" in n for n in notas)
         assert any("sequela no joelho" in (c.get("description") or "") for c in cards)
         aviso = await pool.fetchval("select dados->>'texto' from agentesia_acoes where id_lead = $1 and tipo = 'notificar'", lead)
         assert aviso.startswith("Contrato assinado: Maria") and "sequela no joelho" in aviso

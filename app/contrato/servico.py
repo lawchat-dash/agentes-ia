@@ -7,6 +7,7 @@ nunca criam dois documentos na ZapSign.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -221,11 +222,126 @@ async def cancelar_lembretes(pool: asyncpg.Pool, id_lead: str) -> int:
     return int(resultado.split()[-1])
 
 
+async def cancelar_followups(pool: asyncpg.Pool, id_lead: str) -> int:
+    """Contrato assinado: o lead não recebe mais follow-up (o n8n "Encerra o follow-up")."""
+    resultado = await pool.execute(
+        """update agentesia_followups set situacao = 'cancelado', motivo = 'contrato_assinado'
+           where id_lead = $1::uuid and situacao in ('pendente', 'reservado')""", id_lead)
+    return int(resultado.split()[-1])
+
+
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+# Etapas em que um lead pode estar assinando um contrato (a busca por telefone/nome só vale para eles).
+ETAPAS_DO_CONTRATO = ("contratos", "contrato", "coleta_dados", "assinatura", "acompanhamento_assinatura")
+
+
+def _assinantes_do_aviso(corpo: dict[str, Any], doc: dict[str, Any]) -> list[dict[str, Any]]:
+    lista = corpo.get("signers") if isinstance(corpo.get("signers"), list) else doc.get("signers")
+    return [s for s in lista or [] if isinstance(s, dict)]
+
+
+def _email(valor: Any) -> str:
+    return str(valor or "").strip().lower()
+
+
+def quem_assinou_e_o_escritorio(corpo: dict[str, Any]) -> bool:
+    """O documento tem o escritório como signatário também: a ZapSign manda doc_signed quando ELE assina. Quem assinou
+    tem o e-mail de quem criou o documento (created_by): não é o lead."""
+    doc = corpo.get("doc") if isinstance(corpo.get("doc"), dict) else {}
+    quem = corpo.get("signer_who_signed") if isinstance(corpo.get("signer_who_signed"), dict) else {}
+    criador = corpo.get("created_by") if isinstance(corpo.get("created_by"), dict) else doc.get("created_by")
+    email_quem, email_criador = _email(quem.get("email")), _email((criador or {}).get("email") if isinstance(criador, dict) else None)
+    return bool(email_quem and email_criador and email_quem == email_criador)
+
+
+async def achar_lead_do_aviso(pool: asyncpg.Pool, id_escritorio: str, corpo: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Documento que não está no nosso cadastro (o token não foi gravado, ou o contrato foi feito fora da IA): acha o lead
+    como o n8n, nesta ordem: 1) external_id (o id do nosso contrato ou o id do lead); 2) o telefone de um signatário;
+    3) o nome do signatário ou do documento. Telefone e nome só entre os leads do escritório que estão nas etapas de
+    contrato e quando bate um só. Devolve (id_lead, como)."""
+    from app.contrato.assinatura import _nome, _ultimos8
+
+    doc = corpo.get("doc") if isinstance(corpo.get("doc"), dict) else {}
+    externo = str(corpo.get("external_id") or doc.get("external_id") or "").strip()
+    if _UUID.match(externo):
+        achado = await pool.fetchval(
+            """select id_lead from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid
+               union all select id from agentesia_leads where id = $1::uuid and id_escritorio = $2::uuid limit 1""",
+            externo, id_escritorio)
+        if achado:
+            return str(achado), "external_id"
+    criador = corpo.get("created_by") if isinstance(corpo.get("created_by"), dict) else doc.get("created_by")
+    email_criador = _email((criador or {}).get("email") if isinstance(criador, dict) else None)
+    assinantes = [s for s in _assinantes_do_aviso(corpo, doc) if not (email_criador and _email(s.get("email")) == email_criador)]
+    quem = corpo.get("signer_who_signed") if isinstance(corpo.get("signer_who_signed"), dict) else None
+    if quem and not (email_criador and _email(quem.get("email")) == email_criador):
+        assinantes = [quem, *assinantes]
+    candidatos = """select l.id, c.nome, c.telefone_normalizado,
+                           (select k.dados->>'nome' from agentesia_contratos k where k.id_lead = l.id order by k.versao desc limit 1) as nome_contrato
+                    from agentesia_leads l join agentesia_contatos c on c.id = l.id_contato
+                    left join agentesia_agente_etapas e on e.id = l.id_etapa
+                    where l.id_escritorio = $1::uuid and l.estado <> 'encerrado'
+                      and (e.codigo = any($2::text[]) or exists (select 1 from agentesia_contratos k where k.id_lead = l.id
+                                                                   and k.situacao in ('reservado', 'gerado', 'erro')))"""
+    leads = [dict(x) for x in await pool.fetch(candidatos, id_escritorio, list(ETAPAS_DO_CONTRATO))]
+    finais = {_ultimos8(s.get("phone_number") or s.get("phone")) for s in assinantes} - {""}
+    finais = {f for f in finais if len(f) == 8}
+    por_telefone = {str(x["id"]) for x in leads if _ultimos8(x["telefone_normalizado"]) in finais}
+    if len(por_telefone) == 1:
+        return por_telefone.pop(), "telefone"
+    nomes = {_nome(s.get("name")) for s in assinantes} | {_nome(corpo.get("name") or doc.get("name"))}
+    nomes -= {""}
+    por_nome = {str(x["id"]) for x in leads
+                if (_nome(x["nome"]) and _nome(x["nome"]) in nomes) or (_nome(x["nome_contrato"]) and _nome(x["nome_contrato"]) in nomes)}
+    if len(por_nome) == 1:
+        return por_nome.pop(), "nome"
+    return None, None
+
+
+async def vincular_documento(pool: asyncpg.Pool, *, id_escritorio: str, id_lead: str, token_documento: str,
+                             como: str, token_assinante: str | None = None) -> str | None:
+    """Liga um documento da ZapSign que não estava no cadastro ao contrato do lead: a versão sem token (a geração
+    caiu antes de gravar) recebe o token; senão vira uma versão nova 'gerado' (a vigente passa a 'substituido').
+    token_assinante: quem assinou (já sabido que não é o escritório) vira o signatário do lead. None se o lead já tem
+    contrato assinado (nada a fazer). Devolve o id do contrato."""
+    async with pool.acquire() as conexao, conexao.transaction():
+        await conexao.execute("select 1 from agentesia_leads where id = $1::uuid for update", id_lead)
+        ja = await conexao.fetchval(
+            "select id from agentesia_contratos where provedor = 'zapsign' and id_documento_externo = $1", token_documento)
+        if ja:
+            return str(ja)
+        linhas = [dict(r) for r in await conexao.fetch(
+            "select * from agentesia_contratos where id_lead = $1::uuid order by versao desc", id_lead)]
+        if any(x["situacao"] == "assinado" for x in linhas):
+            return None
+        sem_token = next((x for x in linhas if x["situacao"] in ("reservado", "erro") and not x["id_documento_externo"]), None)
+        await conexao.execute(
+            "update agentesia_contratos set situacao = 'substituido' where id_lead = $1::uuid and situacao = 'gerado'", id_lead)
+        if sem_token:
+            await conexao.execute(
+                """update agentesia_contratos set situacao = 'gerado', id_documento_externo = $2, gerado_em = coalesce(gerado_em, now()),
+                          reservado_ate = null, erro = null, causa_erro = $3, id_assinante_externo = $4 where id = $1""",
+                sem_token["id"], token_documento, f"documento_ligado_por_{como}", token_assinante)
+            return str(sem_token["id"])
+        ultimo = linhas[0] if linhas else None
+        dados = (ultimo or {}).get("dados") or {}
+        novo = await conexao.fetchval(
+            """insert into agentesia_contratos (id_escritorio, id_lead, versao, dados, dados_hash, situacao, id_documento_externo,
+                                                gerado_em, causa_erro, id_assinante_externo)
+               values ($1::uuid, $2::uuid, $3, $4::jsonb, '', 'gerado', $5, now(), $6, $7) returning id""",
+            id_escritorio, id_lead, (ultimo["versao"] if ultimo else 0) + 1,
+            dados if isinstance(dados, str) else json.dumps(dados, ensure_ascii=False), token_documento, f"documento_ligado_por_{como}",
+            token_assinante)
+        return str(novo)
+
+
 async def receber_webhook(pool: asyncpg.Pool, id_escritorio: str, corpo: dict[str, Any]) -> str:
     """Aviso da ZapSign: registra (sem duplicar) e põe a verificação na fila. Quem decide é a releitura do documento.
 
     Assinatura, recusa/cancelamento, exclusão e vencimento relêem o documento. O external_id do aviso, quando vem,
-    tem de ser o id do nosso contrato. Só guardamos os campos que usamos (o corpo traz CPF, telefone, geolocalização)."""
+    tem de ser o id do nosso contrato (ou do lead, como o n8n gerava). Assinatura do próprio escritório (quem assinou
+    tem o e-mail de quem criou o documento) é ignorada. Documento fora do cadastro: acha o lead pelo external_id,
+    telefone ou nome (achar_lead_do_aviso). Só guardamos os campos que usamos (o corpo traz CPF, telefone, geolocalização)."""
     evento = str(corpo.get("event_type") or "")
     doc = corpo.get("doc") if isinstance(corpo.get("doc"), dict) else {}
     token_doc = str(corpo.get("token") or doc.get("token") or "")
@@ -243,14 +359,25 @@ async def receber_webhook(pool: asyncpg.Pool, id_escritorio: str, corpo: dict[st
     if evento not in EVENTOS_QUE_RELEEM or not token_doc:
         await pool.execute("update agentesia_eventos_recebidos set situacao = 'ignorado', motivo = 'evento sem efeito' where id = $1", linha["id"])
         return "ignorado:evento"
+    if evento == "doc_signed" and quem_assinou_e_o_escritorio(corpo):
+        await pool.execute("update agentesia_eventos_recebidos set situacao = 'ignorado', motivo = 'quem assinou foi o escritório' where id = $1", linha["id"])
+        return "ignorado:escritorio_assinou"
     contrato = await pool.fetchrow(
         "select id, id_lead from agentesia_contratos where id_escritorio = $1::uuid and provedor = 'zapsign' and id_documento_externo = $2",
         id_escritorio, token_doc)
+    achado_por = None
+    if not contrato and evento == "doc_signed":
+        id_lead, achado_por = await achar_lead_do_aviso(pool, id_escritorio, corpo)
+        id_contrato = await vincular_documento(pool, id_escritorio=id_escritorio, id_lead=id_lead, token_documento=token_doc,
+                                               como=achado_por or "", token_assinante=assinante or None) if id_lead else None
+        if id_contrato:
+            contrato = await pool.fetchrow("select id, id_lead from agentesia_contratos where id = $1::uuid", id_contrato)
+            externo = ""                                  # já conferido na busca
     if not contrato:
-        # Documento de outro sistema (ex.: contrato antigo do Weaver na mesma conta ZapSign): não mexe.
+        # Documento de outro sistema (ex.: contrato antigo do Weaver na mesma conta ZapSign) e nenhum lead nosso bate: não mexe.
         await pool.execute("update agentesia_eventos_recebidos set situacao = 'ignorado', motivo = 'documento desconhecido' where id = $1", linha["id"])
         return "ignorado:documento_desconhecido"
-    if externo and externo != str(contrato["id"]):
+    if externo and externo not in (str(contrato["id"]), str(contrato["id_lead"])):
         # Libera a chave do aviso: um aviso com external_id trocado não pode barrar o verdadeiro como "repetido".
         await pool.execute(
             """update agentesia_eventos_recebidos set situacao = 'ignorado', motivo = 'external_id não confere',
@@ -260,5 +387,6 @@ async def receber_webhook(pool: asyncpg.Pool, id_escritorio: str, corpo: dict[st
         """insert into agentesia_acoes (id_escritorio, id_lead, tipo, chave_unica, dados)
            values ($1::uuid, $2, 'verificar_assinatura', $3, $4::jsonb) on conflict (chave_unica) do nothing""",
         id_escritorio, contrato["id_lead"], f"zapsign:{token_doc}:{assinante or evento}",
-        json.dumps({"token_documento": token_doc, "origem": "zapsign", "evento": evento}))
+        json.dumps({"token_documento": token_doc, "origem": "zapsign", "evento": evento,
+                    **({"achado_por": achado_por} if achado_por and achado_por != "external_id" else {})}))
     return "processado"

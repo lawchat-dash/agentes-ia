@@ -175,8 +175,13 @@ async def _ciclo(app: FastAPI):
         from app.cobranca import Cobrador
         cobrador = Cobrador(repo._pool, float(os.environ.get("AGENTESIA_COBRANCA_INTERVALO_S", "60")))
         tarefa_cobranca = asyncio.create_task(cobrador.rodar())
+        # Relatórios: varredura leve dos cards do CRM de cada conta (o que o webhook de card não trouxe e os antigos).
+        from app.gestao.reconciliar_crm import Reconciliador
+        reconciliador = Reconciliador(repo._pool, cfg.helena_url, http=http)
+        tarefa_crm = asyncio.create_task(reconciliador.rodar())
         app.state.tarefas = {"executor": tarefa_executor, "followup": tarefa_followup, "retomar": tarefa_esperas,
-                             "central": tarefa_central, "indice": tarefa_indice, "cobranca": tarefa_cobranca}
+                             "central": tarefa_central, "indice": tarefa_indice, "cobranca": tarefa_cobranca,
+                             "crm": tarefa_crm}
         log.info("atendimento, painel e executor de ações ligados ao banco")
     else:
         log.info("sem AGENTESIA_BANCO_URL: só o Laboratório está disponível")
@@ -189,8 +194,9 @@ async def _ciclo(app: FastAPI):
         tarefa_central.cancel()
         tarefa_indice.cancel()
         cobrador.parar()
+        reconciliador.parar()
         await asyncio.gather(tarefa_executor, tarefa_followup, tarefa_esperas, tarefa_central, tarefa_indice, tarefa_cobranca,
-                             return_exceptions=True)
+                             tarefa_crm, return_exceptions=True)
         # Turnos em andamento terminam (até 30 s) antes de fechar o banco; o que for cortado vira 'turno_interrompido'.
         try:
             await app.state.atendimento.encerrar(teto_s=float(os.environ.get("AGENTESIA_DESLIGAR_TETO_S", "8")))
@@ -243,7 +249,10 @@ from app.gestao.rotas_rascunho import api as api_rascunho; app.include_router(ap
 from app.gestao.rotas_roteiros import api as api_roteiros; app.include_router(api_roteiros)  # noqa: E402,E702  Ferramentas > Roteiros (áudios)
 from app.gestao.rotas_filtro import api as api_filtro; app.include_router(api_filtro)  # noqa: E402,E702  filtro de número por agente (teste)
 from app.gestao.rotas_execucoes import api as api_execucoes; app.include_router(api_execucoes)  # noqa: E402,E702  Superadmin > Execuções (cada turno da IA)
+from app.gestao.rotas_relatorios import api as api_relatorios; app.include_router(api_relatorios)  # noqa: E402,E702  Relatórios: Dashboard e Rastreamento de campanhas
 from app.gestao.rotas_controle_ia import api as api_controle_ia; app.include_router(api_controle_ia)  # noqa: E402,E702  bolinha da IA na Central
+from app.gestao.rotas_avisos import api as api_avisos; app.include_router(api_avisos)  # noqa: E402,E702  Avisos no WhatsApp (conta e catálogo)
+from app.gestao.rotas_resumo_contrato import api as api_resumo_contrato; app.include_router(api_resumo_contrato)  # noqa: E402,E702  Ferramentas > Resumo de contrato
 if os.environ.get("AGENTESIA_PAINEL_CRM_LIGADO", "").strip() == "1":
     # Painel padrão do CRM pela API interna da Helena (impersonate): desligado por padrão. Se um dia o recebimento de
     # webhooks virar um app separado, este router NÃO entra nele.
@@ -410,7 +419,8 @@ async def webhook_zapsign(id_escritorio: str, pedido: Request) -> dict[str, Any]
     from app.canal.webhook import segredo_do_escritorio
     from app.contrato.servico import receber_webhook
     esperado = segredo_do_escritorio(id_escritorio, "zapsign")
-    recebido = pedido.query_params.get("segredo") or pedido.headers.get("x-agentesia-segredo", "")
+    recebido = (pedido.query_params.get("segredo") or pedido.headers.get("x-agentesia-segredo")
+                or pedido.headers.get("x-webhook-secret", ""))           # o cabeçalho que a ZapSign deixa configurar
     if not esperado or not hmac.compare_digest(esperado.encode(), recebido.encode()):
         raise HTTPException(status_code=401, detail="segredo do webhook ausente ou errado")
     if app.state.gestao is None:

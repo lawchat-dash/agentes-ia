@@ -164,8 +164,10 @@ def esquecer(id_escritorio: str | None = None) -> None:
     """Entrou crédito (ou mudou o modo): a próxima conferência lê o banco na hora."""
     if id_escritorio is None:
         _CACHE.clear()
+        _CACHE_RESTANTE.clear()
     else:
         _CACHE.pop(str(id_escritorio), None)
+        _CACHE_RESTANTE.pop(str(id_escritorio), None)
 
 
 async def bloqueado(conexao: Any, id_escritorio: str | None) -> bool:
@@ -183,6 +185,46 @@ async def bloqueado(conexao: Any, id_escritorio: str | None) -> bool:
         log.exception("falha ao conferir o saldo do escritório %s", chave)
         return False
     _CACHE[chave] = (time.monotonic() + CACHE_S, resultado)
+    return resultado
+
+
+_CACHE_RESTANTE: dict[str, tuple[float, float | None]] = {}
+CACHE_RESTANTE_S = 60.0
+
+
+def percentual(disponivel_brl: float, consumido_desde_brl: float) -> float | None:
+    """% que resta do que o escritório tinha logo depois da última entrada de crédito. Função pura."""
+    total = float(disponivel_brl) + float(consumido_desde_brl)
+    if total <= 0:
+        return None                                  # sem crédito nenhum: quem fala é o bloqueio (sem_saldo)
+    return max(0.0, min(100.0, round(float(disponivel_brl) / total * 100, 2)))
+
+
+async def percentual_restante(conexao: Any, id_escritorio: str | None) -> float | None:
+    """Quanto ainda resta dos créditos da IA (pré-pago), em %: o disponível agora sobre o que havia logo depois da
+    última entrada de crédito (recarga, bônus, ajuste positivo) = disponível + consumido desde então. Guardado por
+    60 s. None: sem a 007, sem carteira, fora do pré-pago, sem entrada de crédito ou erro ao ler (não avisa)."""
+    if not id_escritorio:
+        return None
+    chave = str(id_escritorio)
+    item = _CACHE_RESTANTE.get(chave)
+    if item and item[0] > time.monotonic():
+        return item[1]
+    resultado: float | None = None
+    try:
+        atual = await situacao(conexao, chave)
+        if atual and atual.modo == "pre_pago":
+            consumido = await conexao.fetchval(
+                """select coalesce(sum(ch.custo_brl), 0)::float8 from agentesia_chamadas_ia ch
+                   where ch.id_escritorio = $1::uuid and ch.cobranca <> 'isenta'
+                     and ch.criado_em >= (select max(m.criado_em) from agentesia_carteira_movimentos m
+                                          where m.id_escritorio = $1::uuid and m.valor_brl > 0)""", chave)
+            if consumido is not None:
+                resultado = percentual(atual.disponivel_brl, float(consumido or 0))
+    except Exception:
+        log.exception("falha ao ler os créditos restantes do escritório %s", chave)
+        return None
+    _CACHE_RESTANTE[chave] = (time.monotonic() + CACHE_RESTANTE_S, resultado)
     return resultado
 
 

@@ -172,7 +172,7 @@ class Executor:
                    where id = $2 and id_sessao_helena is not null
                    on conflict (chave_unica) do nothing""",
                 acao["id_escritorio"], acao["id_lead"], f"{acao['id']}:talvez_enviado",
-                json.dumps({"texto": "⚠️ A IA tentou mandar uma mensagem ao lead e a Helena não confirmou o envio "
+                json.dumps({"texto": "📭 A IA tentou mandar uma mensagem ao lead e o WhatsApp não confirmou o envio "
                                      f"({DESCRICOES.get(acao['tipo'], acao['tipo'])}). Confira se a mensagem chegou; "
                                      "se não chegou, envie manualmente."}, ensure_ascii=False))
         except Exception:
@@ -231,7 +231,7 @@ class Executor:
 
     async def _lead_completo(self, id_lead: str) -> dict[str, Any]:
         linha = await self._pool.fetchrow(
-            """select l.*, ct.nome, ct.telefone_normalizado, ca.id_canal_helena, ag.config as config_agente, et.codigo as etapa
+            """select l.*, ct.nome, ct.telefone_normalizado, ca.id_canal_helena, ag.config as config_agente, ag.produto, et.codigo as etapa
                from agentesia_leads l join agentesia_contatos ct on ct.id = l.id_contato
                join agentesia_canais ca on ca.id = l.id_canal
                left join agentesia_agentes ag on ag.id = l.id_agente
@@ -252,8 +252,11 @@ class Executor:
             contexto["id_escritorio"], (contexto.get("lead") or {}).get("id"), tipo, chave,
             json.dumps(dados, ensure_ascii=False), float(minutos * 60))
 
-    async def _disparar(self, contexto: dict[str, Any], lead: dict[str, Any], gatilhos: list[str], origem: str) -> None:
-        """Gatilhos que nascem fora do turno (contrato gerado/assinado): mesmas automações do agente."""
+    async def _disparar(self, contexto: dict[str, Any], lead: dict[str, Any], gatilhos: list[str], origem: str,
+                        so_avisos: bool | None = None) -> None:
+        """Gatilhos que nascem fora do turno (contrato gerado/assinado): mesmas automações do agente.
+        so_avisos: None = tudo; False = tudo menos o aviso à equipe; True = só o aviso (o do contrato assinado espera o
+        resumo, o card e as etiquetas não)."""
         from app import automacoes
 
         crm = await self._pool.fetchval(
@@ -264,6 +267,8 @@ class Executor:
         acoes = automacoes.montar_acoes(lead.get("config_agente") or {}, crm, gatilhos, id_lead=str(lead["id"]),
                                         id_turno=origem, avisos=avisos)
         for a in acoes:
+            if so_avisos is not None and (a["tipo"] == "preparar_aviso") != so_avisos:
+                continue
             await self._enfileirar(contexto, a["tipo"], a["chave_unica"], a["dados"])
 
     async def _mensagem_ao_lead(self, contexto: dict[str, Any], lead: dict[str, Any], chave: str, texto: str) -> None:
@@ -398,6 +403,8 @@ class Executor:
             contexto["id_escritorio"], dados["evento"])
         if not aviso or not aviso["habilitada"]:
             return {"enviados": 0, "motivo": "sem_aviso_configurado"}
+        if await self._aviso_na_janela(contexto, dados["evento"], dados.get("_id_acao")):
+            return {"enviados": 0, "motivo": "aviso_repetido_na_janela"}
         # A mensagem do lead é o que ele mandou no turno que disparou o aviso (as mensagens juntadas, como no n8n);
         # aviso que não nasce de turno (contrato assinado...) leva a última mensagem dele.
         info = await self._pool.fetchrow(
@@ -449,29 +456,43 @@ class Executor:
             mensagem_lead=info["mensagem_lead"], gatilhos=_gatilhos_do_agente(info["produto"], info["config_agente"]),
             sinais=dados.get("sinais"))
         resumo_no_aviso = None
+        modelo_aviso = aviso["modelo_mensagem"]
         if dados["evento"] in ("contrato_assinado", "etapa:contrato_assinado"):
-            # {{resumo}} no modelo do aviso, ou o resumo no fim quando o agente/escritório liga "resumo no aviso".
+            # Modelo do escritório vazio ou o genérico: o aviso do n8n (cliente, telefone, link do chat, caso, resumo e
+            # "Vamos pra cima"). {{resumo}}/{{caso}} no modelo próprio, ou o resumo no fim quando "resumo no aviso".
             from app.contrato import resumo as cresumo
 
             resumo_no_aviso = await self._pool.fetchval(
                 """select resumo from agentesia_contratos where id_lead = $1::uuid and situacao = 'assinado'
                    order by versao desc limit 1""", (contexto.get("lead") or {}).get("id"))
-            valores["resumo"] = resumo_no_aviso or ""
             config_agente = info["config_agente"] if isinstance(info["config_agente"], dict) else json.loads(info["config_agente"] or "{}")
+            caso = cresumo.nome_do_caso(info["produto"], config_agente)
+            valores["resumo"] = resumo_no_aviso or ""
+            valores["caso"] = caso
             _, config_zapsign = await self._zapsign(contexto["id_escritorio"])
-            if "resumo" in notificacoes._MARCADOR.findall(aviso["modelo_mensagem"] or "") \
-                    or not cresumo.configuracao(config_agente, config_zapsign)["no_aviso"]:
+            if not str(modelo_aviso or "").strip() or str(modelo_aviso).strip() == notificacoes.MODELO_PADRAO.strip():
+                modelo_aviso = cresumo.MODELO_AVISO_ASSINADO
+            if "resumo" in notificacoes._MARCADOR.findall(modelo_aviso or "") \
+                    or not cresumo.configuracao(config_agente, config_zapsign, caso)["no_aviso"]:
                 resumo_no_aviso = None
-        texto = notificacoes.renderizar_modelo(aviso["modelo_mensagem"], valores)
+            if not cresumo.configuracao(config_agente, config_zapsign, caso)["no_aviso"]:
+                valores["resumo"] = ""
+        texto = notificacoes.renderizar_modelo(modelo_aviso, valores)
         if resumo_no_aviso:
             texto = cresumo.com_resumo_no_aviso(texto, resumo_no_aviso)
+        envio = await self._numero_de_envio(contexto["id_escritorio"], info["numero_canal"], config_escritorio)
+        if not envio:
+            await self._sem_numero_de_envio(contexto)
+            return {"enviados": 0, "motivo": "numero_de_envio_oficial"}
+        de, tipo_de = envio
+        destinatarios = [d for d in destinatarios if d.numero != de]          # nunca para o próprio número que envia
         await self._pool.executemany(
             """insert into agentesia_acoes (id_escritorio, id_lead, id_turno, tipo, chave_unica, dados)
                select id_escritorio, id_lead, id_turno, 'notificar', $2, $3::jsonb from agentesia_acoes where id = $1
                on conflict (chave_unica) do nothing""",
             [(dados["_id_acao"], f"{dados['_id_acao']}:{d.numero}",
-              json.dumps({"de": info["numero_canal"], "para": d.numero, "rotulo": d.rotulo, "texto": texto,
-                          "tipo_canal": info["tipo_canal"], "evento": dados["evento"]}, ensure_ascii=False))
+              json.dumps({"de": de, "para": d.numero, "rotulo": d.rotulo, "texto": texto,
+                          "tipo_canal": tipo_de, "evento": dados["evento"]}, ensure_ascii=False))
              for d in destinatarios])
         return {"enviados": len(destinatarios), "aviso": aviso["nome"]}
 
@@ -488,20 +509,20 @@ class Executor:
             contexto["id_escritorio"])
         if not aviso:
             return {"enviados": 0, "motivo": "sem_aviso_configurado"}
-        canal = await self._pool.fetchrow(
-            """select numero_normalizado, tipo from agentesia_canais where id_escritorio = $1::uuid and ativo
-               order by (tipo = 'oficial'), criado_em limit 1""", contexto["id_escritorio"])
-        if not canal:
-            return {"enviados": 0, "motivo": "sem_canal"}
+        envio = await self._numero_de_envio(contexto["id_escritorio"], None)
+        if not envio:
+            await self._sem_numero_de_envio(contexto)
+            return {"enviados": 0, "motivo": "numero_de_envio_oficial"}
+        de, tipo_de = envio
         destinatarios = notificacoes.filtrar_destinatarios(
             aviso["destinatarios"] if isinstance(aviso["destinatarios"], list) else json.loads(aviso["destinatarios"] or "[]"),
-            canal["numero_normalizado"])
+            de)
         await self._pool.executemany(
             """insert into agentesia_acoes (id_escritorio, tipo, chave_unica, dados)
                values ($1::uuid, 'notificar', $2, $3::jsonb) on conflict (chave_unica) do nothing""",
             [(contexto["id_escritorio"], f"{dados['_id_acao']}:{d.numero}",
-              json.dumps({"de": canal["numero_normalizado"], "para": d.numero, "rotulo": d.rotulo, "texto": dados["texto"],
-                          "tipo_canal": canal["tipo"], "evento": "consumo_limite"}, ensure_ascii=False))
+              json.dumps({"de": de, "para": d.numero, "rotulo": d.rotulo, "texto": dados["texto"],
+                          "tipo_canal": tipo_de, "evento": "consumo_limite"}, ensure_ascii=False))
              for d in destinatarios])
         return {"enviados": len(destinatarios)}
 
@@ -529,11 +550,114 @@ class Executor:
         return {"enviados": enviados}
 
     async def _notificar(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
-        if dados.get("tipo_canal") == "oficial":
-            # Na API oficial, conversa nova com número da equipe só abre com modelo aprovado pela Meta.
-            raise ErroDeCadastro("número da API oficial: o aviso à equipe precisa de modelo aprovado (use um número não oficial)")
-        id_mensagem = await contexto["helena"].enviar_sem_atendimento(de=dados["de"], para=dados["para"], texto=dados["texto"])
-        return {"id_mensagem": id_mensagem, "para": dados.get("rotulo")}
+        """Envia um aviso a um número da equipe. Na API oficial, conversa nova com número da equipe só abre com modelo
+        aprovado pela Meta: o aviso nunca sai por número oficial. Se o 'de' gravado é oficial (aviso enfileirado antes,
+        ou por outro caminho, como o lead quente), troca por um não oficial da conta; sem nenhum, registra e não envia."""
+        de = dados["de"]
+        if not await self._numero_envia_aviso(contexto["id_escritorio"], de, dados.get("tipo_canal")):
+            envio = await self._numero_de_envio(contexto["id_escritorio"], None)
+            if not envio:
+                await self._sem_numero_de_envio(contexto)
+                return {"enviado": False, "motivo": "numero_de_envio_oficial"}
+            de = envio[0]
+            if de == dados["para"]:
+                return {"enviado": False, "motivo": "destinatario_e_o_numero_de_envio"}
+        id_mensagem = await contexto["helena"].enviar_sem_atendimento(de=de, para=dados["para"], texto=dados["texto"])
+        return {"id_mensagem": id_mensagem, "para": dados.get("rotulo"), **({"de": de} if de != dados["de"] else {})}
+
+    async def _dificuldade_na_assinatura(self, contexto: dict[str, Any], lead: dict[str, Any], contrato: dict[str, Any]) -> None:
+        """O lead diz que assinou, a ZapSign mostra que ele abriu o link e não concluiu: é dificuldade na assinatura
+        (no n8n, 'dificuldadenaassinatura'). Nota no atendimento e o gatilho sinal:dificuldade_assinatura (aviso à
+        equipe e o que o escritório configurou nele), uma vez por contrato. A IA segue ajudando o lead (não pausa)."""
+        from app import automacoes
+
+        base = f"{lead['id']}:assinatura:{contrato['id']}"
+        await self._nota_unica(contexto, lead, f"{base}:dificuldade",
+                               f"✍️ Dificuldade na assinatura: o lead disse que assinou, mas abriu o contrato e não concluiu. "
+                               f"A IA mandou o link de novo; vale ajudar o lead ({automacoes.NOMES_SINAIS['dificuldade_assinatura']}).")
+        await self._pool.execute(
+            """insert into agentesia_eventos (id_escritorio, id_lead, tipo, gravidade, responsavel, descricao)
+               select $1::uuid, $2::uuid, 'sinal_dificuldade_assinatura', 'aviso', 'lead', $3
+               where not exists (select 1 from agentesia_eventos where id_lead = $2::uuid and tipo = 'sinal_dificuldade_assinatura'
+                                 and descricao = $3)""",
+            contexto["id_escritorio"], str(lead["id"]),
+            f"Lead abriu o contrato v{contrato.get('versao') or '?'} e não concluiu a assinatura (ZapSign).")
+        await self._disparar(contexto, lead, ["sinal:dificuldade_assinatura"], f"assinatura-travou-{contrato['id']}")
+
+    async def _aviso_na_janela(self, contexto: dict[str, Any], evento: str, id_acao: Any) -> bool:
+        """O mesmo aviso (evento) já foi para este lead dentro da janela (notificacoes.JANELA_AVISO_H)? Conta o envio
+        enfileirado ou feito; não conta os envios desta mesma preparação (nova tentativa) nem os que falharam."""
+        from app import notificacoes
+
+        id_lead = (contexto.get("lead") or {}).get("id")
+        if not id_lead:
+            return False
+        config = await self._pool.fetchval("select config from agentesia_escritorios where id = $1::uuid", contexto["id_escritorio"])
+        horas = notificacoes.janela_do_aviso_h(config if isinstance(config, dict) else json.loads(config or "{}"))
+        if horas <= 0:
+            return False
+        return bool(await self._pool.fetchval(
+            """select exists(select 1 from agentesia_acoes
+                             where id_lead = $1::uuid and tipo = 'notificar' and dados->>'evento' = any($2::text[])
+                               and situacao in ('pendente', 'executando', 'feita')
+                               and coalesce((resultado->>'enviado')::boolean, true)
+                               and criado_em > now() - make_interval(secs => $3)
+                               and left(chave_unica, length($4) + 1) <> $4 || ':')""",
+            id_lead, notificacoes.eventos_do_mesmo_fato(evento), horas * 3600, str(id_acao or "-")))
+
+    async def _numero_envia_aviso(self, id_escritorio: str, numero: str | None, tipo: str | None = None) -> bool:
+        if tipo == "oficial" or not numero:
+            return False
+        from app import notificacoes
+
+        canal = await self._pool.fetchrow(
+            "select tipo, tipo_helena from agentesia_canais where id_escritorio = $1::uuid and numero_normalizado = $2 limit 1",
+            id_escritorio, numero)
+        return notificacoes.canal_envia_aviso(canal["tipo"], canal["tipo_helena"]) if canal else True
+
+    async def _numero_de_envio(self, id_escritorio: str, numero_preferido: str | None,
+                               config_escritorio: dict[str, Any] | None = None) -> tuple[str, str] | None:
+        """Número de WhatsApp da conta que manda o aviso, nunca oficial. Ordem: o escolhido pelo escritório (config
+        'avisos_numero_envio', número ou id do canal; se for oficial, não envia), o canal do lead, outro canal ativo não
+        oficial da conta. None = não há número que possa enviar."""
+        from app import notificacoes
+
+        if config_escritorio is None:
+            bruto = await self._pool.fetchval("select config from agentesia_escritorios where id = $1::uuid", id_escritorio)
+            config_escritorio = bruto if isinstance(bruto, dict) else json.loads(bruto or "{}")
+        canais = [dict(c) for c in await self._pool.fetch(
+            """select id::text, numero_normalizado, tipo, tipo_helena, ativo from agentesia_canais
+               where id_escritorio = $1::uuid order by criado_em""", id_escritorio)]
+        escolhido = str((config_escritorio or {}).get(notificacoes.CONFIG_NUMERO_ENVIO) or "").strip()
+        if escolhido:
+            numero = notificacoes.normalizar_numero(escolhido)
+            canal = next((c for c in canais if escolhido == c["id"] or (numero and c["numero_normalizado"] == numero)), None)
+            if canal:
+                return (canal["numero_normalizado"], canal["tipo"]) \
+                    if notificacoes.canal_envia_aviso(canal["tipo"], canal["tipo_helena"]) else None
+        bons = [c for c in canais if c["numero_normalizado"] and notificacoes.canal_envia_aviso(c["tipo"], c["tipo_helena"])]
+        preferido = next((c for c in bons if c["numero_normalizado"] == numero_preferido), None)
+        canal = preferido or next((c for c in bons if c["ativo"]), None)
+        return (canal["numero_normalizado"], canal["tipo"]) if canal else None
+
+    async def _sem_numero_de_envio(self, contexto: dict[str, Any]) -> None:
+        """Aviso que não saiu porque o número de envio é oficial: evento 1 vez por dia no escritório e nota 1 vez no
+        atendimento do lead (não repete a cada aviso)."""
+        from app import notificacoes
+
+        if not await self._pool.fetchval(
+                """select exists(select 1 from agentesia_eventos where id_escritorio = $1::uuid and tipo = 'aviso_numero_oficial'
+                                 and criado_em > now() - interval '24 hours')""", contexto["id_escritorio"]):
+            await self._registrar_evento(contexto, "aviso_numero_oficial", "aviso", "cadastro", notificacoes.TEXTO_NUMERO_OFICIAL)
+        id_lead = (contexto.get("lead") or {}).get("id")
+        if id_lead:
+            await self._pool.execute(
+                """insert into agentesia_acoes (id_escritorio, id_lead, tipo, chave_unica, dados)
+                   select $1::uuid, $2::uuid, 'nota', $3, $4::jsonb from agentesia_leads
+                   where id = $2::uuid and id_sessao_helena is not null
+                   on conflict (chave_unica) do nothing""",
+                contexto["id_escritorio"], id_lead, f"{id_lead}:aviso_numero_oficial",
+                json.dumps({"texto": notificacoes.NOTA_NUMERO_OFICIAL}, ensure_ascii=False))
 
     async def _etapa_trocada(self, contexto: dict[str, Any], lead: dict[str, Any], para: str, motivo: str) -> None:
         """Histórico de troca de etapa feita fora do turno (contrato): o mesmo evento 'etapa_trocada' do pipeline."""
@@ -691,7 +815,8 @@ class Executor:
         chave_versao = f"{lead['id']}:contrato:v{reserva.versao}"
         texto = cdados.texto(config, "link" if (reserva.versao or 1) == 1 else "nova_versao", link=link)
         await self._mensagem_ao_lead(contexto, lead, f"{chave_versao}:link", texto)
-        await self._nota_unica(contexto, lead, f"{chave_versao}:nota", f"Contrato gerado (versão {reserva.versao}). Acompanhar o lead até a assinatura.")
+        await self._nota_unica(contexto, lead, f"{chave_versao}:nota", "Acompanhar lead pois acabou de gerar um contrato."
+                               + (f" (versão {reserva.versao})" if (reserva.versao or 1) > 1 else ""))
         moveu = await servico.mover_lead_para_etapa(self._pool, str(lead["id"]), "assinatura")
         if moveu:
             await self._etapa_trocada(contexto, lead, "assinatura", f"contrato gerado (versão {reserva.versao})")
@@ -845,6 +970,8 @@ class Executor:
         contrato = await servico.contrato_para_verificar(
             self._pool, id_lead=(contexto.get("lead") or {}).get("id"), token_documento=dados.get("token_documento"))
         if not contrato:
+            if dados.get("origem") == "verificacao" and (contexto.get("lead") or {}).get("id"):
+                return await self._ja_assinei_sem_documento(contexto)
             return {"resultado": "sem_contrato"}
         if not contexto.get("lead"):
             contexto["lead"] = {"id": str(contrato["id_lead"])}
@@ -867,7 +994,11 @@ class Executor:
                 if verificacao:
                     await self._mensagem_ao_lead(contexto, lead, f"{base}:ja:{dados['_id_acao']}", cdados.texto(config, "ja_assinado"))
                 return {"resultado": "ja_estava_assinado", **para_ia}
+            # Fluxo CONTRATO ASSINADO (n8n B5-B13), efeitos uma vez: lembretes e follow-ups cancelados, etapa
+            # "contrato assinado" (IA encerrada no lead), mensagem ao lead, transferência, card/etiquetas pelas
+            # automações, PDF, resumo pela IA, nota "📄 Contrato Assinado!" e o aviso à equipe (que espera o resumo).
             await servico.cancelar_lembretes(self._pool, str(lead["id"]))
+            await servico.cancelar_followups(self._pool, str(lead["id"]))
             if await servico.mover_lead_para_etapa(self._pool, str(lead["id"]), "contrato_assinado",
                                                    estado="encerrado", motivo_estado="contrato_assinado") \
                     and lead.get("etapa") != "contrato_assinado":
@@ -876,26 +1007,42 @@ class Executor:
             if midia:
                 await self._enfileirar(contexto, "enviar_mensagem", f"{base}:video", {"url_arquivo": midia})
             await self._enfileirar(contexto, "enviar_mensagem", f"{base}:confirmacao",
-                                   {"texto": cdados.texto(config, "pos_assinatura")}, minutos=0.05 if midia else 0)
-            nota = "Contrato assinado pelo lead." + (" Confirmado pela verificação de assinatura." if verificacao else "")
+                                   {"texto": self._texto_pos_assinatura(config, lead)}, minutos=0.05 if midia else 0)
+            config_contrato = (lead.get("config_agente") or {}).get("contrato")
+            id_equipe = (config_contrato if isinstance(config_contrato, dict) else {}).get("id_equipe_assinado") \
+                or config.get("id_equipe_assinado")
+            if id_equipe and lead.get("id_sessao_helena"):
+                await self._enfileirar(contexto, "transferir", f"{base}:transferir", {"id_equipe": str(id_equipe)})
+            avisos_nota = []
+            if verificacao:
+                avisos_nota.append("✔️ Assinatura confirmada pela verificação na ZapSign (o lead disse que assinou).")
+            if dados.get("achado_por"):
+                avisos_nota.append(f"⚠️ O documento assinado não tinha o id do nosso contrato: foi ligado a este lead pelo "
+                                   f"{dados['achado_por']} do signatário. Confira na ZapSign.")
             if contrato["situacao"] == "substituido":
-                nota += f"\n⚠️ Atenção: o lead assinou a versão {contrato['versao']}, que já tinha sido substituída por uma mais nova. Confira qual versão vale."
+                avisos_nota.append(f"⚠️ Atenção: o lead assinou a versão {contrato['versao']}, que já tinha sido substituída por uma mais nova. Confira qual versão vale.")
             if contrato["situacao"] == "cancelado":
-                nota += "\n⚠️ Atenção: este contrato constava como cancelado no sistema. Confira na ZapSign."
-            await self._nota_unica(contexto, lead, f"{base}:nota", nota)
+                avisos_nota.append("⚠️ Atenção: este contrato constava como cancelado no sistema. Confira na ZapSign.")
             if config.get("guardar_pdf", True):
                 # O signed_file vence em 60 min: o PDF vai para o nosso armazenamento (link permanente no contrato).
                 await self._enfileirar(contexto, "guardar_pdf_assinado", f"{contrato['id']}:pdf:1", {"id_contrato": str(contrato["id"])})
-            ajustes = cresumo.configuracao(lead.get("config_agente"), config)
+            caso = cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
+            ajustes = cresumo.configuracao(lead.get("config_agente"), config, caso)
             resumir = ajustes["ativo"] and self._modelo is not None
-            # Resumo no aviso "contrato assinado": as automações do assinado esperam o resumo (que dispara no fim, com
-            # ou sem resumo). Sem isso, disparam já.
-            depois = resumir and ajustes["no_aviso"]
-            if not depois:
-                await self._disparar(contexto, lead, ["contrato_assinado", "etapa:contrato_assinado"], f"assinado-{contrato['id']}")
+            # Resumo no aviso "contrato assinado": o aviso espera o resumo (que dispara no fim, com ou sem resumo).
+            # Card, etiquetas e o resto das automações não esperam.
+            aviso_depois = resumir and ajustes["no_aviso"]
+            await self._disparar(contexto, lead, ["contrato_assinado", "etapa:contrato_assinado"], f"assinado-{contrato['id']}",
+                                 so_avisos=False if aviso_depois else None)
             if resumir:
                 await self._enfileirar(contexto, "resumir_contrato", f"{base}:resumo",
-                                       {"id_contrato": str(contrato["id"]), "disparar_depois": depois})
+                                       {"id_contrato": str(contrato["id"]), "aviso_depois": aviso_depois,
+                                        "chave_nota": f"{base}:nota", "avisos_nota": avisos_nota, "caso": caso})
+            else:
+                await self._nota_unica(contexto, lead, f"{base}:nota", cresumo.nota(None, caso, avisos_nota))
+            await self._registrar_evento(contexto, "contrato_assinado", "info", "lead",
+                                         f"Contrato assinado (versão {contrato['versao']})"
+                                         + (", confirmado pela verificação." if verificacao else "."))
             return {"resultado": "assinado", "versao": contrato["versao"], **para_ia}
         if situacao in ("cancelado", "excluido", "expirado"):
             resultado = await self._contrato_encerrado(
@@ -913,6 +1060,8 @@ class Executor:
             chave_texto = "travou" if leitura.abertura == "abriu_sem_assinar" else "pendente"
             await self._mensagem_ao_lead(contexto, lead, f"{base}:pendente:{dados['_id_acao']}",
                                          cdados.texto(config, chave_texto, link=link))
+            if chave_texto == "travou":
+                await self._dificuldade_na_assinatura(contexto, lead, contrato)
         return {"resultado": situacao, "abertura": leitura.abertura, **para_ia}
 
     async def _cancelar_contrato(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
@@ -974,21 +1123,80 @@ class Executor:
         await servico.guardar_arquivo(self._pool, id_contrato=str(contrato["id"]), url=url)
         return {"pdf": "guardado", "url": url, "bytes": len(bruto)}
 
+    def _texto_pos_assinatura(self, config: dict[str, Any], lead: dict[str, Any]) -> str:
+        """Mensagem ao lead quando o contrato é assinado: a do escritório (Integrações > ZapSign > mensagens), senão a
+        frase de entrada (mensagem_troca) do papel "contrato assinado" do agente, senão a padrão."""
+        from app.contrato import dados as cdados
+
+        if ((config or {}).get("mensagens") or {}).get("pos_assinatura"):
+            return cdados.texto(config, "pos_assinatura")
+        papeis = ((lead.get("config_agente") or {}).get("catalogo") or {}).get("papeis") or {}
+        cfg = papeis.get("contrato_assinado") if isinstance(papeis, dict) else None
+        frase = str((cfg or {}).get("mensagem_troca") or "").strip() if isinstance(cfg, dict) else ""
+        if frase and "{{" in frase:
+            try:
+                from app.cerebro import catalogo
+                frase = catalogo.preencher_variaveis(frase, {"nome": str(lead.get("nome") or "").split(" ")[0]})[0].strip()
+            except Exception:                            # variável que não dá para trocar: fica a padrão
+                frase = ""
+        return frase if frase and "{{" not in frase else cdados.texto(config, "pos_assinatura")
+
+    async def _ja_assinei_sem_documento(self, contexto: dict[str, Any]) -> dict[str, Any]:
+        """"Já assinei" sem documento nosso para conferir (contrato feito fora da IA): como o n8n, desliga a IA do lead
+        (etiqueta "🤖 IA Desativada" e nota DES pelo controle da IA) e pede para a equipe conferir na ZapSign."""
+        from app import ia_controle
+        from app.contrato import dados as cdados
+
+        lead = await self._lead_completo(contexto["lead"]["id"])
+        _, config = await self._zapsign(contexto["id_escritorio"])
+        await ia_controle.mudar_ia(self._pool, contexto["id_escritorio"], ligar=False,
+                                 origem="porque o lead disse que assinou e não há contrato da IA para conferir",
+                                 id_lead=str(lead["id"]))
+        base = f"{lead['id']}:ja_assinei_sem_contrato"
+        await self._nota_unica(contexto, lead, f"{base}:nota",
+                               "Lead disse que assinou o contrato, por favor verifique dentro do ZapSign se o contrato dele está assinado")
+        await self._mensagem_ao_lead(contexto, lead, f"{base}:lead", cdados.texto(config, "conferir"))
+        await self._registrar_evento(contexto, "ja_assinei_sem_contrato", "aviso", "cliente",
+                                     "O lead disse que assinou, mas não há contrato gerado pela IA para conferir. A IA foi desligada nesse lead.")
+        return {"resultado": "sem_contrato", "ia": "desligada"}
+
     async def _resumir_contrato(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
         """Resumo do caso quando o contrato é assinado (uma vez por contrato): lê a conversa (até 300 mensagens), pede o
-        resumo à IA com o prompt do agente (ou do escritório, ou o de fábrica) e guarda no contrato; nota no atendimento
-        e no card da Helena pela fila. Falha da IA não segura o resto: depois de 3 tentativas segue sem resumo.
-        Com 'disparar_depois' (resumo no aviso à equipe), as automações do assinado disparam aqui, no fim."""
+        resumo à IA com o prompt do agente (ou do escritório, ou o de fábrica), conta os tokens (agentesia_chamadas_ia,
+        papel contrato_resumo) e guarda no contrato. No fim, com ou sem resumo: a nota "📄 Contrato Assinado!" no
+        atendimento e, com 'aviso_depois', o aviso à equipe. A IA tenta de novo uma vez; depois segue sem resumo
+        (nunca trava o contrato assinado)."""
         try:
-            return await self._fazer_resumo(contexto, dados)
-        finally:
-            if dados.get("disparar_depois") and contexto.get("lead"):
-                try:
-                    lead = await self._lead_completo(contexto["lead"]["id"])
-                    await self._disparar(contexto, lead, ["contrato_assinado", "etapa:contrato_assinado"],
-                                         f"assinado-{dados['id_contrato']}")
-                except Exception:
-                    log.exception("falha ao disparar as automações do contrato assinado depois do resumo")
+            resultado = await self._fazer_resumo(contexto, dados)
+        except ErroHelenaApi:
+            raise                                          # nova tentativa da IA: a nota e o aviso esperam
+        except Exception as erro:                          # erro inesperado: segue sem resumo
+            log.exception("falha no resumo do contrato assinado")
+            resultado = {"resumo": "erro", "motivo": str(erro)[:200]}
+            await self._registrar_evento(contexto, "resumo_contrato_falhou", "aviso", "lawchat",
+                                         "O resumo do contrato assinado não foi feito (erro interno). O resto da assinatura seguiu normal.")
+        await self._depois_do_resumo(contexto, dados)
+        return resultado
+
+    async def _depois_do_resumo(self, contexto: dict[str, Any], dados: dict[str, Any]) -> None:
+        from app.contrato import resumo as cresumo
+
+        if not contexto.get("lead"):
+            return
+        try:
+            lead = await self._lead_completo(contexto["lead"]["id"])
+            resumo = await self._pool.fetchval("select resumo from agentesia_contratos where id = $1::uuid", dados["id_contrato"])
+            if dados.get("chave_nota"):
+                caso = dados.get("caso") or cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
+                await self._nota_unica(contexto, lead, dados["chave_nota"], cresumo.nota(resumo, caso, dados.get("avisos_nota")))
+            if dados.get("aviso_depois"):
+                await self._disparar(contexto, lead, ["contrato_assinado", "etapa:contrato_assinado"],
+                                     f"assinado-{dados['id_contrato']}", so_avisos=True)
+            elif dados.get("disparar_depois"):           # ação enfileirada antes desta versão: todas as automações
+                await self._disparar(contexto, lead, ["contrato_assinado", "etapa:contrato_assinado"],
+                                     f"assinado-{dados['id_contrato']}")
+        except Exception:
+            log.exception("falha na nota/aviso do contrato assinado depois do resumo")
 
     async def _fazer_resumo(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
         from app.contrato import resumo as cresumo
@@ -1000,10 +1208,11 @@ class Executor:
         if self._modelo is None:
             return {"resumo": "sem_modelo_configurado"}
         if await cobranca.bloqueado(self._pool, contexto["id_escritorio"]):
-            return {"resumo": cobranca.MOTIVO}             # sem saldo: segue sem resumo (as automações disparam)
+            return {"resumo": cobranca.MOTIVO}             # sem saldo: segue sem resumo (a nota e o aviso saem)
         lead = await self._lead_completo(str(contrato["id_lead"]))
         _, config = await self._zapsign(contexto["id_escritorio"])
-        ajustes = cresumo.configuracao(lead.get("config_agente"), config)
+        caso = dados.get("caso") or cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
+        ajustes = cresumo.configuracao(lead.get("config_agente"), config, caso)
         if not ajustes["ativo"]:
             return {"resumo": "desligado"}
         mensagens = await self._pool.fetch(
@@ -1012,32 +1221,40 @@ class Executor:
         conversa = cresumo.conversa_para_resumo([dict(m) for m in reversed(mensagens)])
         if not conversa:
             return {"resumo": "sem_conversa"}
+
+        async def gravar(chamadas: list[Any]) -> None:   # custo no consumo do escritório, por agente
+            await cobranca.gravar_chamadas(self._pool, id_escritorio=contexto["id_escritorio"], chamadas=chamadas,
+                                           id_lead=str(lead["id"]), id_agente=str(lead["id_agente"]) if lead.get("id_agente") else None,
+                                           codigo_etapa="contrato_assinado")
         try:
             resultado = await self._modelo.gerar(
-                papel="contrato_resumo", sistema=ajustes["prompt"], conteudo="Conversa:\n\n" + conversa,
+                papel=cresumo.PAPEL_IA, sistema=ajustes["prompt"], conteudo="Conversa:\n\n" + conversa,
                 esquema={"type": "object", "additionalProperties": False, "properties": {"resumo": {"type": "string"}}, "required": ["resumo"]},
                 modelo=ajustes["modelo"], esforco="low")
         except ErroModelo as erro:
-            await self._gravar_chamadas(contexto, getattr(erro, "chamadas", []) or [])
+            await gravar(getattr(erro, "chamadas", []) or [])
             tentativas = await self._pool.fetchval("select tentativas from agentesia_acoes where id = $1", dados.get("_id_acao")) or 99
-            if tentativas < 3:
+            if tentativas < 2:
                 raise ErroHelenaApi("indisponivel", f"IA do resumo: {erro.motivo}") from erro
             await self._registrar_evento(contexto, "resumo_contrato_falhou", "aviso", "provedor",
                                          f"O resumo do contrato assinado não foi feito (IA: {erro.motivo}). O resto da assinatura seguiu normal.")
             return {"resumo": "falhou", "motivo": str(erro.motivo)}
-        await self._gravar_chamadas(contexto, resultado.chamadas)      # custo no consumo do escritório
+        await gravar(resultado.chamadas)
+        tokens = {"tokens_entrada": sum(int(getattr(c, "tokens_entrada", 0) or 0) for c in resultado.chamadas),
+                  "tokens_saida": sum(int(getattr(c, "tokens_saida", 0) or 0) for c in resultado.chamadas)}
         resumo = str(resultado.dados.get("resumo") or "").strip()[:cresumo.LIMITE_CARACTERES]
         if not resumo:
-            return {"resumo": "vazio"}
+            return {"resumo": "vazio", **tokens}
         gravou = await self._pool.fetchval(
             "update agentesia_contratos set resumo = $2 where id = $1 and resumo is null returning id", contrato["id"], resumo)
         if not gravou:
             return {"resumo": "ja_existe"}
-        if lead.get("id_sessao_helena"):
-            await self._enfileirar(contexto, "nota", f"{contrato['id']}:resumo:nota", {"texto": cresumo.nota(resumo)})
+        if not dados.get("chave_nota") and lead.get("id_sessao_helena"):
+            # Ação enfileirada antes desta versão (sem a nota única do assinado): a nota do resumo sozinha.
+            await self._enfileirar(contexto, "nota", f"{contrato['id']}:resumo:nota", {"texto": cresumo.nota(resumo, caso)})
         if await self._pool.fetchval("select exists(select 1 from agentesia_crm_cards where id_lead = $1)", lead["id"]):
             await self._enfileirar(contexto, "descrever_card", f"{contrato['id']}:resumo:card", {"resumo": resumo})
-        return {"resumo": "feito", "caracteres": len(resumo), "prompt": ajustes["origem"], "modelo": ajustes["modelo"]}
+        return {"resumo": "feito", "caracteres": len(resumo), "prompt": ajustes["origem"], "modelo": ajustes["modelo"], **tokens}
 
     async def _descrever_card(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
         """Resumo do contrato na descrição do card do lead no CRM (a descrição de sempre + o resumo)."""

@@ -486,5 +486,19 @@ class RepositorioMemoria:
 
     async def enfileirar_acoes(self, *, id_escritorio, id_lead, id_turno, acoes) -> None:
         conhecidas = {a["chave_unica"] for a in self.acoes}
-        self.acoes.extend({**a, "id_escritorio": id_escritorio, "id_lead": id_lead, "id_turno": id_turno}
-                          for a in acoes if a["chave_unica"] not in conhecidas)
+        agora_ = datetime.now(timezone.utc)
+        self.acoes.extend({"criada_em": agora_, **a, "id_escritorio": id_escritorio, "id_lead": id_lead,
+                           "id_turno": id_turno} for a in acoes if a["chave_unica"] not in conhecidas)
+
+    async def nota_recente(self, id_lead, padroes, horas) -> bool:
+        """Há nota deste lead com a chave no padrão (LIKE, '%' curinga) nas últimas `horas`?"""
+        import fnmatch
+        from datetime import timedelta as _td
+        desde = datetime.now(timezone.utc) - _td(hours=horas)
+        return any(a.get("tipo") == "nota" and a.get("id_lead") == id_lead and (a.get("criada_em") or desde) >= desde
+                   and any(fnmatch.fnmatchcase(a["chave_unica"], p.replace("%", "*")) for p in padroes)
+                   for a in self.acoes)
+
+    async def credito_restante(self, id_escritorio) -> float | None:
+        """Nos testes: {id_escritorio: percentual} em `credito`."""
+        return self.__dict__.get("credito", {}).get(id_escritorio)

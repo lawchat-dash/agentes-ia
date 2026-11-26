@@ -75,7 +75,7 @@ const statusMeta: Record<string, { label: string; Icon: any }> = {
 type Filter = "all" | "active" | "paused" | "draft" | "trash";
 
 const MeusProdutos = () => {
-  const { data: products, isLoading } = useMyProducts();
+  const { data: products, isLoading, error: erroLista, refetch: recarregarLista } = useMyProducts();
   const { data: trashed } = useTrashedProducts();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -363,7 +363,24 @@ const MeusProdutos = () => {
 
       {/* Lista */}
       {isLoading ? (
-        <div className="grid place-items-center py-20"><Loader2 className="size-8 text-primary animate-spin" /></div>
+        // Esqueleto no lugar do spinner: a grade aparece no formato final enquanto a lista chega.
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4" role="status" aria-label="Carregando agentes">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-border bg-card p-4 h-[220px] animate-pulse">
+              <div className="size-11 rounded-xl bg-muted" />
+              <div className="h-3.5 w-3/4 bg-muted rounded mt-4" />
+              <div className="h-2.5 w-full bg-muted rounded mt-3" />
+              <div className="h-2.5 w-5/6 bg-muted rounded mt-2" />
+            </div>
+          ))}
+        </div>
+      ) : erroLista && !products ? (
+        <Card className="p-8 text-center border-destructive/30 bg-destructive/5">
+          <AlertTriangle className="size-7 text-destructive mx-auto mb-2" />
+          <h3 className="font-bold">Não deu para carregar os agentes</h3>
+          <p className="text-sm text-muted-foreground mt-1">{(erroLista as Error).message}</p>
+          <Button variant="outline" className="mt-4" onClick={() => recarregarLista()}><RotateCw className="size-4 mr-1.5" />Tentar de novo</Button>
+        </Card>
       ) : filter !== "trash" && (!products || products.length === 0) ? (avulsos.length > 0 ? null :
         <Card className="p-12 text-center bg-gradient-card backdrop-blur border-dashed">
           <div className="size-16 rounded-2xl bg-primary/10 grid place-items-center mx-auto mb-4">

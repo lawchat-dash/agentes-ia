@@ -35,6 +35,10 @@ const TelaConversas = lazy(() => import("./telas/Conversas").then((m) => ({ defa
 const TelaFerramentas = lazy(() => import("./telas/Ferramentas").then((m) => ({ default: m.TelaFerramentas })));
 const TelaRoteiro = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiro })));
 const TelaRoteiros = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiros })));
+const TelaFollowup = lazy(() => import("./telas/Followup").then((m) => ({ default: m.TelaFollowup })));
+const TelaBibliotecaMidia = lazy(() => import("./telas/BibliotecaMidia").then((m) => ({ default: m.TelaBibliotecaMidia })));
+const TelaResumosContrato = lazy(() => import("./telas/ResumoContrato").then((m) => ({ default: m.TelaResumosContrato })));
+const TelaResumoContrato = lazy(() => import("./telas/ResumoContrato").then((m) => ({ default: m.TelaResumoContrato })));
 const TelaMinhaConta = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaMinhaConta })));
 const TelaCrm = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCrm })));
 // Página-ponte do app "Controle da IA" na plataforma de atendimento: pública (usa o login do painel, se houver), sem menu.
@@ -42,6 +46,8 @@ const PonteControleIA = lazy(() => import("./componentes/PonteControleIA"));
 const TelaCentral = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCentral })));
 const TelaChatbots = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaChatbots })));
 const TelaErros = lazy(() => import("./telas/Erros").then((m) => ({ default: m.TelaErros })));
+const TelaRelatorioDashboard = lazy(() => import("./telas/RelatorioDashboard").then((m) => ({ default: m.TelaRelatorioDashboard })));
+const TelaRelatorioCampanhas = lazy(() => import("./telas/RelatorioCampanhas").then((m) => ({ default: m.TelaRelatorioCampanhas })));
 const TelaExecucoes = lazy(() => import("./telas/Execucoes").then((m) => ({ default: m.TelaExecucoes })));
 const TelaHistorico = lazy(() => import("./telas/Historico").then((m) => ({ default: m.TelaHistorico })));
 const TelaInicio = lazy(() => import("./telas/Inicio").then((m) => ({ default: m.TelaInicio })));
@@ -74,7 +80,7 @@ function usePreCarregarTelas(ligado: boolean, podeGerir: boolean, admin: boolean
         () => import("@/pages/MeusProdutos"), () => import("./telas/Agente"), () => import("@/pages/Biblioteca"),
         () => import("@/pages/BibliotecaDetalhes"), () => import("./telas/Ferramentas"), () => import("./telas/Carteira"),
         () => import("@/pages/ProdutoEditor"), () => import("./telas/Integracoes"), () => import("./telas/Configuracoes"),
-        () => import("./telas/Roteiros"), () => import("./telas/Historico"), () => import("./telas/Erros"),
+        () => import("./telas/Roteiros"), () => import("./telas/Historico"), () => import("./telas/Followup"), () => import("./telas/Avisos"), () => import("./telas/Erros"),
       ] : []),
       ...(admin ? [() => import("./telas/AdminEscritorios"), () => import("@/pages/admin/AdminProdutos")] : []),
     ];
@@ -92,9 +98,9 @@ function usePreCarregarTelas(ligado: boolean, podeGerir: boolean, admin: boolean
 
 const TITULOS: [RegExp, string][] = [
   [/^\/$/, "Início"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
-  [/^\/erros/, "Erros"], [/^\/conversas/, "Conversas"], [/^\/atendimento/, "Central de Atendimento"],
+  [/^\/relatorios\/campanhas/, "Relatórios › Rastreamento de campanhas"], [/^\/relatorios/, "Relatórios › Dashboard"], [/^\/erros/, "Erros"], [/^\/conversas/, "Conversas"], [/^\/atendimento/, "Central de Atendimento"],
   [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus agentes"],
-  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos à equipe"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
+  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos no WhatsApp"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas\/followup/, "Ferramentas › Follow-up"], [/^\/ferramentas\/midia/, "Ferramentas › Biblioteca de mídia"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
   [/^\/admin\/escritorios/, "LawChat › Escritórios"], [/^\/admin\/equipe/, "LawChat › Equipe"], [/^\/admin\/modelos/, "LawChat › Modelos de agente"],
   [/^\/admin\/produtos\/./, "LawChat › Produtos › Editar"], [/^\/admin\/produtos/, "LawChat › Produtos (catálogo)"], [/^\/admin\/erros/, "LawChat › Erros"], [/^\/admin\/execucoes/, "LawChat › Execuções"], [/^\/admin\/followup/, "LawChat › Follow-up"],
 ];
@@ -173,7 +179,14 @@ function ComEstrutura() {
           <Route path="/consumo" element={precisaEscritorio(<TelaCarteira />)} />
           <Route path="/ferramentas" element={precisaEscritorio(<TelaFerramentas />)} />
           <Route path="/ferramentas/roteiros" element={precisaEscritorio(<TelaRoteiros />)} />
+          <Route path="/ferramentas/followup" element={precisaEscritorio(<TelaFollowup />)} />
+          <Route path="/ferramentas/midia" element={precisaEscritorio(<TelaBibliotecaMidia />)} />
+          <Route path="/followup" element={<Navigate to="/ferramentas/followup" replace />} />
+          <Route path="/follow-up" element={<Navigate to="/ferramentas/followup" replace />} />
+          <Route path="/midia" element={<Navigate to="/ferramentas/midia" replace />} />
           <Route path="/ferramentas/roteiros/:id" element={precisaEscritorio(<TelaRoteiro />)} />
+          <Route path="/ferramentas/resumo-contrato" element={precisaEscritorio(<TelaResumosContrato />)} />
+          <Route path="/ferramentas/resumo-contrato/:id" element={precisaEscritorio(<TelaResumoContrato />)} />
           <Route path="/minha-conta" element={precisaEscritorio(<TelaMinhaConta />)} />
           <Route path="/minha-conta/:pagina" element={precisaEscritorio(<TelaMinhaConta />)} />
           <Route path="/crm" element={precisaEscritorio(<TelaCrm />)} />
@@ -181,6 +194,9 @@ function ComEstrutura() {
           <Route path="/biblioteca" element={precisaEscritorio(<Biblioteca />)} />
           <Route path="/biblioteca/:slug" element={precisaEscritorio(<BibliotecaDetalhes />)} />
           <Route path="/meus-produtos" element={precisaEscritorio(<MeusProdutos />)} />
+          <Route path="/relatorios" element={<Navigate to="/relatorios/dashboard" replace />} />
+          <Route path="/relatorios/dashboard" element={precisaEscritorio(<TelaRelatorioDashboard />)} />
+          <Route path="/relatorios/campanhas" element={precisaEscritorio(<TelaRelatorioCampanhas />)} />
         </>}
         {admin && <>
           <Route path="/admin/escritorios" element={<TelaAdminEscritorios />} />

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Eye, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
-import { enviar, quando, type Agente } from "../api";
-import { Alerta, Carregando, Interruptor, Painel, Vazio, useAcao, useCarregar } from "../componentes/ui";
+import { enviar, type Agente } from "../api";
+import { Alerta, Carregando, Interruptor, Painel, useAcao, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
+import { DashboardFollowup, HistoricoFollowup } from "./Followup";
 
 interface Passo { apos_horas: number; modo: "ia" | "texto" | "modelo"; instrucao: string; texto: string }
 interface Config {
@@ -18,11 +19,6 @@ interface Dados {
 }
 
 const DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-const MOTIVOS: Record<string, string> = {
-  lead_respondeu: "lead respondeu", equipe_falou: "equipe falou", nova_resposta_da_ia: "IA respondeu de novo", modo_teste: "fora dos números de teste",
-  etapa_sem_followup: "etapa sem follow-up", agente_pausado: "agente pausado", followup_desligado: "follow-up desligado", desistencia: "desistência",
-  janela_fechada_sem_modelo: "janela de 24 h fechada sem modelo", fora_do_horario: "aguardando horário", intervalo_minimo: "intervalo mínimo",
-};
 
 function unidade(horas: number): [number, "horas" | "dias"] {
   return horas >= 24 && horas % 24 === 0 ? [horas / 24, "dias"] : [horas, "horas"];
@@ -37,8 +33,14 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
   const { catalogo } = useSessao();
   const [c, setC] = useState<Config | null>(null);
   const [previas, setPrevias] = useState<Record<number, string[]>>({});
+  const [dias, setDias] = useState(30);
   useEffect(() => { if (dados) setC(dados.config); }, [dados]);
-  if (!dados || !c) return <Carregando erro={erro} />;
+  if (!dados || !c) return (
+    <div className="stack">
+      <Carregando erro={erro ? `Não deu para abrir a configuração do follow-up: ${erro}` : null} />
+      {erro && <Painel titulo="Histórico do follow-up"><HistoricoFollowup dias={30} agente={agente.id} compacto /></Painel>}
+    </div>
+  );
 
   const conversa = new Set(dados.etapas.filter((e) => e.tipo === "conversa").map((e) => e.codigo));
   const mudarPasso = (i: number, p: Partial<Passo>) => setC({ ...c, passos: c.passos.map((x, j) => (j === i ? { ...x, ...p } : x)) });
@@ -64,6 +66,10 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
           Para sozinho se o lead responder, se alguém da equipe falar, se a etapa mudar ou se a IA for desligada.</p>
       </Painel>
 
+      <Painel titulo={<h3 style={{ display: "flex", gap: 10, alignItems: "center" }}>Resultados deste agente <span className="seg" style={{ marginLeft: "auto" }}>{[7, 30, 90].map((d) => (
+        <button key={d} type="button" className={dias === d ? "on" : ""} aria-pressed={dias === d} onClick={() => setDias(d)}>{d} dias</button>))}</span></h3>}>
+        <DashboardFollowup dias={dias} agente={agente.id} compacto />
+      </Painel>
       <Painel titulo="Agente de follow-up" acoes={<>
         <button className="btn sm" onClick={() => setC({ ...c, prompt: dados.padrao.prompt })}><RotateCcw />Prompt padrão</button>
         <button className="btn sm" onClick={() => previa(0)} disabled={ocupado}><Eye />Ver como fica</button>
@@ -181,22 +187,9 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
         </Painel>
       </div>
 
-      <div className="two">
-        <Painel titulo="Próximos envios" sem_corpo>
-          {dados.proximos.length === 0 ? <Vazio>Nenhum follow-up agendado.</Vazio> : (
-            <div className="lst"><table><thead><tr><th>Lead</th><th>Passo</th><th>Quando</th></tr></thead><tbody>
-              {dados.proximos.map((p, i) => <tr key={i}><td>{p.nome ?? "sem nome"} <span className="muted mono">…{p.final}</span></td>
-                <td className="num">{p.passo < c.passos.length ? p.passo + 1 : "desistência"}</td><td className="s num">{quando(p.agendado_para)}</td></tr>)}
-            </tbody></table></div>)}
-        </Painel>
-        <Painel titulo="Últimos" sem_corpo>
-          {dados.recentes.length === 0 ? <Vazio>Nada ainda.</Vazio> : (
-            <div className="lst"><table><thead><tr><th>Lead</th><th>Passo</th><th>Resultado</th></tr></thead><tbody>
-              {dados.recentes.map((r, i) => <tr key={i}><td>{r.nome ?? "sem nome"}</td><td className="num">{r.passo + 1}</td>
-                <td><span className={`chip ${r.situacao === "enviado" ? "ok" : r.situacao === "falhou" ? "bad" : ""}`}>{r.situacao}</span> <span className="s">{MOTIVOS[r.motivo ?? ""] ?? r.motivo ?? ""}</span></td></tr>)}
-            </tbody></table></div>)}
-        </Painel>
-      </div>
+      <Painel titulo="Histórico do follow-up">
+        <HistoricoFollowup dias={dias} agente={agente.id} compacto />
+      </Painel>
       {!c.ativo && <Alerta tipo="info">O follow-up está desligado. Ligue no alto e salve.</Alerta>}
     </div>
   );

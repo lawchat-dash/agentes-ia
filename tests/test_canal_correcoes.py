@@ -464,7 +464,7 @@ async def test_postgres_conferir_entrega_marca_falha_evento_e_nota():
         evento = await pool.fetchrow("select gravidade, responsavel from agentesia_eventos where id_lead = $1::uuid and tipo = 'envio_falhou'", id_lead)
         assert (evento["gravidade"], evento["responsavel"]) == ("erro", "provedor")
         nota = await pool.fetchval("select dados->>'texto' from agentesia_acoes where id_lead = $1::uuid and tipo = 'nota'", id_lead)
-        assert nota.startswith("⚠️ Parte da resposta da IA não foi entregue")
+        assert nota.startswith("📭 Uma mensagem da IA não chegou ao lead") and "Helena" not in nota
         reconferir = await pool.fetchrow("select dados from agentesia_acoes where chave_unica = $1", f"{turno}:entrega:2")
         dados = reconferir["dados"] if isinstance(reconferir["dados"], dict) else json.loads(reconferir["dados"])
         assert dados["ids"] == ["m-fila"] and dados["reconferencia"] is True

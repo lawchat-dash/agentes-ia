@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import re
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -135,7 +136,7 @@ class Atendimento:
         id_lead = str(linha.get("id_lead") or "") or None
         await self.repo.gravar_eventos(id_escritorio=escritorio.id, id_lead=id_lead, id_turno=linha.get("id_turno"), eventos=[{
             "tipo": "envio_falhou", "gravidade": "erro", "responsavel": "provedor",
-            "descricao": f"A Helena não entregou uma parte da resposta da IA ({motivo}).",
+            "descricao": f"O WhatsApp não entregou uma parte da resposta da IA ({motivo}).",
             "detalhe": {"id_externo": evento.id_externo, "trecho": (linha.get("texto") or linha.get("url_midia") or "")[:200]}}])
         lead = await self.repo.lead(id_lead) if id_lead else None
         if lead:
@@ -219,9 +220,10 @@ class Atendimento:
                                                pausado_ate=agora() + timedelta(hours=1))
             if decisao.avisar:
                 await self._evento(escritorio.id, lead.id, None, decisao.motivo, "aviso", "lead", decisao.avisar)
-            if decisao.motivo == "mensagem_atrasada":
+            if decisao.motivo in ("mensagem_atrasada", "rajada") and not self._fora_do_teste(escritorio, agente, lead):
                 # A equipe vê no chat que o lead ficou sem resposta (1 nota a cada 6 h por conversa). Sem desculpa automática.
-                await self._nota_de_problema(escritorio, lead, "mensagem_atrasada", decisao.detalhe, inteiro=True)
+                # Número fora da lista de teste (agente em teste) não ganha nota: é conversa que a IA nem atenderia.
+                await self._nota_de_problema(escritorio, lead, decisao.motivo, decisao.detalhe, inteiro=True)
             return {"feito": "gravado", "motivo": decisao.motivo, "id_lead": lead.id}
         if self._precisa_ler_midia(evento):
             await self._marcar_midia_pendente(id_mensagem)
@@ -461,7 +463,7 @@ class Atendimento:
     async def _contato_sem_numero(self, escritorio: Escritorio, evento: Evento) -> None:
         """O WhatsApp escondeu o número do lead: não há lead. Evento e nota pela sessão do webhook."""
         await self._evento(escritorio.id, None, None, "contato_sem_numero", "aviso", "lead",
-                           "A Helena não informou o contato desta conversa (privacidade de número). "
+                           "O WhatsApp não informou o contato desta conversa (privacidade de número). "
                            "O lead não foi criado e a IA não respondeu.")
         if not evento.id_sessao:
             return
@@ -483,6 +485,11 @@ class Atendimento:
             return self.config.espera_padrao_s
         proporcional = len(texto) * self.config.segundos_por_letra
         return max(self.config.espera_minima_s, min(self.config.espera_maxima_s, proporcional))
+
+    def _fora_do_teste(self, escritorio: Escritorio, agente: Agente | None, lead: Lead) -> bool:
+        """Agente em modo teste e este número não está na lista de teste: a IA não atenderia (sem nota no chat)."""
+        return bool(agente and agente.modo == "teste"
+                    and lead.telefone not in self._numeros_de_teste(escritorio, agente))
 
     @staticmethod
     def _numeros_de_teste(escritorio: Escritorio, agente: Agente | None) -> set[str]:
@@ -822,6 +829,7 @@ class Atendimento:
             # IA desligada pela equipe até um horário: a mensagem fica guardada e a IA responde quando o prazo acabar
             # (retomar_pendentes religa e agenda). Responder agora passaria por cima da equipe.
             await self._marcar_resposta(id_lead, lead.pausado_ate)
+            await self._nota_ia_desativada(escritorio, agente, lead, modo)
             return None, False
         etapa = agente.etapa_por_id(lead.id_etapa) if agente else None
         modo = modo or (agente.modo if agente else "teste")
@@ -838,6 +846,10 @@ class Atendimento:
                 # Segura a mensagem: a resposta fica marcada no banco para a hora em que o escritório abre.
                 await self._marcar_resposta(id_lead, abre_em)
                 self._agendar(id_lead, max(1.0, (abre_em - agora()).total_seconds()))
+                if not self._por_que_nao_atende(escritorio, agente, lead, etapa, modo):
+                    # Uma nota por abertura (as mensagens seguintes até lá não repetem): a equipe sabe quando ela responde.
+                    await self._nota_segura(escritorio, lead, f"{lead.id}:nota:fora_do_horario:{abre_em:%Y%m%d%H%M}",
+                                            self.NOTA_FORA_DO_HORARIO.format(quando=self._quando(escritorio, abre_em)))
                 return None, False
         if modo != "laboratorio" and lead.estado == "ativo" and not fora_do_horario \
                 and await self._equipe_falou_por_ultimo(id_lead, pendentes, historico):
@@ -905,8 +917,20 @@ class Atendimento:
                 gravidade, responsavel, descricao = registro
                 await self._evento(escritorio.id, lead.id, id_turno, motivo, gravidade, responsavel,
                                    descricao.format(etapa=etapa.codigo if etapa else "-"))
-                await self._nota_de_problema(escritorio, lead, motivo, motivo)
+                if not (motivo in self.SO_QUEM_ELA_ATENDERIA and self._fora_do_teste(escritorio, agente, lead)):
+                    if motivo == "agente_pausado" and agente:
+                        await self._nota_de_problema(escritorio, lead, motivo, agente.nome, inteiro=True)
+                    else:
+                        await self._nota_de_problema(escritorio, lead, motivo, motivo)
+            elif motivo == "lead_pausado" and lead.motivo_estado == self.DESATIVADA_PELA_EQUIPE:
+                await self._nota_ia_desativada(escritorio, agente, lead, modo)
+            elif motivo == "horario_da_equipe":
+                # Modo "só fora do horário": no horário quem atende é a equipe. Uma nota por conversa por dia.
+                await self._nota_segura(escritorio, lead, f"{lead.id}:nota:horario_da_equipe:{self._dia(escritorio)}",
+                                        self.NOTA_HORARIO_DA_EQUIPE)
             return None, False
+        if modo != "laboratorio" and preparo:
+            self._avisar_credito(escritorio, lead, preparo.get("credito"))
         assert agente is not None and etapa is not None
 
         with tempos.passo("carregar_contexto"):
@@ -1110,10 +1134,92 @@ class Atendimento:
     NOTA_PAUSA_HUMANO = "🙋 IA pausada: alguém da equipe entrou no atendimento. Ela volta a responder às {hora}"
     NOTA_PAUSA_HUMANO_SEM_VOLTA = "🙋 IA pausada: alguém da equipe entrou no atendimento. Ela só volta quando a equipe religar"
     NOTA_IA_VOLTOU = "🤖 IA voltou a atender"
+    # Ponte para a equipe quando a IA recebeu a mensagem e não respondeu (ou algo relevante aconteceu sem nota).
+    NOTA_FORA_DO_HORARIO = ("🌙 O lead escreveu fora do horário de atendimento da IA. A mensagem ficou guardada e ela "
+                            "responde quando o escritório abrir, {quando}.")
+    NOTA_HORARIO_DA_EQUIPE = ("👥 A IA não respondeu: neste horário quem atende é a equipe (a IA só atende fora do "
+                              "horário do escritório). Responda manualmente.")
+    NOTA_CREDITOS_ACABANDO = "⚠️ Créditos da IA acabando (restam {restam}). Recarregue para a IA não parar."
+    NOTA_DESQUALIFICADO = "🚫 Lead desqualificado pela IA{motivo}. Se a equipe discordar, assuma a conversa."
+    CREDITO_AVISAR_PCT = 20                      # restando isto ou menos, nota "créditos acabando" (1 por conversa por dia)
+    DESATIVADA_PELA_EQUIPE = "desativada_pela_equipe"     # app.ia_controle.MOTIVO
+    # Motivos cuja nota só faz sentido se a IA atenderia este número (agente em teste: só a lista de teste).
+    SO_QUEM_ELA_ATENDERIA = ("agente_pausado", "ia_desligada_no_escritorio", "agente_sem_etapa")
 
     @staticmethod
     def _carimbo() -> str:
         return agora().strftime("%Y%m%d%H%M%S%f")
+
+    @staticmethod
+    def _local(escritorio: Escritorio, quando: datetime) -> datetime:
+        from app.notificacoes import fuso
+        return quando.astimezone(fuso(escritorio.config.get("fuso") or "America/Sao_Paulo"))
+
+    def _dia(self, escritorio: Escritorio) -> str:
+        return self._local(escritorio, agora()).strftime("%Y-%m-%d")
+
+    def _quando(self, escritorio: Escritorio, quando: datetime) -> str:
+        """'hoje às 08:00', 'amanhã às 08:00' ou '01/12 às 08:00' no fuso do escritório."""
+        local, hoje = self._local(escritorio, quando), self._local(escritorio, agora()).date()
+        dias = (local.date() - hoje).days
+        dia = "hoje" if dias == 0 else "amanhã" if dias == 1 else local.strftime("%d/%m")
+        return f"{dia} às {local:%H:%M}"
+
+    async def _nota_segura(self, escritorio: Escritorio, lead: Lead, chave: str, texto: str) -> None:
+        """Nota interna que nunca derruba o turno (a nota é um extra)."""
+        try:
+            await self._nota_interna(escritorio, lead, chave, texto)
+        except Exception:
+            log.exception("falha ao agendar a nota %s", chave)
+
+    async def _nota_ia_desativada(self, escritorio: Escritorio, agente: Agente | None, lead: Lead,
+                                  modo: str | None) -> None:
+        """O lead escreveu com a IA desativada nesta conversa pela equipe. Sem nota se a equipe desativou (ou mexeu na
+        IA desta conversa) há menos de 6 h (a nota DES-... está logo acima) e no máximo 1 a cada 6 h (_nota_de_problema).
+        Número fora da lista de teste ou IA que não atenderia de qualquer jeito (agente pausado...): sem nota."""
+        modo = modo or (agente.modo if agente else "teste")
+        if modo == "laboratorio" or not lead.id_sessao_helena:
+            return
+        etapa = agente.etapa_por_id(lead.id_etapa) if agente else None
+        if self._por_que_nao_atende(escritorio, agente, replace(lead, estado="ativo", motivo_estado=None), etapa, modo):
+            return
+        try:
+            recente = getattr(self.repo, "nota_recente", None)
+            if recente and await recente(lead.id, [f"{lead.id}:ia:%"], 6):
+                return
+        except Exception:
+            log.exception("falha ao conferir as notas recentes do lead %s", lead.id)
+            return
+        if lead.pausado_ate:
+            await self._nota_de_problema(escritorio, lead, "ia_desativada_ate", self._quando(escritorio, lead.pausado_ate),
+                                         inteiro=True)
+        else:
+            await self._nota_de_problema(escritorio, lead, "ia_desativada", "", inteiro=True)
+
+    def _texto_desqualificado(self, agente: Agente, saida: cerebro.Saida) -> str:
+        """Nota do lead desqualificado, com o motivo legível quando há (fato que desqualificou ou motivo do funil)."""
+        motivo = ""
+        try:
+            if agente.produto == "catalogo":
+                from app.cerebro import catalogo
+                if achado := catalogo.motivo_de_desqualificar(agente.config, saida.fatos_depois or {}):
+                    motivo = f"{achado[0]}: {achado[1]}"
+            if not motivo:
+                bruto = (saida.motivo_estado or "").partition(":")[2]
+                motivo = "" if bruto in ("", "catalogo") or bruto.startswith("transferencia") else bruto
+        except Exception:
+            log.exception("falha ao ler o motivo da desqualificação")
+        motivo = motivo.replace("_", " ").strip()
+        return self.NOTA_DESQUALIFICADO.format(motivo=f" (motivo: {motivo})" if motivo else "")
+
+    def _avisar_credito(self, escritorio: Escritorio, lead: Lead, restante: Any) -> None:
+        """Créditos da IA acabando (pré-pago): nota no atendimento, uma vez por conversa por dia (segundo plano)."""
+        if isinstance(restante, BaseException) or restante is None or restante > self.CREDITO_AVISAR_PCT:
+            return
+        restam = "menos de 1%" if restante < 1 else f"{int(restante)}%"
+        self._em_segundo_plano("nota_creditos", self._nota_interna(
+            escritorio, lead, f"{lead.id}:nota:creditos_acabando:{self._dia(escritorio)}",
+            self.NOTA_CREDITOS_ACABANDO.format(restam=restam)), escritorio, lead, None)
 
     @staticmethod
     def _hora(escritorio: Escritorio, quando: datetime) -> str:
@@ -1293,6 +1399,7 @@ class Atendimento:
             gatilhos = ["sinal:" + tipo.removeprefix("sinal_"), "sinal"]
         else:
             gatilhos = {"pediu_humano": ["pediu_humano"], "trava_persistente": ["trava"],
+                        "pediu_para_parar": ["pediu_para_parar"],
                         "analise_manual": [f"etapa:{etapa}" if etapa else "etapa:analise_manual"]}.get(tipo, [])
         return any((regras.get(g) or {}).get("nota") for g in gatilhos)
 
@@ -1320,6 +1427,11 @@ class Atendimento:
             id_lead=lead.id, id_turno=id_turno, contexto=f"Motivo: {saida.motivo}" if saida.motivo else "",
             avisos=avisos,
         )
+        if lead.id_sessao_helena and "desqualific" in (saida.etapa_depois or "") \
+                and saida.etapa_depois != saida.etapa_antes and not any(a["tipo"] == "nota" for a in acoes):
+            # Lead desqualificado sem nota de automação (a do CRM automático ou a configurada já explicam): ponte própria.
+            acoes.append({"tipo": "nota", "chave_unica": f"{lead.id}:{id_turno}:nota:desqualificado",
+                          "dados": {"texto": self._texto_desqualificado(agente, saida)}})
         await self.repo.enfileirar_acoes(id_escritorio=escritorio.id, id_lead=lead.id, id_turno=id_turno, acoes=acoes)
         saida.contexto["automacoes"] = {"gatilhos": gatilhos, "acoes": [a["tipo"] for a in acoes]}
 
@@ -1411,22 +1523,35 @@ class Atendimento:
         await self.repo.enfileirar_acoes(id_escritorio=escritorio.id, id_lead=lead.id, id_turno=None, acoes=acoes)
 
     NOTAS_DE_PROBLEMA = {
-        "ia_nao_respondeu": "⚠️ A IA não conseguiu responder esta conversa ({detalhe}). Responda manualmente.",
-        "envio_falhou": "⚠️ Parte da resposta da IA não foi entregue. Confira a conversa e complete manualmente.",
+        # Sem o código técnico no chat (o detalhe fica em Erros): a equipe só precisa saber o que fazer.
+        "ia_nao_respondeu": "⚠️ A IA não conseguiu responder esta mensagem agora. O problema ficou registrado em Erros; "
+                            "por favor, responda manualmente.",
+        "envio_falhou": "📭 Uma mensagem da IA não chegou ao lead (o WhatsApp não entregou). Vale dar uma olhada na "
+                        "conversa e reenviar, se fizer falta.",
         "midia_quebrada": "⚠️ A IA não enviou uma mídia do roteiro ({detalhe}). Se precisar, envie manualmente e "
                           "corrija o link no roteiro.",
-        "envio_sem_confirmacao": "⚠️ A Helena não confirmou o envio de parte da resposta da IA. Confira se a mensagem "
+        "envio_sem_confirmacao": "📭 O WhatsApp não confirmou a entrega de uma mensagem da IA. Vale conferir se ela "
                                  "chegou ao lead; se não chegou, envie manualmente.",
         "limite_de_consumo": "🚫 A IA não respondeu: o limite de consumo da IA deste mês acabou. Responda manualmente.",
-        "sem_saldo": "🚫 A IA não respondeu: o saldo da IA do escritório acabou. Responda manualmente; ela volta sozinha "
-                     "quando entrar crédito.",
+        "sem_saldo": "⛔ A IA recebeu a mensagem mas não respondeu: os créditos da IA acabaram. Recarregue em Créditos "
+                     "da IA para ela voltar a atender.",
         "agente_sem_etapa": "⚠️ A IA não respondeu: o agente deste número está sem etapa configurada. Responda manualmente.",
         "canal_sem_agente": "⚠️ A IA não respondeu: este número não tem agente ligado. Responda manualmente.",
+        "sem_prompt": "⚠️ A IA não respondeu: a etapa em que este lead está não tem instruções no agente. Responda "
+                      "manualmente; a configuração do agente precisa ser completada.",
         "card_nao_criado": automacoes.NOTA_CARD_NAO_CRIADO,
-        "agente_pausado": "🤖 O agente de IA deste canal está pausado.\n"
-                          "Este lead mandou mensagem e não foi respondido pela IA. A mensagem ficou registrada.",
-        "ia_desligada_no_escritorio": "🤖 A IA está desligada neste escritório.\n"
-                                      "Este lead mandou mensagem e não foi respondido pela IA. A mensagem ficou registrada.",
+        "agente_pausado": "⏸️ A IA não respondeu: o agente {detalhe} está pausado. Religue o agente no painel para ela "
+                          "voltar a atender.",
+        "ia_desligada_no_escritorio": "⏸️ A IA não respondeu: a IA está desligada neste escritório. Religue no painel "
+                                      "para ela voltar a atender.",
+        "ia_desativada_ate": "⏸️ O lead escreveu, mas a IA está desativada nesta conversa até {detalhe}. A mensagem "
+                             "ficou guardada: ela responde quando voltar.",
+        "ia_desativada": "⏸️ O lead escreveu, mas a IA está desativada nesta conversa. Responda manualmente ou religue "
+                         "a IA (tire a etiqueta \"🤖 IA Desativada\" do contato ou use o painel).",
+        "rajada": "🚦 A IA saiu desta conversa por 1 hora: chegaram mensagens demais em pouco tempo (parece robô ou "
+                  "spam). Se for um cliente de verdade, responda manualmente.",
+        "pediu_para_parar": "🛑 O lead pediu para não receber mais mensagens. A IA encerrou o atendimento desta conversa.",
+        "engano": "🤷 O lead disse que foi engano (não procurou o escritório). A IA encerrou o atendimento desta conversa.",
         "contato_sem_numero": "🤖 A IA não iniciou a conversa com este contato: o WhatsApp não informou o número dele "
                               "(privacidade).\nResponda manualmente.",
         "ia_sem_credito": "🤖 A IA não conseguiu responder este lead agora.\nA mensagem do lead ficou registrada. "
@@ -1485,6 +1610,7 @@ class Atendimento:
         inteiro=True usa o detalhe todo (um motivo escrito para a equipe); senão só o fim do código ('onde:motivo').
         Os sinais ('sinal_quer_videochamada', 'sinal_analise_humana'...) usam um modelo só, com o nome do sinal.
         Na passagem para humano a nota leva a ficha do caso (B2) inteira, depois do aviso."""
+        trava = tipo                                         # cada sinal tem a própria trava de 6 h
         if tipo.startswith("sinal_") and tipo != "sinal_recusado":
             sinal = tipo.removeprefix("sinal_")
             tipo, detalhe, inteiro = "sinal", automacoes.NOMES_SINAIS.get(sinal, sinal.replace("_", " ")), True
@@ -1493,7 +1619,7 @@ class Atendimento:
             return
         detalhe = detalhe.strip()[:300] if inteiro else detalhe.split(":")[-1].strip()[:120]
         try:
-            await self.repo.nota_de_problema(id_escritorio=escritorio.id, id_lead=lead.id, tipo=tipo,
+            await self.repo.nota_de_problema(id_escritorio=escritorio.id, id_lead=lead.id, tipo=trava,
                                              texto=modelo.format(detalhe=detalhe or tipo) + (f"\n\n{ficha}" if ficha else ""))
         except Exception:                                    # a nota é um extra: nunca derruba o turno
             log.exception("falha ao agendar a nota de problema %s", tipo)
@@ -1696,7 +1822,8 @@ class Atendimento:
         """Tudo o que o turno lê do banco antes da IA, ao mesmo tempo (antes: ~9 idas em fila). Cada resultado pode ser
         a exceção da leitura: quem usa decide (_valor sobe o erro; a base cai no conhecimento da config, como antes)."""
         funcoes = agente.config.get("funcoes") or {}
-        nomes = ("consumo", "historico", "fatos", "fatos_sistema", "comeco", "base", "obrigatorios")
+        nomes = ("consumo", "historico", "fatos", "fatos_sistema", "comeco", "base", "obrigatorios", "credito")
+        credito = getattr(self.repo, "credito_restante", None)
         resultados = await asyncio.gather(
             self._conferir_consumo(escritorio) if consumo else self._nada(None),
             self._nada(historico) if historico is not None else self.repo.historico(lead.id),
@@ -1705,6 +1832,7 @@ class Atendimento:
             memoria.ler_comeco(self.repo, lead.id),
             self._ler_base(agente),
             self._obrigatorios_do_contrato(escritorio, agente) if funcoes.get("contrato_zapsign") else self._nada(None),
+            credito(escritorio.id) if (consumo and credito) else self._nada(None),     # créditos acabando: nota
             return_exceptions=True)
         for resultado in resultados:
             if isinstance(resultado, asyncio.CancelledError):
@@ -1789,8 +1917,8 @@ class Atendimento:
             await asyncio.sleep(espera)
         if de_verdade and not token:
             saida.eventos.append({"tipo": "escritorio_sem_token_helena", "gravidade": "erro", "responsavel": "cadastro",
-                                  "descricao": "O escritório não tem token da Helena cadastrado: a resposta da IA não foi "
-                                               "enviada. Cadastre a integração da Helena no painel.", "detalhe": {}})
+                                  "descricao": "O escritório não tem a integração do WhatsApp cadastrada: a resposta da IA "
+                                               "não foi enviada. Cadastre a integração no painel.", "detalhe": {}})
         enviadas: list[str] = []
         entregues = 0
         partes = list(saida.mensagens)
@@ -1855,7 +1983,7 @@ class Atendimento:
                             situacao, erro = "pendente", detalhe
                             saida.eventos.append({
                                 "tipo": "envio_sem_confirmacao", "gravidade": "aviso", "responsavel": "provedor",
-                                "descricao": f"A Helena não confirmou o envio de uma parte da resposta ({detalhe}); "
+                                "descricao": f"O WhatsApp não confirmou o envio de uma parte da resposta ({detalhe}); "
                                              "ela pode ter chegado ao lead. Confira a conversa.",
                                 "detalhe": {"trecho": (texto or url or "")[:200]}})
                     else:

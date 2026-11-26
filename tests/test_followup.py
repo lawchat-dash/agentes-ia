@@ -111,7 +111,10 @@ async def test_envia_segue_a_cadencia_cancela_e_desiste():
         await disparador.rodar_uma_vez()
         estado = await pool.fetchrow("select estado, motivo_estado from agentesia_leads where id = $1", lead)
         assert (estado["estado"], estado["motivo_estado"]) == ("encerrado", "sem_resposta_followup")
-        assert await pool.fetchval("select count(*) from agentesia_acoes where id_lead = $1 and tipo = 'nota'", lead) == 1
+        notas = [r["texto"] for r in await pool.fetch(
+            "select dados->>'texto' as texto from agentesia_acoes where id_lead = $1 and tipo = 'nota' order by criado_em", lead)]
+        assert notas[:2] == ["Follow-up 1 de 2 enviado pela IA (etapa Primeiro atendimento).", "Follow-up 2 de 2 enviado pela IA (etapa Primeiro atendimento)."]
+        assert notas[2:] == [regras.NOTA_DESISTENCIA]                       # uma nota por envio e a da desistência
 
         # Lead responde: o próximo envio é cancelado na hora da conferência.
         await pool.execute("update agentesia_leads set estado = 'ativo', motivo_estado = null where id = $1", lead)

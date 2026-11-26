@@ -534,7 +534,13 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
   .lc-topo .lc-busca kbd { display: none; }
   .lc-menu-topo > .lc-mt-item, .lc-mt-grupo > button { padding: 0 9px; font-size: 13.5px; }
 }
-@media (min-width: 821px) and (max-width: 1180px) {
+/* Com Relatórios no topo os itens não cabem junto da busca e do saldo: a busca vira só a lupa e o saldo só o valor,
+   e abaixo de 1280px o menu fica só com os ícones (o nome aparece ao passar o mouse na lista). */
+@media (min-width: 821px) and (max-width: 1700px) {
+  .lc-topo .lc-busca span, .lc-topo .lc-busca kbd, .lc-saldo-rot, .lc-saldo-barra { display: none; }
+  .lc-topo .lc-busca { min-width: 0; width: 40px; padding: 0; justify-content: center; }
+}
+@media (min-width: 821px) and (max-width: 1280px) {
   .lc-menu-topo > .lc-mt-item span, .lc-mt-grupo > button span { display: none; }
 }
 

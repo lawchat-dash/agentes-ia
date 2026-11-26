@@ -270,7 +270,7 @@ class ProdutoCatalogo:
                 "calculadora": bool(proprio.get("calculadora", padrao["calculadora"]))}
 
     def sinais_do_papel(self, papel: str) -> tuple[str, ...]:
-        return self.sinais if self.ferramentas_do_papel(papel)["notificacao"] else ()
+        return sinais_catalogo.do_papel(self.sinais, self.ferramentas_do_papel(papel))
 
     @property
     def fatos_de_qualificacao(self) -> tuple[str, ...]:

@@ -840,6 +840,18 @@ class RepositorioPostgres:
         from app import cobranca
         return await cobranca.bloqueado(self._pool, id_escritorio)
 
+    async def credito_restante(self, id_escritorio) -> float | None:
+        """% dos créditos da IA que ainda restam (pré-pago). None: sem carteira, sem a 007 ou fora do pré-pago."""
+        from app import cobranca
+        return await cobranca.percentual_restante(self._pool, id_escritorio)
+
+    async def nota_recente(self, id_lead, padroes, horas) -> bool:
+        """Há nota deste lead com a chave num dos padrões (LIKE) nas últimas `horas`?"""
+        return bool(await self._pool.fetchval(
+            """select exists(select 1 from agentesia_acoes where id_lead = $1::uuid and tipo = 'nota'
+                              and chave_unica like any($2::text[]) and criado_em > now() - make_interval(secs => $3))""",
+            id_lead, list(padroes), float(horas) * 3600))
+
     async def gravar_eventos(self, *, id_escritorio, id_lead, id_turno, eventos) -> None:
         if not eventos:
             return

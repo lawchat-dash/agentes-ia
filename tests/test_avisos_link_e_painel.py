@@ -141,7 +141,7 @@ async def test_aviso_monta_link_e_mensagens_do_turno():
         await pool.execute("update agentesia_acoes set situacao = 'cancelada' where situacao in ('pendente', 'executando')")
         segredo = await pool.fetchval("select vault.create_secret('token-link', 'teste')")
         esc = await pool.fetchval("insert into agentesia_escritorios (nome, config) values ('Link', $1::jsonb) returning id",
-                                  json.dumps({"dominio_helena": "advmidia"}))
+                                  json.dumps({"dominio_helena": "advmidia", "avisos_janela_h": 0}))  # sem janela: 3 avisos seguidos
         await pool.execute("insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao) "
                            "values ($1, 'helena', $2, 'ok')", esc, segredo)
         canal = await pool.fetchval("insert into agentesia_canais (id_escritorio, numero_normalizado) values ($1, $2) returning id",
@@ -193,7 +193,7 @@ async def test_aviso_monta_link_e_mensagens_do_turno():
         assert "Mensagem do lead: dá pra ser por chamada de vídeo?" in sem_turno
 
         # Sem domínio cadastrado, a linha do link some.
-        await pool.execute("update agentesia_escritorios set config = '{}'::jsonb where id = $1", esc)
+        await pool.execute("update agentesia_escritorios set config = '{\"avisos_janela_h\": 0}'::jsonb where id = $1", esc)
         await repo.enfileirar_acoes(id_escritorio=str(esc), id_lead=str(lead), id_turno=None, acoes=[
             {"tipo": "preparar_aviso", "chave_unica": f"{lead}:sem-dominio:aviso", "dados": {"evento": "sinal:quer_videochamada"}}])
         await executor.rodar_uma_vez()

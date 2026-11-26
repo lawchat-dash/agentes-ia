@@ -7,7 +7,13 @@ quem marca, no campo "notificacao" da saída.
 
 Correspondência com os valores do n8n: videochamada = quer_videochamada, leadquerreceberaudio = quer_audio,
 naosabeler = nao_sabe_ler, clienteantigo = cliente_antigo, outrobeneficio = outro_beneficio,
-dificuldadenaassinatura = dificuldade_assinatura, muitasobjeções = muitas_objecoes, analisehumana = analise_humana.
+dificuldadenaassinatura = dificuldade_assinatura, muitasobjeções = muitas_objecoes, analisehumana = analise_humana,
+fotodocontrato = foto_contrato, enderecosemfalar = endereco_sem_falar, contratomanual = contrato_manual.
+Os três últimos só valem nos papéis do contrato (os que têm a ação zapsign: contratos e assinatura), ver `do_papel`.
+desqualificado e periododegraca não são aviso de sinal: são troca de etapa (gatilho etapa:<papel>).
+
+A dificuldade na assinatura também nasce no fluxo do contrato (app/acoes.py, _dificuldade_na_assinatura): o lead diz
+que assinou e a ZapSign mostra que ele abriu o link e não concluiu.
 """
 
 from __future__ import annotations
@@ -17,7 +23,9 @@ from typing import Any
 
 # Marcados pelo extrator (gatilho literal nas palavras do lead).
 DO_EXTRATOR = ("quer_videochamada", "quer_audio", "nao_sabe_ler", "cliente_antigo", "outro_beneficio",
-               "dificuldade_assinatura", "muitas_objecoes")
+               "dificuldade_assinatura", "muitas_objecoes", "foto_contrato", "endereco_sem_falar", "contrato_manual")
+# Só fazem sentido onde há contrato em andamento (papéis com a ação zapsign): fora dali o turno descarta.
+SO_NO_CONTRATO = ("foto_contrato", "endereco_sem_falar", "contrato_manual")
 # Marcados pelo agente do papel (dependem do roteiro).
 DO_AGENTE = ("analise_humana",)
 SINAIS = DO_EXTRATOR + DO_AGENTE
@@ -29,6 +37,15 @@ def ordenar(sinais: list[str]) -> list[str]:
     """Videochamada na frente (é dela a mensagem ao lead); os outros na ordem em que apareceram, sem repetir."""
     unicos = list(dict.fromkeys(sinais))
     return [s for s in PRIORIDADE if s in unicos] + [s for s in unicos if s not in PRIORIDADE]
+
+
+def do_papel(sinais: tuple[str, ...], ferramentas: dict[str, Any]) -> tuple[str, ...]:
+    """Sinais que um papel do catálogo pode disparar: nenhum sem a ferramenta de notificação; os do contrato só no papel
+    com a ação zapsign (contratos, assinatura)."""
+    if not ferramentas.get("notificacao"):
+        return ()
+    contrato = "zapsign" in (ferramentas.get("acoes") or [])
+    return tuple(s for s in sinais if contrato or s not in SO_NO_CONTRATO)
 
 
 def guia_do_extrator(beneficio: str | None = None) -> str:
@@ -50,6 +67,13 @@ def guia_do_extrator(beneficio: str | None = None) -> str:
         "- muitas_objecoes: resistência repetida 3 ou mais vezes que trava o avanço (inclui a mesma pergunta repetida 3 ou "
         "mais vezes depois de respondida). NÃO é: uma objeção ou dúvida isolada; reclamar que a atendente repetiu a "
         "pergunta (\"já te falei\", \"já respondi\", \"como eu disse\") NÃO é objeção.",
+        "- foto_contrato (só na fase do contrato): manda foto, print ou arquivo do contrato (ou de uma página dele), ou diz "
+        "que acabou de mandar. NÃO é: selfie, documento pessoal (RG, CNH), laudo, comprovante, só falar do contrato.",
+        "- endereco_sem_falar (só na fase do contrato): recusa passar o endereço, desvia sem informar ou questiona o motivo "
+        "sem fornecer. NÃO é: já informou (mesmo incompleto), pediu tempo para procurar, ainda não foi pedido.",
+        "- contrato_manual (só na fase do contrato): pede contrato físico ou impresso; quem assina é representante, curador, "
+        "procurador ou responsável por menor; não consegue assinatura digital de jeito nenhum (sem celular, sem e-mail, "
+        "sem documento com foto). NÃO é: dificuldade pontual com o link (isso é dificuldade_assinatura).",
         "Não marcam nada: endereço ou \"onde fica o escritório\", atendimento presencial, preço, prazo, \"como funciona\", "
         "saudações e confirmações (\"ok\", \"blz\", \"sim\").",
     ])

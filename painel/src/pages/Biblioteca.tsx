@@ -26,7 +26,7 @@ const Biblioteca = () => {
   const [activeCat, setActiveCat] = useState<string | null>(null);
   const [sort, setSort] = useState<"az" | "za">("az");
   const [modoMidia, setModoMidia] = useState<"all" | "audio" | "texto">("all");
-  const { data: templates, isLoading } = useTemplates();
+  const { data: templates, isLoading, error: erroCatalogo, refetch: recarregarCatalogo } = useTemplates();
   const gate = usePlanGate();
 
   const counts = useMemo(() => {
@@ -180,7 +180,13 @@ const Biblioteca = () => {
       )}
 
       {/* Grid */}
-      {isLoading ? (
+      {erroCatalogo && !templates ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+          <h3 className="font-bold">Não deu para carregar a biblioteca</h3>
+          <p className="text-sm text-muted-foreground mt-1">{(erroCatalogo as Error).message}</p>
+          <button type="button" className="btn mt-4" onClick={() => recarregarCatalogo()}>Tentar de novo</button>
+        </div>
+      ) : isLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="rounded-2xl border border-border bg-card p-4 h-[210px] animate-pulse">

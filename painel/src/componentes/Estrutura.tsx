@@ -7,8 +7,8 @@ import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig, motion } from "framer-motion";
 import {
-  Cpu, Workflow, Activity, AlertOctagon, Headset, Bell, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, CircleHelp, History, Home, LayoutGrid, Library,
-  CreditCard, LogOut, Menu, MessagesSquare, Package, ShieldCheck, Wrench, PanelLeftClose, PanelLeftOpen, PlugZap, Search, Settings, Users, Wallet, X,
+  BarChart3, Cpu, Workflow, Activity, AlertOctagon, Headset, Bell, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, CircleHelp, History, Home, LayoutGrid, Library,
+  CreditCard, LogOut, Target, Menu, MessagesSquare, Package, ShieldCheck, Wrench, PanelLeftClose, PanelLeftOpen, PlugZap, Search, Settings, Users, Wallet, X,
 } from "lucide-react";
 import { NOME_PAPEL, type Agente } from "../api";
 import iconeLawChat from "@/assets/lawchat-icone.svg";
@@ -165,6 +165,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
       itens.push({ para: "/", rotulo: "Dashboard", icone: <Home className="i" /> });
       itens.push({ para: "/atendimento", rotulo: "Atendimento", icone: <Headset className="i" /> });
       itens.push({ para: "/crm/paineis", rotulo: "CRM", icone: <Workflow className="i" /> });
+      if (podeGerir) itens.push({ para: "/relatorios/dashboard", rotulo: "Relatórios", icone: <BarChart3 className="i" /> });
       // Apps (selo NOVO): Meus agentes, Biblioteca e Ferramentas numa lista só (os agentes de IA ficam aqui dentro).
       if (podeGerir) itens.push(
         { para: "/meus-produtos", rotulo: "Apps", icone: <LayoutGrid className="i" />, selo: "NOVO" },
@@ -423,6 +424,13 @@ const GRUPOS_DO_MENU: Record<string, GrupoDoMenu> = {
       { para: "/biblioteca", rotulo: "Biblioteca", icone: <Library size={16} /> },
       { para: "/ferramentas", rotulo: "Ferramentas", icone: <Wrench size={16} /> },
       { para: "/chatbots", rotulo: "Chatbots", icone: <Cpu size={16} /> },
+    ],
+  },
+  "/relatorios/dashboard": {
+    prefixo: "/relatorios",
+    filhos: [
+      { para: "/relatorios/dashboard", rotulo: "Dashboard", icone: <BarChart3 size={15} /> },
+      { para: "/relatorios/campanhas", rotulo: "Rastreamento de campanhas", icone: <Target size={15} /> },
     ],
   },
   "/crm/paineis": { prefixo: "/crm", filhos: PAGINAS_CRM.map((p) => ({ para: `/crm/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })) },

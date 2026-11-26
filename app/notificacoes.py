@@ -33,6 +33,11 @@ NOMES_DE_EVENTO: dict[str, str] = {
     "sinal:endereco_sem_falar": "Lead não quer passar o endereço",
     "sinal:contrato_manual": "Precisa de contrato manual",
     "sinal:analise_humana": "Pediu análise humana",
+    # Etapas do catálogo (papéis do n8n): closer -> lead_qualificado, contratos -> lead_iniciou_coleta,
+    # assinatura -> aguardando_assinatura, contrato_assinado -> contrato_assinado.
+    "etapa:contratos": "Lead começou a passar os dados",
+    "etapa:contrato_assinado": "Contrato assinado",
+    "etapa:periododegraca": "Lead no período de graça",
     "contrato_gerado": "Contrato gerado",
     "contrato_assinado": "Contrato assinado",
     "contrato_falhou": "Contrato não foi gerado",
@@ -69,6 +74,42 @@ Conversa: {{link_conversa}}
 {{data_hora}}"""
 
 LIMITE_MENSAGEM_LEAD = 500          # o aviso é um resumo: mensagem longa do lead vai cortada
+
+# Contra spam: o mesmo aviso (tipo de evento) para o mesmo lead sai no máximo 1 vez nesta janela. O escritório pode
+# mudar em config "avisos_janela_h" (0 = sem janela). O lead_quente já é 1 vez por lead (app/cerebro/temperatura.py).
+JANELA_AVISO_H = 12
+# Eventos que são o mesmo fato com dois nomes: contam juntos na janela.
+MESMO_FATO: dict[str, str] = {"etapa:contrato_assinado": "contrato_assinado"}
+
+# O aviso sai pelo número de WhatsApp da própria conta, e esse número não pode ser da API oficial (conversa nova com
+# número da equipe só abre com modelo aprovado pela Meta). Config do escritório "avisos_numero_envio" escolhe o número.
+CONFIG_NUMERO_ENVIO = "avisos_numero_envio"
+TEXTO_NUMERO_OFICIAL = ("Aviso à equipe não enviado: o número de envio é oficial (API oficial do WhatsApp). "
+                        "Escolha um número não oficial em Avisos no WhatsApp.")
+NOTA_NUMERO_OFICIAL = "⚠️ " + TEXTO_NUMERO_OFICIAL
+
+
+def janela_do_aviso_h(config_escritorio: Mapping[str, Any] | None) -> float:
+    bruto = (config_escritorio or {}).get("avisos_janela_h")
+    try:
+        return max(0.0, float(bruto)) if bruto is not None and str(bruto).strip() != "" else float(JANELA_AVISO_H)
+    except (TypeError, ValueError):
+        return float(JANELA_AVISO_H)
+
+
+def eventos_do_mesmo_fato(evento: str) -> list[str]:
+    """O evento e os outros nomes do mesmo fato (contrato assinado chega como 'contrato_assinado' e como etapa)."""
+    base = MESMO_FATO.get(evento, evento)
+    return sorted({base, *[k for k, v in MESMO_FATO.items() if v == base]})
+
+
+def canal_envia_aviso(tipo: str | None, tipo_helena: str | None) -> bool:
+    """O canal pode mandar o aviso? Só WhatsApp não oficial. Oficial = agentesia_canais.tipo 'oficial' (a sincronização
+    grava assim quando o tipo da Helena começa com 'CloudAPI') ou tipo_helena CloudAPI/WABA; Instagram etc. também não."""
+    helena = str(tipo_helena or "").lower()
+    if str(tipo or "") == "oficial" or helena.startswith("cloudapi") or "waba" in helena:
+        return False
+    return not helena or "whatsapp" in helena
 
 _MARCADOR = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
 

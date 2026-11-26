@@ -114,7 +114,7 @@ async def test_agente_pausado_registra_evento_e_nota():
     await atendimento.aguardar_esperas()
     evento = next(e for e in repo.eventos if e["tipo"] == "agente_pausado")
     assert evento["responsavel"] == "cliente" and evento["id_turno"]
-    assert _notas(repo) == [atendimento.NOTAS_DE_PROBLEMA["agente_pausado"]]
+    assert _notas(repo) == [atendimento.NOTAS_DE_PROBLEMA["agente_pausado"].format(detalhe="Júlia")]
     await atendimento.receber(webhook("alô?"))                           # de novo: evento sim, nota não (6 h)
     await atendimento.aguardar_esperas()
     assert len([e for e in repo.eventos if e["tipo"] == "agente_pausado"]) == 2 and len(_notas(repo)) == 1
@@ -127,7 +127,7 @@ async def test_ia_desligada_no_escritorio_registra_evento_e_nota():
     await atendimento.aguardar_esperas()
     assert helena.enviadas == []
     assert [e["responsavel"] for e in repo.eventos if e["tipo"] == "ia_desligada_no_escritorio"] == ["cliente"]
-    assert _notas(repo)[0].startswith("🤖 A IA está desligada neste escritório.")
+    assert _notas(repo)[0].startswith("⏸️ A IA não respondeu: a IA está desligada neste escritório.")
 
 
 async def test_etapa_do_catalogo_sem_prompt_nao_chama_a_ia():
@@ -141,7 +141,7 @@ async def test_etapa_do_catalogo_sem_prompt_nao_chama_a_ia():
     assert next(iter(repo.turnos.values()))["motivo"] == "sem_prompt"
     evento = next(e for e in repo.eventos if e["tipo"] == "sem_prompt")
     assert evento["responsavel"] == "cadastro" and "etapa sdr" in evento["descricao"]
-    assert _notas(repo) == []                                            # como no n8n: só o evento
+    assert _notas(repo) == [atendimento.NOTAS_DE_PROBLEMA["sem_prompt"]]   # 26/11: a equipe vê no chat por que
     lead = next(iter(repo.leads.values()))
     agente.etapas[0].instrucao = "Você é a SDR."
     assert atendimento._por_que_nao_atende(repo.escritorios["esc-1"], agente, lead, agente.etapas[0], "teste") is None

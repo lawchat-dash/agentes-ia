@@ -234,7 +234,8 @@ async def test_lead_parado_vira_tarefa_da_equipe_uma_vez(fu):
     await pool.execute("update agentesia_followups set enviado_em = now() - interval '2 hours' where id_lead = $1 and passo = 1", d["lead"])
     await pool.execute("update agentesia_followups set enviado_em = now() - interval '25 hours' where id_lead = $1 and passo = 2", d["lead"])
     assert await disparador.varrer_parados() == 1
-    acoes = {r["tipo"]: r for r in await pool.fetch("select tipo, chave_unica, dados from agentesia_acoes where id_lead = $1", d["lead"])}
+    acoes = {r["tipo"]: r for r in await pool.fetch(
+        "select tipo, chave_unica, dados from agentesia_acoes where id_lead = $1 and chave_unica not like '%:enviado'", d["lead"])}
     nota = json.loads(acoes["nota"]["dados"]) if isinstance(acoes["nota"]["dados"], str) else acoes["nota"]["dados"]
     assert nota == {"texto": "Lead parado: retomar contato"} and ":lead_parado:" in acoes["nota"]["chave_unica"]
     assert "preparar_aviso" in acoes and "etiquetar" in acoes                          # aviso à equipe e a etiqueta do gatilho

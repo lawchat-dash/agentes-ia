@@ -275,7 +275,7 @@ async def test_produto_pausado_e_escritorio_desligado_lead_nao_recebe_nada_e_sem
     await e2e.chega(e2e.do_lead("oi? alguém?"))
     await e2e.chega(e2e.do_lead("??"))
     assert e2e.helena.textos(e2e.sessao) == ["Oi!"]
-    assert any(n.startswith("🤖 O agente de IA deste canal está pausado") for n in e2e.helena.notas())
+    assert any(n.startswith("⏸️ A IA não respondeu: o agente ") and "está pausado" in n for n in e2e.helena.notas())
     # Follow-up (ligado no agente) que vence com o agente pausado é cancelado, não fica guardado para depois.
     await e2e.pool.execute("""update agentesia_agentes set config = jsonb_set(config, '{followup}', '{"ativo": true}'::jsonb)
                               where id = $1::uuid""", e2e.ids["agente"])
@@ -301,7 +301,7 @@ async def test_produto_pausado_e_escritorio_desligado_lead_nao_recebe_nada_e_sem
     assert item["ia_desligada_escritorio"] is True
     await e2e.chega(e2e.do_lead("e agora?"))
     assert e2e.helena.textos(e2e.sessao) == ["Oi!"]
-    assert any(n.startswith("🤖 A IA está desligada neste escritório") for n in e2e.helena.notas())
+    assert any(n.startswith("⏸️ A IA não respondeu: a IA está desligada neste escritório") for n in e2e.helena.notas())
     assert (await e2e.http.patch("/api/escritorio", json={"ia_desligada": False})).status_code == 200
     await e2e.atendimento.retomar_pendentes()
     await e2e.esperar()
