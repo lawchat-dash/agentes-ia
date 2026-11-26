@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Settings, ArrowRight, Blocks, Building2, Clock, Contact, MessagesSquare, ExternalLink, FileText, Gauge, KanbanSquare, Plug, RefreshCw, Users, UsersRound } from "lucide-react";
+import { ArrowLeft, Settings, Workflow, ArrowRight, Blocks, Building2, Clock, Contact, MessagesSquare, ExternalLink, FileText, Gauge, KanbanSquare, Plug, RefreshCw, Users, UsersRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Alerta } from "../componentes/ui";
 import { TelaIntegracoes } from "./Integracoes";
@@ -30,7 +30,47 @@ export const PAGINAS_CRM: PaginaConta[] = [
 export function TelaCrm() {
   const { pagina } = useParams();
   const atual = PAGINAS_CRM.find((p) => p.codigo === pagina) ?? PAGINAS_CRM[1];
-  return <AjusteDaConta key={atual.codigo} pagina={atual} grupo={PAGINAS_CRM} base="/crm" />;
+  return <CrmTelaCheia atual={atual} />;
+}
+
+/** CRM em tela cheia, igual à Minha Conta: faixa com "Voltar", Contatos e Painéis no seletor escuro e a tela da
+ *  LawChat ocupando o resto (as duas abrem juntas: trocar é instantâneo). */
+function CrmTelaCheia({ atual }: { atual: PaginaConta }) {
+  const navegar = useNavigate();
+  const nomeEscritorio = useContext(NomeDoEscritorio);
+  const acoes = useContext(AcoesDoTopo);
+  const [erro, setErro] = useState<string | null>(null);
+  useEffect(() => {
+    preabrirLawChat(PAGINAS_CRM.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })));
+  }, []);
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[#eef1f5] bg-[#fafbfc] px-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <button type="button" className="lc-btn-voltar" onClick={() => navegar(telaDoPainel())}><ArrowLeft size={15} /> Voltar ao painel</button>
+          <span className="inline-flex items-center gap-1.5 truncate text-[13px] font-semibold text-[#101828]">
+            <Workflow size={15} className="shrink-0 text-[#00bc33]" /> CRM
+            {nomeEscritorio && <span className="truncate font-normal text-[#667085]">· {nomeEscritorio}</span>}
+          </span>
+        </div>
+        <nav className="lc-conta-seletor" aria-label="CRM">
+          {PAGINAS_CRM.map((c) => (
+            <Link key={c.codigo} to={`/crm/${c.codigo}`} aria-current={c.codigo === atual.codigo ? "page" : undefined}
+              className={c.codigo === atual.codigo ? "on" : ""}><c.icone size={14} />{c.rotulo}</Link>
+          ))}
+        </nav>
+        <span className="flex shrink-0 items-center gap-1">
+          {acoes && <span className="lc-acoes-central">{acoes}</span>}
+          <button type="button" className="btn ghost sm" onClick={() => recarregarLawChat(atual.codigo)} title="Recarregar esta tela"><RefreshCw size={14} /></button>
+          <button type="button" className="btn ghost sm" onClick={() => abrirEmJanela(atual.codigo).catch((e) => setErro((e as Error).message))} title="Use se a tela ficar em branco ou pedir login"><ExternalLink size={14} /> Janela separada</button>
+        </span>
+      </div>
+      <main className="relative min-h-0 flex-1 bg-[var(--lc-fundo-lawchat)]">
+        {erro && <div className="absolute left-4 right-4 top-4 z-30"><Alerta tipo="bad">{erro}</Alerta></div>}
+        <VagaDaConta key={atual.codigo} pagina={atual} estilo={estiloDoQuadro} />
+      </main>
+    </div>
+  );
 }
 
 /** Dentro de "Conta": as telas de Configurações da conta na LawChat, como abas (o menu lateral delas sai). */
@@ -158,32 +198,6 @@ function HubDaConta() {
           </Link>
         ))}
       </div>
-    </div>
-  );
-}
-
-/** Uma tela da LawChat dentro do painel: as abas do grupo e a vaga onde a camada (sempre montada) mostra o quadro.
- *  Sem moldura e no mesmo fundo da LawChat, para parecer uma tela só. */
-function AjusteDaConta({ pagina, grupo, base, ativo, subgrupo, estilo = estiloDoQuadro }: {
-  pagina: PaginaConta; grupo: PaginaConta[]; base: string; ativo?: string; subgrupo?: PaginaConta[]; estilo?: CSSProperties;
-}) {
-  const vaga = useRef<HTMLDivElement>(null);
-  useVagaLawChat(vaga, pagina.codigo, pagina.rotulo, estilo);
-  const [erro] = useState<string | null>(null);
-  return (
-    <div className="lc-tela-lawchat">
-      {erro && <div className="px-1 pb-2"><Alerta tipo="bad">{erro}</Alerta></div>}
-      {subgrupo && (
-        <nav className="lc-tela-lawchat-sub" aria-label="Configurações da conta">
-          {subgrupo.map((p) => (
-            <Link key={p.codigo} to={`${base}/${p.codigo}`} aria-current={p.codigo === pagina.codigo ? "page" : undefined}
-              className={`-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 py-2.5 text-[13px] font-semibold transition ${p.codigo === pagina.codigo ? "border-[#00bc33] text-[#101828]" : "border-transparent text-[#667085] hover:text-[#101828]"}`}>
-              <p.icone size={14} />{p.rotulo}
-            </Link>
-          ))}
-        </nav>
-      )}
-      <div ref={vaga} className="lc-tela-lawchat-vaga" />
     </div>
   );
 }

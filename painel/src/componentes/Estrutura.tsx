@@ -70,7 +70,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   // Central de Atendimento (LawChat embutida): ocupa a tela inteira.
   const telaCheia = local.pathname.startsWith("/atendimento");
   // Minha Conta: também em tela cheia, como a Central (as configurações da conta, com o menu delas e o "Voltar").
-  const telaConta = /^\/minha-conta(\/|$)/.test(local.pathname);
+  const telaConta = /^\/(minha-conta|crm)(\/|$)/.test(local.pathname);
   const [visitou, setVisitou] = useState(false);
   useEffect(() => { if (telaCheia) setVisitou(true); }, [telaCheia]);
   useEffect(() => { if (!telaCheia && !telaConta) guardarTelaDoPainel(local.pathname + local.search); }, [telaCheia, telaConta, local.pathname, local.search]);
@@ -156,7 +156,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
         { para: "/biblioteca", rotulo: "Biblioteca", icone: <Library className="i" /> },
       );
       itens.push({ para: "/atendimento", rotulo: "Central de Atendimento", icone: <Headset className="i" /> });
-      itens.push({ para: "/crm", rotulo: "CRM", icone: <Workflow className="i" /> });
+      itens.push({ para: "/crm/paineis", rotulo: "CRM", icone: <Workflow className="i" /> });
       if (podeGerir) itens.push(
         { para: "/ferramentas", rotulo: "Ferramentas", icone: <Wrench className="i" /> },
         { para: "/consumo", rotulo: "Créditos", icone: <Wallet className="i" /> },
@@ -395,7 +395,9 @@ function ItemMenu({ item, compacto, end, ativo = false }: { item: Item; compacto
   if (!compacto) return link;
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      {/* Embrulho próprio: o TooltipTrigger (asChild) junta o className e estragava o className-função do NavLink
+          (os itens do menu recolhido ficavam sem a classe lc-item). */}
+      <TooltipTrigger asChild><span className="lc-item-dica">{link}</span></TooltipTrigger>
       <TooltipContent side="right" sideOffset={12} className="lc-dica">
         {item.rotulo}{item.contador ? ` · ${item.contador}` : ""}
       </TooltipContent>
