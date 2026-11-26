@@ -1,11 +1,12 @@
-import { useRef, useState, type CSSProperties } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowRight, Blocks, Building2, Clock, Contact, MessagesSquare, ExternalLink, FileText, Gauge, KanbanSquare, Plug, RefreshCw, Users, UsersRound } from "lucide-react";
+import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Settings, ArrowRight, Blocks, Building2, Clock, Contact, MessagesSquare, ExternalLink, FileText, Gauge, KanbanSquare, Plug, RefreshCw, Users, UsersRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Alerta } from "../componentes/ui";
 import { TelaIntegracoes } from "./Integracoes";
 import { estiloDoQuadro, estiloDoQuadroConfig } from "./Atendimento";
-import { abrirEmJanela, recarregarLawChat, useVagaLawChat } from "../componentes/camadaLawChat";
+import { abrirEmJanela, preabrirLawChat, recarregarLawChat, useVagaLawChat } from "../componentes/camadaLawChat";
+import { AcoesDoTopo, NomeDoEscritorio, telaDoPainel } from "../componentes/nomeEscritorio";
 
 /** Minha Conta: os ajustes da conta na LawChat (abertos aqui dentro, já logados) + as integrações da IA. */
 export interface PaginaConta { codigo: string; rotulo: string; resumo: string; emoji: string; icone: LucideIcon; cor: string; fundo: string }
@@ -14,7 +15,7 @@ export const PAGINAS_CONTA: PaginaConta[] = [
   { codigo: "usuarios", rotulo: "Usuários", resumo: "Quem acessa a conta, papéis e convites da equipe.", emoji: "👥", icone: Users, cor: "#2563eb", fundo: "#eff6ff" },
   { codigo: "equipes", rotulo: "Equipes", resumo: "Departamentos e quem atende em cada um.", emoji: "🗂️", icone: UsersRound, cor: "#7c3aed", fundo: "#f5f3ff" },
   { codigo: "modelos", rotulo: "Modelos de mensagens", resumo: "Modelos aprovados do WhatsApp para iniciar conversas.", emoji: "✉️", icone: FileText, cor: "#0891b2", fundo: "#ecfeff" },
-  { codigo: "conta", rotulo: "Conta", resumo: "Dados da empresa, endereço e plano da conta.", emoji: "🏢", icone: Building2, cor: "#475467", fundo: "#f2f4f7" },
+  { codigo: "conta", rotulo: "Conta", resumo: "Dados da empresa, horário, canais e consumo.", emoji: "🏢", icone: Building2, cor: "#475467", fundo: "#f2f4f7" },
   { codigo: "integracoes", rotulo: "Integrações", resumo: "Integrações da conta: canais, webhooks e apps.", emoji: "🔗", icone: Blocks, cor: "#16a34a", fundo: "#f0fdf4" },
   { codigo: "ia", rotulo: "Integrações da IA", resumo: "Números de WhatsApp da IA, CRM e ZapSign do contrato.", emoji: "🤖", icone: Plug, cor: "#00a32c", fundo: "#e3f7e8" },
 ];
@@ -42,15 +43,92 @@ export const PAGINAS_CONFIG: PaginaConta[] = [
 
 export function TelaMinhaConta() {
   const { pagina } = useParams();
-  const config = PAGINAS_CONFIG.find((p) => p.codigo === pagina);
-  if (config) {
-    return <AjusteDaConta key={config.codigo} pagina={config} grupo={PAGINAS_CONTA.filter((p) => p.codigo !== "ia")} base="/minha-conta"
-      ativo="conta" subgrupo={PAGINAS_CONFIG} estilo={estiloDoQuadroConfig} />;
-  }
-  const atual = PAGINAS_CONTA.find((p) => p.codigo === pagina);
-  if (!atual) return <HubDaConta />;
-  if (atual.codigo === "ia") return <TelaIntegracoes />;
-  return <AjusteDaConta key={atual.codigo} pagina={atual} grupo={PAGINAS_CONTA.filter((p) => p.codigo !== "ia")} base="/minha-conta" />;
+  const naConfig = PAGINAS_CONFIG.find((p) => p.codigo === pagina);
+  const atual = naConfig ?? PAGINAS_CONTA.find((p) => p.codigo === pagina);
+  if (!atual) return <Navigate to="/minha-conta/usuarios" replace />;
+  return <ContaTelaCheia atual={atual} />;
+}
+
+/** Configurações da conta em tela cheia (como a Central): faixa com "Voltar", menu das configurações à esquerda
+ *  (no lugar do menu da própria LawChat, que sai) e a tela escolhida ocupando o resto. */
+function ContaTelaCheia({ atual }: { atual: PaginaConta }) {
+  const navegar = useNavigate();
+  const nomeEscritorio = useContext(NomeDoEscritorio);
+  const acoes = useContext(AcoesDoTopo);
+  const ehConfig = PAGINAS_CONFIG.some((p) => p.codigo === atual.codigo);
+  const [erro, setErro] = useState<string | null>(null);
+  // Ao entrar em Minha Conta, todas as telas começam a abrir por trás: trocar de aba depois é instantâneo.
+  useEffect(() => {
+    preabrirLawChat([
+      ...PAGINAS_CONTA.filter((p) => p.codigo !== "ia" && p.codigo !== "conta").map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })),
+      ...PAGINAS_CONFIG.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadroConfig })),
+    ]);
+  }, []);
+  const item = (p: PaginaConta, ativo: boolean, sub = false) => (
+    <Link key={p.codigo} to={`/minha-conta/${p.codigo}`} aria-current={ativo ? "page" : undefined}
+      className={`lc-conta-item${ativo ? " ativo" : ""}${sub ? " sub" : ""}`}>
+      <p.icone size={sub ? 15 : 18} className="lc-conta-ico" />
+      <span className="min-w-0">
+        <span className="lc-conta-tit">{p.rotulo}</span>
+        {!sub && p.resumo && <span className="lc-conta-res">{p.resumo}</span>}
+      </span>
+    </Link>
+  );
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[#eef1f5] bg-[#fafbfc] px-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <button type="button" className="btn sm" onClick={() => navegar(telaDoPainel())}><ArrowLeft size={15} /> Voltar ao painel</button>
+          <span className="inline-flex items-center gap-1.5 truncate text-[13px] font-semibold text-[#101828]">
+            <Settings size={15} className="shrink-0 text-[#00bc33]" /> Minha Conta
+            {nomeEscritorio && <span className="truncate font-normal text-[#667085]">· {nomeEscritorio}</span>}
+          </span>
+        </div>
+        {/* Dentro de "Conta": as 4 telas num seletor escuro no meio da faixa. */}
+        {ehConfig && (
+          <nav className="lc-conta-seletor" aria-label="Conta">
+            {PAGINAS_CONFIG.map((c) => (
+              <Link key={c.codigo} to={`/minha-conta/${c.codigo}`} aria-current={c.codigo === atual.codigo ? "page" : undefined}
+                className={c.codigo === atual.codigo ? "on" : ""}><c.icone size={14} />{c.rotulo}</Link>
+            ))}
+          </nav>
+        )}
+        <span className="flex shrink-0 items-center gap-1">
+          {acoes && <span className="lc-acoes-central">{acoes}</span>}
+          {atual.codigo !== "ia" && (
+            <>
+              <button type="button" className="btn ghost sm" onClick={() => recarregarLawChat(atual.codigo)} title="Recarregar esta tela"><RefreshCw size={14} /></button>
+              <button type="button" className="btn ghost sm" onClick={() => abrirEmJanela(atual.codigo).catch((e) => setErro((e as Error).message))} title="Use se a tela ficar em branco ou pedir login"><ExternalLink size={14} /> Janela separada</button>
+            </>
+          )}
+        </span>
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <aside className="lc-conta-menu" aria-label="Configurações">
+          <div className="lc-conta-menu-tit">Configurações</div>
+          {PAGINAS_CONTA.map((p) => (
+            <div key={p.codigo}>
+              {item(p, p.codigo === atual.codigo || (p.codigo === "conta" && ehConfig))}
+            </div>
+          ))}
+        </aside>
+        <main className="relative min-w-0 flex-1 bg-[var(--lc-fundo-lawchat)]">
+          {erro && <div className="absolute left-4 right-4 top-4 z-30"><Alerta tipo="bad">{erro}</Alerta></div>}
+          {atual.codigo === "ia" ? (
+            <div className="h-full overflow-auto p-6"><TelaIntegracoes /></div>
+          ) : (
+            <VagaDaConta key={atual.codigo} pagina={atual} estilo={ehConfig ? estiloDoQuadroConfig : estiloDoQuadro} />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function VagaDaConta({ pagina, estilo }: { pagina: PaginaConta; estilo: CSSProperties }) {
+  const vaga = useRef<HTMLDivElement>(null);
+  useVagaLawChat(vaga, pagina.codigo, pagina.rotulo, estilo);
+  return <div ref={vaga} className="absolute inset-0" />;
 }
 
 /** Página inicial: um cartão por ajuste. */
@@ -89,27 +167,11 @@ function HubDaConta() {
 function AjusteDaConta({ pagina, grupo, base, ativo, subgrupo, estilo = estiloDoQuadro }: {
   pagina: PaginaConta; grupo: PaginaConta[]; base: string; ativo?: string; subgrupo?: PaginaConta[]; estilo?: CSSProperties;
 }) {
-  const aceso = ativo ?? pagina.codigo;
   const vaga = useRef<HTMLDivElement>(null);
   useVagaLawChat(vaga, pagina.codigo, pagina.rotulo, estilo);
-  const [erro, setErro] = useState<string | null>(null);
+  const [erro] = useState<string | null>(null);
   return (
     <div className="lc-tela-lawchat">
-      <div className="lc-tela-lawchat-abas">
-        {/* Abas do grupo (o menu lateral fica recolhido nestas telas). */}
-        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto" aria-label="Telas">
-          {grupo.map((p) => (
-            <Link key={p.codigo} to={`${base}/${p.codigo}`} aria-current={p.codigo === aceso ? "page" : undefined}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition ${p.codigo === aceso ? "bg-white text-[#101828] shadow-[0_1px_3px_rgba(16,24,40,.12)]" : "text-[#667085] hover:text-[#101828]"}`}>
-              <span aria-hidden>{p.emoji}</span>{p.rotulo}
-            </Link>
-          ))}
-        </nav>
-        <span className="flex shrink-0 gap-1">
-          <button type="button" className="btn ghost sm" onClick={() => recarregarLawChat(pagina.codigo)} title="Recarregar esta tela"><RefreshCw size={14} /></button>
-          <button type="button" className="btn ghost sm" onClick={() => abrirEmJanela(pagina.codigo).catch((e) => setErro((e as Error).message))} title="Use se a tela ficar em branco ou pedir login"><ExternalLink size={14} /> Janela separada</button>
-        </span>
-      </div>
       {erro && <div className="px-1 pb-2"><Alerta tipo="bad">{erro}</Alerta></div>}
       {subgrupo && (
         <nav className="lc-tela-lawchat-sub" aria-label="Configurações da conta">

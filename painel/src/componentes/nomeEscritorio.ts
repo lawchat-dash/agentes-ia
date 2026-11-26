@@ -1,4 +1,4 @@
-import { createContext } from "react";
+import { createContext, type ReactNode } from "react";
 
 /** Nome do escritório em uso, para telas que ficam fora da moldura (Central de Atendimento). */
 export const NomeDoEscritorio = createContext<string>("");
@@ -8,3 +8,6 @@ export const NomeDoEscritorio = createContext<string>("");
 let ultimaTelaDoPainel = "/";
 export const guardarTelaDoPainel = (caminho: string) => { ultimaTelaDoPainel = caminho || "/"; };
 export const telaDoPainel = () => ultimaTelaDoPainel;
+
+/** Busca, avisos, Admin, ajuda e foto (as ações da barra do topo), para as telas em tela cheia (Minha Conta). */
+export const AcoesDoTopo = createContext<ReactNode>(null);

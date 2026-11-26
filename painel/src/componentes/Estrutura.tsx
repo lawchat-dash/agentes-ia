@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { NomeDoEscritorio, guardarTelaDoPainel } from "./nomeEscritorio";
+import { AcoesDoTopo, NomeDoEscritorio, guardarTelaDoPainel } from "./nomeEscritorio";
 import { PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
 import { CamadaLawChat } from "./camadaLawChat";
 import { TelaAtendimento } from "../telas/Atendimento";
@@ -69,9 +69,11 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   const local = useLocation();
   // Central de Atendimento (LawChat embutida): ocupa a tela inteira.
   const telaCheia = local.pathname.startsWith("/atendimento");
+  // Minha Conta: também em tela cheia, como a Central (as configurações da conta, com o menu delas e o "Voltar").
+  const telaConta = /^\/minha-conta(\/|$)/.test(local.pathname);
   const [visitou, setVisitou] = useState(false);
   useEffect(() => { if (telaCheia) setVisitou(true); }, [telaCheia]);
-  useEffect(() => { if (!telaCheia) guardarTelaDoPainel(local.pathname + local.search); }, [telaCheia, local.pathname, local.search]);
+  useEffect(() => { if (!telaCheia && !telaConta) guardarTelaDoPainel(local.pathname + local.search); }, [telaCheia, telaConta, local.pathname, local.search]);
   const atendimentoVisitado = visitou || telaCheia;
   const celular = useCelular();
   const [abertos, setAbertos] = useState(false);
@@ -92,7 +94,9 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   // Telas da LawChat abertas aqui dentro (CRM, ajustes da conta): o menu recolhe para ícones e dá a largura para elas,
   // que têm o próprio menu de ajustes; as abas do grupo ficam na faixa de cima da tela.
   const telaDaLawChat = /^\/crm(\/|$)/.test(local.pathname) || /^\/minha-conta\/(?!ia$)[^/]+$/.test(local.pathname);
-  const compacto = (recolhido || telaDaLawChat) && !celular;
+  // A navegação entre essas telas é pelo submenu do menu lateral (CRM, Minha Conta): ele fica aberto.
+  void telaDaLawChat;
+  const compacto = recolhido && !celular;
 
   useEffect(() => { setAbertos(false); }, [local.pathname]);
   useEffect(() => { if (!celular) setAbertos(false); }, [celular]);
@@ -156,7 +160,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
       if (podeGerir) itens.push(
         { para: "/ferramentas", rotulo: "Ferramentas", icone: <Wrench className="i" /> },
         { para: "/consumo", rotulo: "Créditos", icone: <Wallet className="i" /> },
-        { para: "/minha-conta", rotulo: "Minha Conta", icone: <Settings className="i" /> },
+        { para: "/minha-conta/usuarios", rotulo: "Minha Conta", icone: <Settings className="i" /> },
       );
     }
     grupos.push({ titulo: "Menu", itens });
@@ -209,7 +213,13 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             </div>
           </Modal>
         )}
-    {telaCheia ? (escritorio ? null : children) : (
+    {telaCheia ? (escritorio ? null : children) : telaConta && escritorio ? (
+      <NomeDoEscritorio.Provider value={nomeEscritorio}>
+        <AcoesDoTopo.Provider value={acoesTopo}>
+          <div className="lc-modo-atendimento lc-modo-conta" key={`${escritorio}-${visao}`}>{children}</div>
+        </AcoesDoTopo.Provider>
+      </NomeDoEscritorio.Provider>
+    ) : (
     <MotionConfig reducedMotion="user">
       <div className={`lc-casca${compacto ? " recolhido" : ""}${abertos ? " gaveta-aberta" : ""}`}>
         {/* Degradê verde usado pelos ícones ativos (stroke: url(#lc-grad-icone)). */}

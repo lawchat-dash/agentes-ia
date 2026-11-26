@@ -432,10 +432,32 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 .lc-tela-lawchat-sub { display: flex; gap: 18px; overflow-x: auto; padding: 0 16px; background: #fff; border: 1px solid #eef1f5; border-bottom: 0; border-radius: 14px 14px 0 0; }
 .lc-tela-lawchat-vaga { flex: 1; min-height: 0; background: var(--lc-fundo-lawchat); border-radius: 14px; }
 .lc-tela-lawchat-sub + .lc-tela-lawchat-vaga { border-radius: 0 0 14px 14px; }
-.lc-quadro-lawchat { overflow: hidden; border-radius: 14px; background: var(--lc-fundo-lawchat); }
+.lc-quadro-lawchat { overflow: hidden; border-radius: 0; background: var(--lc-fundo-lawchat); }
 .lc-tela-lawchat-sub ~ .lc-tela-lawchat-vaga, .lc-quadro-lawchat { box-shadow: 0 0 0 1px #eef1f5; }
 
 /* Carregamento das telas da LawChat: ícone parado e uma barrinha correndo embaixo. */
 .lc-carregando-barra { display: block; width: 120px; height: 4px; border-radius: 99px; background: #e3f7e8; overflow: hidden; }
 .lc-carregando-barra i { display: block; width: 40%; height: 100%; border-radius: 99px; background: #00bc33; animation: lc-correr 1.1s ease-in-out infinite; }
 @keyframes lc-correr { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+
+/* Minha Conta em tela cheia: menu de Configurações à esquerda (no estilo da LawChat). */
+.lc-conta-menu { width: 300px; flex: none; overflow-y: auto; background: #fff; border-right: 1px solid #eef1f5; }
+.lc-conta-menu-tit { padding: 26px 24px 18px; font-size: 24px; font-weight: 800; letter-spacing: -.02em; color: #101828; }
+.lc-conta-item { display: flex; gap: 12px; align-items: flex-start; padding: 14px 24px; border-top: 1px solid #f2f4f7; color: #344054; transition: background .15s; }
+.lc-conta-item:hover { background: #f8fafc; }
+.lc-conta-item.ativo { background: #ecfdf3; color: #067a2b; }
+.lc-conta-ico { flex: none; margin-top: 2px; color: #98a2b3; }
+.lc-conta-item.ativo .lc-conta-ico { color: #00a32c; }
+.lc-conta-tit { display: block; font-size: 14px; font-weight: 600; }
+.lc-conta-res { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.35; color: #667085; }
+.lc-conta-subs { padding: 4px 0 8px 36px; background: #fafbfc; }
+.lc-conta-item.sub { padding: 8px 16px; border-top: 0; border-radius: 8px; margin-right: 12px; align-items: center; font-size: 13px; }
+.lc-conta-item.sub .lc-conta-tit { font-size: 13px; font-weight: 500; }
+.lc-conta-item.sub.ativo { background: #e3f7e8; }
+.lc-modo-conta .lc-quadro-lawchat { border-radius: 0; box-shadow: none; }
+
+/* Minha Conta › Conta: as 4 telas num seletor escuro, arredondado, no meio da faixa de cima. */
+.lc-conta-seletor { display: inline-flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: #111827; box-shadow: 0 4px 14px -6px rgba(16,24,40,.45); overflow-x: auto; max-width: 52vw; }
+.lc-conta-seletor a { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 6px 12px; border-radius: 9px; font-size: 12.5px; font-weight: 600; color: #cbd5e1; transition: background .15s, color .15s; }
+.lc-conta-seletor a:hover { color: #fff; background: rgba(255,255,255,.08); }
+.lc-conta-seletor a.on { background: #fff; color: #101828; }

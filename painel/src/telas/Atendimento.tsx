@@ -106,9 +106,9 @@ export const CORTE_DIREITA = 64;
 const quadro = (topo: number) => ({ width: `calc(100% + ${CORTE_DIREITA}px)`, height: `calc(100% + ${topo}px)`, marginTop: -topo });
 export const estiloDaCentral = quadro(64);
 export const estiloDoQuadro = quadro(64);
-/** Telas de "Configurações" da conta (Conta, Horário, Canais, Consumo): a LawChat põe um menu próprio de ~345px na
+/** Telas de "Configurações" da conta (Conta, Horário, Canais, Consumo): a LawChat põe um menu próprio de ~384px na
  *  esquerda. Aqui ele sai (as abas do painel fazem esse papel). */
-export const CORTE_ESQUERDA_CONFIG = 345;
+export const CORTE_ESQUERDA_CONFIG = 384;
 export const estiloDoQuadroConfig = { ...quadro(64), width: `calc(100% + ${CORTE_DIREITA + CORTE_ESQUERDA_CONFIG}px)`, marginLeft: -CORTE_ESQUERDA_CONFIG };
 
 /** Tela de carregamento enquanto o login e a primeira carga acontecem (evita a tela branca). */

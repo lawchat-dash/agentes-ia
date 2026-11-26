@@ -22,6 +22,14 @@ const lerVaga = () => vaga;
 const lerRecarga = () => pedidoDeRecarga;
 
 /** Recarrega (com login novo) o quadro de uma tela. */
+/** Telas pedidas para abrir por trás (Minha Conta abre todas de uma vez: trocar de aba já fica instantâneo). */
+let preabrir: { codigo: string; titulo: string; estilo: CSSProperties }[] = [];
+const lerPreabrir = () => preabrir;
+export function preabrirLawChat(lista: { codigo: string; titulo: string; estilo: CSSProperties }[]) {
+  const novas = lista.filter((x) => !preabrir.some((p) => p.codigo === x.codigo));
+  if (novas.length) { preabrir = [...preabrir, ...novas]; avisar(); }
+}
+
 export function recarregarLawChat(codigo: string) {
   pedidoDeRecarga = { codigo, vez: (pedidoDeRecarga?.vez ?? 0) + 1 };
   avisar();
@@ -59,11 +67,12 @@ interface Quadro { codigo: string; titulo: string; estilo: CSSProperties; url: s
 export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | null; escondida: boolean }) {
   const atual = useSyncExternalStore(assinar, lerVaga);
   const recarga = useSyncExternalStore(assinar, lerRecarga);
+  const fila = useSyncExternalStore(assinar, lerPreabrir);
   const [quadros, setQuadros] = useState<Record<string, Quadro>>({});
   const vezDaRecarga = useRef(0);
 
   // Trocou de escritório: começa do zero (as telas eram da outra conta).
-  useEffect(() => { setQuadros({}); }, [escritorio]);
+  useEffect(() => { setQuadros({}); preabrir = []; }, [escritorio]);
 
   const abrir = (codigo: string, titulo: string, estilo: CSSProperties) => {
     setQuadros((q) => ({ ...q, [codigo]: { codigo, titulo, estilo, url: null, erro: null, pronto: false, vez: (q[codigo]?.vez ?? 0) + 1 } }));
@@ -77,6 +86,16 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
     if (atual && escritorio && !quadros[atual.codigo]) abrir(atual.codigo, atual.titulo, atual.estilo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atual?.codigo, escritorio]);
+
+  // Abre por trás as telas pedidas, uma a cada 0,6 s (não disputa com a tela que está na frente).
+  useEffect(() => {
+    if (!escritorio) return;
+    const faltam = fila.filter((p) => !quadros[p.codigo]);
+    if (!faltam.length) return;
+    const t = window.setTimeout(() => abrir(faltam[0].codigo, faltam[0].titulo, faltam[0].estilo), 600);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fila, quadros, escritorio]);
 
   useEffect(() => {
     if (!recarga || recarga.vez === vezDaRecarga.current) return;
@@ -93,7 +112,7 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
       {Object.values(quadros).map((q) => {
         const visivel = !escondida && atual?.codigo === q.codigo && caixa && caixa.width > 0;
         const posicao: CSSProperties = visivel
-          ? { position: "fixed", left: caixa.left, top: caixa.top, width: caixa.width, height: caixa.height, zIndex: 20 }
+          ? { position: "fixed", left: caixa.left, top: caixa.top, width: caixa.width, height: caixa.height, zIndex: 45 }
           : { position: "fixed", left: -10000, top: 0, width: 1200, height: 800, visibility: "hidden", pointerEvents: "none" };
         return (
           <div key={q.codigo} className="lc-quadro-lawchat" style={posicao} aria-hidden={!visivel}>
