@@ -136,7 +136,7 @@ const splitStyle = `
   .lcsplit-lista{list-style:none;padding:0;margin:26px 0 0;display:flex;flex-direction:column;gap:14px;max-width:440px}
   .lcsplit-lista li{display:flex;gap:12px;align-items:flex-start;font-size:.95rem;line-height:1.5;color:rgba(240,242,245,.78)}
   .lcsplit-lista b{color:#fff;font-weight:600}
-  .lcsplit-carrossel{margin:28px 0 36px -10px;width:calc(100% + 20px);max-width:480px}
+  .lcsplit-carrossel{margin:28px 0 6px -10px;width:calc(100% + 20px);max-width:480px}
   .lcsplit-carrossel .carousel-icon{width:36px;height:36px;border-radius:11px;background:rgba(0,188,51,.16);border:1px solid rgba(0,188,51,.3);color:var(--g1)}
   .lcsplit-carrossel .carousel-title{font-family:var(--fs);font-size:1.02rem;font-weight:600}
   .lcsplit-carrossel .carousel-description{font-size:.86rem}
