@@ -86,6 +86,15 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
   const recarga = useSyncExternalStore(assinar, lerRecarga);
   const fila = useSyncExternalStore(assinar, lerPreabrir);
   const [quadros, setQuadros] = useState<Record<string, Quadro>>({});
+  // Zoom ou tamanho da janela mudando: a LawChat se redesenha e, por um instante, mostraria o que fica cortado.
+  // Enquanto ajusta, a tela fica coberta; aparece de novo 0,45 s depois do último ajuste.
+  const [ajustando, setAjustando] = useState(false);
+  useEffect(() => {
+    let t = 0;
+    const aoMudar = () => { setAjustando(true); window.clearTimeout(t); t = window.setTimeout(() => setAjustando(false), 450); };
+    window.addEventListener("resize", aoMudar);
+    return () => { window.removeEventListener("resize", aoMudar); window.clearTimeout(t); };
+  }, []);
   const vezDaRecarga = useRef(0);
 
   // Trocou de escritório: começa do zero (as telas eram da outra conta).
@@ -167,6 +176,7 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
               <div aria-hidden className="lc-central-cobre" style={{ width: 400, height: 38 }} />
             )}
             {!q.pronto && <TelaEntrando titulo={`Abrindo ${q.titulo}`} />}
+            {q.pronto && ajustando && visivel && <div aria-hidden className="lc-quadro-ajustando" />}
             {q.erro && (
               <div className="absolute inset-0 grid place-items-center p-6 bg-[var(--lc-fundo-lawchat)]">
                 <div style={{ maxWidth: 520 }}>
