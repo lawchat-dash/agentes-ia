@@ -20,6 +20,8 @@ Ordem da primeira criação pedida pelo dono (um passo a passo só, retomável: 
   canais         os números da conta foram lidos (sincroniza ao avançar) e há pelo menos um conectado
   sincronizacao  dados da empresa (CNPJ, razão social, endereço, plano, e-mail de contato) e cópia da conta
                  (agentesia_helena_recursos) feitas ao avançar
+  usuarios       (opcional, não trava) os usuários da conta na LawChat viram logins do painel (agentesia_usuarios):
+                 cria, atualiza nome/e-mail/papel e desativa quem saiu (usuarios_helena). Conferir só conta o que faria
   zapsign        token e modelo da ZapSign (opcional: só quem usa contrato)
   produto        há um produto (agente) ativado; só informativo (é da ativação do agente, não trava a conta)
 
@@ -38,7 +40,7 @@ import httpx
 from app.canal.helena import normalizar_telefone
 from app.canal.helena_conta import EVENTOS_DO_ATENDIMENTO, NOME_DA_ASSINATURA, ErroHelenaApi, HelenaConta
 from app.canal.webhook import url_do_escritorio
-from app.gestao import ativacao, sincronizar_conta
+from app.gestao import ativacao, sincronizar_conta, usuarios_helena
 from app.gestao.ativacao import Passo, Resultado
 
 PASSOS: list[tuple[str, str]] = [
@@ -50,6 +52,7 @@ PASSOS: list[tuple[str, str]] = [
     ("painel_padrao", "Criar o painel padrão (🤖 CRM COMERCIAL IA)"),
     ("canais", "Números de WhatsApp"),
     ("sincronizacao", "Dados da empresa e cópia da conta"),
+    ("usuarios", "Usuários da conta (entram pelo login da LawChat)"),
     ("zapsign", "Contrato na ZapSign (opcional)"),
     ("produto", "Primeiro produto"),
 ]
@@ -109,6 +112,7 @@ async def conferir(
     id_conta: str | None = None,
     guardar_token: Callable[[str], Awaitable[Any]] | None = None,
     criar_equipe_ia: bool = False,
+    id_usuario: str | None = None,
 ) -> dict[str, Any]:
     """Confere (e, com aplicar, avança) os passos. `passos` limita o que é APLICADO; todos são conferidos.
     Sem `passos`, aplica APLICADOS_POR_PADRAO (+ equipe só com criar_equipe_ia)."""
@@ -380,8 +384,9 @@ async def conferir(
         p_sinc("pulado", "depende do token")
     elif faz("sincronizacao"):
         try:
+            # Os usuários têm o passo próprio (abaixo): aqui só a cópia.
             feita = await sincronizar_conta.sincronizar(repo=repo, id_escritorio=id_escritorio, helena=helena,
-                                                        parceiro=parceiro, id_conta=id_conta)
+                                                        parceiro=parceiro, id_conta=id_conta, com_usuarios=False)
             extra["sincronizacao"] = feita
             resumo = ", ".join(f"{v['total']} {t}" for t, v in feita["tipos"].items())
             if feita["erros"]:
@@ -398,6 +403,27 @@ async def conferir(
         quando = await _sincronizado_em(repo.pool, id_escritorio)
         p_sinc("ok" if quando else "pendente",
                f"última em {quando:%d/%m/%Y %H:%M}" if quando else "ainda não sincronizada")
+
+    # 6c. Usuários da conta → logins do painel (opcional: falha vira aviso, nunca trava)
+    p_usuarios = passo("usuarios")
+    if helena is None:
+        p_usuarios("pulado", "depende do token")
+    else:
+        try:
+            feito = await usuarios_helena.sincronizar(repo=repo, id_escritorio=id_escritorio, helena=helena,
+                                                      simular=not faz("usuarios"), id_usuario=id_usuario)
+            extra["usuarios"] = {k: v for k, v in feito.items() if k != "mudancas"}
+            mudou = feito["criados"] + feito["atualizados"] + feito["desativados"]
+            aviso = ("; " + feito["aviso"]) if feito.get("aviso") else ""
+            if not faz("usuarios"):
+                p_usuarios("pendente" if mudou else "ok",
+                           (f"ao avançar: {feito['texto']}" if mudou else f"{feito['total']} usuário(s), tudo igual") + aviso)
+            elif feito.get("aviso"):
+                p_usuarios("aviso", feito["texto"] + aviso)
+            else:
+                p_usuarios("feito" if mudou else "ok", feito["texto"] if mudou else f"{feito['total']} usuário(s), tudo igual")
+        except Exception as erro:                   # noqa: BLE001 — opcional: vira texto e segue
+            p_usuarios("aviso", "não deu para ler os usuários: " + usuarios_helena.erro_legivel(erro))
 
     ordem = {c: i for i, c in enumerate(CODIGOS)}
     r.passos.sort(key=lambda p: ordem[p.codigo])

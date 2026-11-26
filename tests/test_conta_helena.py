@@ -314,7 +314,7 @@ async def test_onboarding_em_passos(ambiente):
     guardado = (await cliente.get(base)).json()
     assert [p["codigo"] for p in guardado["passos"]] == [
         "token", "webhook", "equipe", "etiquetas", "painel", "painel_padrao", "canais", "sincronizacao",
-        "zapsign", "produto"]
+        "usuarios", "zapsign", "produto"]
     assert all(p["situacao"] == "pendente" for p in guardado["passos"])
 
     # Conferir não muda nada na Helena.
@@ -324,7 +324,7 @@ async def test_onboarding_em_passos(ambiente):
     situacao = {p["codigo"]: p["situacao"] for p in conferido["passos"]}
     assert situacao == {"token": "ok", "webhook": "pendente", "canais": "ok", "etiquetas": "pendente", "equipe": "pendente",
                         "painel": "pendente", "painel_padrao": "pulado", "zapsign": "pulado", "produto": "pendente",
-                        "sincronizacao": "pendente"}
+                        "sincronizacao": "pendente", "usuarios": "pendente"}
     assert conferido["completo"] is False and len(conferido["paineis"]) == 3
 
     # Avançar: cria o webhook e as etiquetas, escolhe o painel pedido, sincroniza. A equipe só porque foi marcada.
@@ -333,7 +333,9 @@ async def test_onboarding_em_passos(ambiente):
     situacao = {p["codigo"]: p["situacao"] for p in avancado["passos"]}
     assert situacao == {"token": "ok", "webhook": "feito", "canais": "feito", "etiquetas": "feito", "equipe": "feito",
                         "painel": "feito", "painel_padrao": "pulado", "zapsign": "pulado", "produto": "pendente",
-                        "sincronizacao": "feito"}
+                        "sincronizacao": "feito", "usuarios": "feito"}
+    assert avancado["usuarios"]["criados"] == 1 and "1 criados" in next(
+        p["detalhe"] for p in avancado["passos"] if p["codigo"] == "usuarios")
     # Ids do que foi criado ou escolhido ficam no escritório (dados_helena), com as etapas ligadas aos 6 tipos.
     ids = avancado["dados_helena"]["ids"]
     assert ids["id_assinatura"] == conta["assinaturas"][0]["id"] and ids["id_painel"] == painel["id"]

@@ -279,22 +279,16 @@ def ids_das_etiquetas_padrao(etiquetas: list[dict[str, Any]]) -> dict[str, str]:
 
 # ---------------------------------------------------------------------------------------------- leituras que faltam
 async def usuarios(helena: HelenaConta) -> list[dict[str, Any]]:
-    """Usuários (atendentes) da conta, só com id e nome. `GET core/v1/agent` (sem paginação segundo
-    docs/HELENA_CAPACIDADES.md; mandamos PageSize=100 como o `atendente()` já faz)."""
-    dados = await helena._pedir("GET", "core/v1/agent", params={"PageSize": 100}) or []
-    itens = dados.get("items", []) if isinstance(dados, dict) else dados
-    saida = []
-    for a in itens or []:
-        if not isinstance(a, dict):
-            continue
-        id_usuario = a.get("userId") or a.get("id")
-        if not id_usuario:
-            continue
-        disponibilidade = a.get("availability") or a.get("status")
-        saida.append({"id": str(id_usuario), "nome": a.get("name") or a.get("shortName") or "Usuário da LawChat",
-                      "dados": {"id_atendente": a.get("id"),
-                                **({"disponibilidade": disponibilidade} if isinstance(disponibilidade, str) else {})}})
-    return saida
+    """Usuários (atendentes) da conta para a cópia: só id e nome (e-mail fica de fora da cópia). A lista completa,
+    página a página e com timeout curto, vem de usuarios_helena.listar e segue em "_usuario" para alimentar
+    agentesia_usuarios (usuarios_helena.sincronizar)."""
+    from app.gestao import usuarios_helena
+    return [{"id": u["id_usuario"], "nome": u["nome"],
+             "dados": {"id_atendente": u.get("id_atendente"),
+                       **({"disponibilidade": u["disponibilidade"]} if u.get("disponibilidade") else {}),
+                       **({} if u["ativo"] else {"inativo": True})},
+             "_usuario": u}
+            for u in await usuarios_helena.listar(helena)]
 
 
 async def criar_etiqueta(helena: HelenaConta, nome: str, cor: str | None) -> dict[str, Any]:
@@ -392,9 +386,12 @@ async def gravar_detalhes_canais(pool: Any, id_escritorio: str, canais: list[dic
 
 
 async def sincronizar(*, repo: Any, id_escritorio: str, helena: HelenaConta,
-                      parceiro: HelenaConta | None = None, id_conta: str | None = None) -> dict[str, Any]:
+                      parceiro: HelenaConta | None = None, id_conta: str | None = None,
+                      com_usuarios: bool = True, id_usuario: str | None = None) -> dict[str, Any]:
     """Lê a conta e atualiza a cópia. Devolve, por tipo, quantos existem, quantos são novos e quantos sumiram.
-    Com o token de parceiro, também guarda os dados cadastrais da empresa (sem e-mail/telefone)."""
+    Com o token de parceiro, também guarda os dados cadastrais da empresa (sem e-mail/telefone).
+    Com `com_usuarios`, alinha também os logins do painel (agentesia_usuarios) com os usuários da conta, usando a
+    mesma lista lida (resultado em "usuarios"; se a lista não veio, o erro já está em erros["usuario"])."""
     recursos, erros = await ler_conta(helena)
     pool = repo.pool
     conta = None
@@ -451,8 +448,17 @@ async def sincronizar(*, repo: Any, id_escritorio: str, helena: HelenaConta,
         if recursos:
             await conexao.execute("update agentesia_escritorios set sincronizado_em = $2 where id = $1::uuid",
                                   id_escritorio, agora)
+    alinhados: dict[str, Any] | None = None
+    if com_usuarios and "usuario" in recursos:
+        from app.gestao import usuarios_helena
+        try:
+            alinhados = await usuarios_helena.sincronizar(
+                repo=repo, id_escritorio=id_escritorio, lista=[r["_usuario"] for r in recursos["usuario"]],
+                id_usuario=id_usuario)
+        except Exception as erro:                   # noqa: BLE001 — opcional: não derruba a cópia
+            erros["usuarios_painel"] = usuarios_helena.erro_legivel(erro)
     return {"sincronizado_em": agora.isoformat() if recursos else None, "tipos": tipos, "erros": erros,
-            "completa": not erros, "empresa": conta}
+            "completa": not erros, "empresa": conta, "usuarios": alinhados}
 
 
 async def listar(pool: Any, id_escritorio: str, *, tipo: str | None = None, incluir_sumidos: bool = False) -> list[dict[str, Any]]:

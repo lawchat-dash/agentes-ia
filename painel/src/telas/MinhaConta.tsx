@@ -75,10 +75,10 @@ function CrmTelaCheia({ atual }: { atual: PaginaConta }) {
 
 /** Dentro de "Conta": as telas de Configurações da conta na LawChat, como abas (o menu lateral delas sai). */
 export const PAGINAS_CONFIG: PaginaConta[] = [
-  { codigo: "conta", rotulo: "Dados da empresa", resumo: "", emoji: "🏢", icone: Building2, cor: "#475467", fundo: "#f2f4f7" },
-  { codigo: "horario", rotulo: "Horário de atendimento", resumo: "", emoji: "🕘", icone: Clock, cor: "#475467", fundo: "#f2f4f7" },
-  { codigo: "canais", rotulo: "Canais de atendimento", resumo: "", emoji: "💬", icone: MessagesSquare, cor: "#475467", fundo: "#f2f4f7" },
-  { codigo: "consumo", rotulo: "Consumo de mensagens", resumo: "", emoji: "📊", icone: Gauge, cor: "#ea580c", fundo: "#fff7ed" },
+  { codigo: "conta", rotulo: "Dados da empresa", resumo: "Defina seus dados e os da sua empresa.", emoji: "🏢", icone: Building2, cor: "#475467", fundo: "#f2f4f7" },
+  { codigo: "horario", rotulo: "Horário de atendimento", resumo: "Defina quando a empresa atende.", emoji: "🕘", icone: Clock, cor: "#475467", fundo: "#f2f4f7" },
+  { codigo: "canais", rotulo: "Canais de atendimento", resumo: "Configure seus canais de atendimento.", emoji: "💬", icone: MessagesSquare, cor: "#475467", fundo: "#f2f4f7" },
+  { codigo: "consumo", rotulo: "Consumo de mensagens", resumo: "Quantas mensagens seus canais enviam e quanto custa cada categoria.", emoji: "📊", icone: Gauge, cor: "#ea580c", fundo: "#fff7ed" },
 ];
 
 export function TelaMinhaConta() {
@@ -124,15 +124,6 @@ function ContaTelaCheia({ atual }: { atual: PaginaConta }) {
             {nomeEscritorio && <span className="truncate font-normal text-[#667085]">· {nomeEscritorio}</span>}
           </span>
         </div>
-        {/* Dentro de "Conta": as 4 telas num seletor escuro no meio da faixa. */}
-        {ehConfig && (
-          <nav className="lc-conta-seletor" aria-label="Conta">
-            {PAGINAS_CONFIG.map((c) => (
-              <Link key={c.codigo} to={`/minha-conta/${c.codigo}`} aria-current={c.codigo === atual.codigo ? "page" : undefined}
-                className={c.codigo === atual.codigo ? "on" : ""}><c.icone size={14} />{c.rotulo}</Link>
-            ))}
-          </nav>
-        )}
         <span className="flex shrink-0 items-center gap-1">
           {acoes && <span className="lc-acoes-central">{acoes}</span>}
           {atual.codigo !== "ia" && (
@@ -145,12 +136,19 @@ function ContaTelaCheia({ atual }: { atual: PaginaConta }) {
       </div>
       <div className="flex min-h-0 flex-1">
         <aside className="lc-conta-menu" aria-label="Configurações">
-          <div className="lc-conta-menu-tit">Configurações</div>
-          {PAGINAS_CONTA.map((p) => (
-            <div key={p.codigo}>
-              {item(p, p.codigo === atual.codigo || (p.codigo === "conta" && ehConfig))}
+          {ehConfig ? (
+            // Entrou em "Conta": o menu vira o de Conta (como entrar numa pasta), com o Voltar para as Configurações.
+            <div key="conta" className="lc-conta-menu-entra">
+              <Link to="/minha-conta/usuarios" className="lc-conta-voltar"><ArrowLeft size={15} /> Configurações</Link>
+              <div className="lc-conta-menu-tit">Conta</div>
+              {PAGINAS_CONFIG.map((c) => item(c, c.codigo === atual.codigo))}
             </div>
-          ))}
+          ) : (
+            <div key="geral" className="lc-conta-menu-entra">
+              <div className="lc-conta-menu-tit">Configurações</div>
+              {PAGINAS_CONTA.map((p) => item(p, p.codigo === atual.codigo))}
+            </div>
+          )}
         </aside>
         <main className="relative min-w-0 flex-1 bg-[var(--lc-fundo-lawchat)]">
           {erro && <div className="absolute left-4 right-4 top-4 z-30"><Alerta tipo="bad">{erro}</Alerta></div>}

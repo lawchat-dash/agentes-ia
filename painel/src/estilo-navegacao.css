@@ -468,3 +468,10 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 .lc-btn-voltar:active { transform: translateY(1px); }
 
 .lc-item-dica { display: block; }
+
+/* Menu de Configurações: "entrar" em Conta troca o menu (com Voltar), deslizando. */
+.lc-conta-menu-entra { animation: lc-conta-entra .22s ease-out both; }
+@keyframes lc-conta-entra { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.lc-conta-voltar { display: inline-flex; align-items: center; gap: 6px; margin: 18px 24px 0; padding: 6px 12px 6px 10px; border-radius: 9px; background: #111827; color: #fff; font-size: 12.5px; font-weight: 600; }
+.lc-conta-voltar:hover { background: #1f2937; }
+.lc-conta-voltar + .lc-conta-menu-tit { padding-top: 14px; }

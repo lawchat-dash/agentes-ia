@@ -5,7 +5,8 @@ Admin LawChat (por escritório, id no caminho):
   POST /api/admin/escritorios/{id}/onboarding/conferir   confere todos os passos sem mudar nada na Helena
   POST /api/admin/escritorios/{id}/onboarding/avancar    faz o que cada passo pode fazer sozinho (webhook, canais,
                                                          etiquetas padrão, painel escolhido, cópia da conta)
-  POST /api/admin/escritorios/{id}/sincronizar           copia canais, painéis, colunas, etiquetas, equipes e usuários
+  POST /api/admin/escritorios/{id}/sincronizar           copia canais, painéis, colunas, etiquetas, equipes e usuários;
+                                                         alinha os logins do painel com os usuários da conta
   GET  /api/admin/escritorios/{id}/helena-recursos       a cópia (?tipo=etiqueta&sumidos=true)
 Gestor (escritório da sessão):
   POST /api/integracoes/helena/sincronizar
@@ -82,7 +83,8 @@ async def _onboarding(pedido: Request, ctx: Contexto, id_escritorio: str, *, apl
             etapas_por_tipo=dados.etapas_por_tipo, parceiro=_parceiro(pedido),
             id_conta=str(escritorio.get("id_conta_helena") or "") or None,
             guardar_token=_guardar_token(pedido, repo, id_escritorio),
-            http=getattr(pedido.app.state, "http_ativacao", None), criar_equipe_ia=dados.criar_equipe_ia)
+            http=getattr(pedido.app.state, "http_ativacao", None), criar_equipe_ia=dados.criar_equipe_ia,
+            id_usuario=ctx.id_usuario)
     except Exception as erro:
         if aplicar:
             await repo.registrar_alteracao(
@@ -152,7 +154,7 @@ async def _sincronizar(pedido: Request, ctx: Contexto, id_escritorio: str) -> di
     try:
         feita = await sincronizar_conta.sincronizar(
             repo=repo, id_escritorio=id_escritorio, helena=helena, parceiro=_parceiro(pedido),
-            id_conta=str(escritorio.get("id_conta_helena") or "") or None)
+            id_conta=str(escritorio.get("id_conta_helena") or "") or None, id_usuario=ctx.id_usuario)
     except asyncpg.UndefinedTableError as erro:
         await falhou("banco sem a migração 006")
         raise HTTPException(503, "O banco ainda não tem a migração 006 (cópia da conta da LawChat).") from erro
@@ -168,6 +170,8 @@ async def _sincronizar(pedido: Request, ctx: Contexto, id_escritorio: str) -> di
         raise _erro_helena(ErroHelenaApi(motivo))
     resumo = ", ".join(f"{v['total']} {t}" + (f" (+{v['novos']})" if v["novos"] else "")
                        + (f" ({v['sumiram']} sumiram)" if v["sumiram"] else "") for t, v in feita["tipos"].items())
+    if feita.get("usuarios"):
+        resumo += f"; logins: {feita['usuarios']['texto']}"
     await repo.registrar_alteracao(
         id_usuario=ctx.id_usuario, id_escritorio=id_escritorio, tabela="agentesia_helena_recursos",
         id_registro=id_escritorio, acao="sincronizou", resumo=f"Conta da LawChat sincronizada: {resumo}",
@@ -284,7 +288,7 @@ async def habilitar_agente(pedido: Request, ctx: Contexto, id_escritorio: str, *
         await falhou("sem token de parceiro (AGENTESIA_HELENA_TOKEN_PARCEIRO)")
         raise HTTPException(409, "Sem token de parceiro no servidor (AGENTESIA_HELENA_TOKEN_PARCEIRO) para gerar o token da conta.")
 
-    passos = ["token", "webhook", "etiquetas", "canais"] + (["equipe"] if criar_equipe_ia else [])
+    passos = ["token", "webhook", "etiquetas", "canais", "usuarios"] + (["equipe"] if criar_equipe_ia else [])
     resultado = await _onboarding(pedido, ctx, id_escritorio, aplicar=True, dados=Avancar(passos=passos))
     por_codigo = {p["codigo"]: p for p in resultado["passos"]}
     habilitado = por_codigo.get("token", {}).get("situacao") in ("ok", "feito")

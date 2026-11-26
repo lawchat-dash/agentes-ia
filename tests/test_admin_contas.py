@@ -178,7 +178,7 @@ async def test_habilitar_agente_gera_o_token_e_marca_como_habilitado(ambiente):
     feito = resposta.json()
     situacao = {p["codigo"]: p["situacao"] for p in feito["passos"]}
     assert feito["habilitado"] is True
-    assert situacao == {"token": "feito", "webhook": "feito", "etiquetas": "feito", "canais": "feito"}
+    assert situacao == {"token": "feito", "webhook": "feito", "etiquetas": "feito", "canais": "feito", "usuarios": "feito"}
     assert falsa.tokens_criados == [{"name": "IA LawChat"}]
     # Equipe "🤖 Comercial IA" só se marcado: por padrão, não.
     assert ("POST", "/core/v1/department") not in falsa.pedidos

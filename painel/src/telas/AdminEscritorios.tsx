@@ -22,13 +22,23 @@ interface Onboarding { passos?: PassoOnboarding[]; concluido_em?: string | null;
 /** Painel da conta como o conferir devolve: `padrao` = tem as 6 etapas fixas; `sugestao` = etapas ligadas por tipo. */
 interface PainelDaConta { id: string; titulo: string; colunas: number; padrao?: boolean; etapas?: { id: string; titulo: string }[];
   sugestao?: Record<string, string> }
+/** Usuários da conta na LawChat → logins do painel (app/gestao/usuarios_helena.py). */
+interface ResultadoUsuarios { criados: number; atualizados: number; desativados: number; ignorados?: number; total: number;
+  simulacao?: boolean; aviso?: string | null; texto?: string }
 interface ResultadoOnboarding extends Onboarding { completo?: boolean; paineis?: PainelDaConta[]; painel_sugerido?: string;
+  usuarios?: ResultadoUsuarios;
   painel_crm?: { criar_ligado: boolean; falta_configurar: string[] };
   sincronizado_em?: string | null; obrigatorios?: string[]; dados_helena?: DadosHelena; etapas_por_tipo?: Record<string, string> }
 interface DadosHelena { conta?: { razao_social?: string | null; documento?: string | null; documento_formatado?: string | null; tipo_documento?: string | null;
   endereco?: { city?: string; state?: string }; recursos?: { includedAgents?: number; includedSessions?: number } };
   ids?: { id_painel?: string; etapas_por_tipo?: Record<string, string>; id_departamento?: string; id_assinatura?: string; etiquetas?: Record<string, string> } }
-interface Sincronizacao { sincronizado_em: string | null; tipos: Record<string, { total: number; novos: number; sumiram: number }>; erros: Record<string, string> }
+interface Sincronizacao { sincronizado_em: string | null; tipos: Record<string, { total: number; novos: number; sumiram: number }>; erros: Record<string, string>;
+  usuarios?: ResultadoUsuarios | null }
+/** "X criados, Y atualizados, Z desativados" (o mesmo texto do servidor). */
+function textoUsuarios(u: ResultadoUsuarios): string {
+  return `${u.criados} criados, ${u.atualizados} atualizados, ${u.desativados} desativados`
+    + (u.ignorados ? `, ${u.ignorados} da equipe LawChat sem mudança` : "");
+}
 interface ResultadoSync { total: number; criadas: number; atualizadas: number; com_erro: number; erros: { nome?: string | null; id_conta_helena?: string | null; erro: string }[] }
 interface ResultadoHabilitar { habilitado: boolean; passos: PassoOnboarding[] }
 // O que trava o onboarding DA CONTA (o servidor devolve a mesma lista em `obrigatorios`; esta é a reserva).
@@ -50,7 +60,8 @@ function painelSugerido(paineis: { id: string; titulo: string; padrao?: boolean 
   return (paineis.find((x) => chave(x.titulo).includes("crm comercial ia")) ?? paineis.find((x) => chave(x.titulo).includes("comercial ia")))?.id ?? "";
 }
 const TIPOS_ETAPA = ["SDR", "COMERCIAL", "CONTRATO", "AGUARDANDO_ASSINATURA", "CONTRATO_ASSINADO", "DESQUALIFICADO"];
-const NOME_TIPO: Record<string, string> = { canal: "números", painel: "painéis", coluna: "colunas", etiqueta: "etiquetas", equipe: "equipes", usuario: "usuários" };
+const NOME_TIPO: Record<string, string> = { canal: "números", painel: "painéis", coluna: "colunas", etiqueta: "etiquetas", equipe: "equipes", usuario: "usuários",
+  usuarios_painel: "usuários do painel" };
 const SITUACAO_PASSO: Record<string, [string, string]> = {
   ok: ["ok", "ok"], feito: ["ok", "feito agora"], aviso: ["aviso", "atenção"], erro: ["erro", "com erro"],
   pendente: ["pendente", "pendente"], pulado: ["desligada", "não se aplica"],
@@ -597,11 +608,17 @@ function PassosDaConta({ linha, aoFechar, aoAtivarProduto }: { linha: Linha; aoF
               Criar também a equipe "🤖 Comercial IA" ao avançar, como equipe PADRÃO da conta
             </label>
           )}
+          {ultimo?.usuarios && !ultimo.usuarios.simulacao && (
+            <Alerta tipo={ultimo.usuarios.aviso ? "warn" : "ok"}>
+              Usuários da LawChat: {textoUsuarios(ultimo.usuarios)}{ultimo.usuarios.aviso ? ` · ${ultimo.usuarios.aviso}` : ""}. Eles entram pelo login da LawChat, sem senha.
+            </Alerta>
+          )}
           <DadosDaConta dados={ultimo?.dados_helena ?? dados?.dados_helena} />
           <p className="muted" style={{ margin: 0, fontSize: 12 }}>Cópia da conta do LawChat: {quando(sinc?.sincronizado_em ?? dados?.sincronizado_em ?? linha.sincronizado_em)}</p>
           {sinc && (
             <Alerta tipo={Object.keys(sinc.erros ?? {}).length ? "warn" : "ok"}>
               {Object.entries(sinc.tipos ?? {}).map(([t, v]) => `${v.total} ${NOME_TIPO[t] ?? t}${v.novos ? ` (+${v.novos})` : ""}${v.sumiram ? ` (${v.sumiram} sumiram)` : ""}`).join(" · ")}
+              {sinc.usuarios && <> · usuários do painel: {textoUsuarios(sinc.usuarios)}</>}
               {Object.keys(sinc.erros ?? {}).length > 0 && <> · não deu para ler: {Object.entries(sinc.erros).map(([t, m]) => `${NOME_TIPO[t] ?? t} (${marca(m)})`).join(", ")}</>}
             </Alerta>
           )}
