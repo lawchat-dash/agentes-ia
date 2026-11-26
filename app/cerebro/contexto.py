@@ -91,6 +91,8 @@ def meses_entre_saida_e_acidente(fatos: dict[str, Any]) -> str | None:
         acidente_ate = int(fatos["acidente_ano"]) * 12 + int(fatos.get("acidente_mes") or 12)
         saida_desde = int(fatos["demissao_ano"]) * 12 + int(fatos.get("demissao_mes") or 1)
         if acidente_ate < saida_desde:
+            if fatos.get("vinculo_na_data") in SEM_CARTEIRA_NA_DATA:
+                return SAIDA_DEPOIS_DO_ACIDENTE
             return "nenhum: o acidente foi ANTES da saída do último emprego (ainda estava empregado na data do acidente)"
     if menor == maior:
         return _meses(menor)
@@ -98,6 +100,24 @@ def meses_entre_saida_e_acidente(fatos: dict[str, Any]) -> str | None:
 
 
 CHAVE_COBERTURA = "cobertura pelo INSS na data do acidente (calculado pelo sistema)"
+# Na data do acidente o lead não tinha carteira (MEI, autônomo, desempregado): uma saída DEPOIS do acidente não cobre nada.
+SEM_CARTEIRA_NA_DATA = ("mei_autonomo_ci", "desempregado", "nunca_trabalhou")
+SAIDA_DEPOIS_DO_ACIDENTE = ("a saída informada é DEPOIS do acidente, e na data do acidente o lead não tinha carteira "
+                            "assinada: pergunte qual foi o último emprego de carteira assinada ANTES do acidente (mês e "
+                            "ano, pode ser aproximado). Se não teve nenhum antes, ele não estava coberto")
+
+
+def _saida_depois_sem_carteira(fatos: dict[str, Any]) -> bool:
+    try:
+        if fatos.get("vinculo_na_data") not in SEM_CARTEIRA_NA_DATA:
+            return False
+        if fatos.get("demissao_ano") in (None, "") or fatos.get("acidente_ano") in (None, ""):
+            return False
+        acidente_ate = int(fatos["acidente_ano"]) * 12 + int(fatos.get("acidente_mes") or 12)
+        saida_desde = int(fatos["demissao_ano"]) * 12 + int(fatos.get("demissao_mes") or 1)
+        return acidente_ate < saida_desde
+    except (TypeError, ValueError):
+        return False
 
 
 def cobertura_na_data_do_acidente(fatos: dict[str, Any], regras: aa.Regras | None = None) -> tuple[str, str] | None:
@@ -105,6 +125,8 @@ def cobertura_na_data_do_acidente(fatos: dict[str, Any], regras: aa.Regras | Non
 
     resultado: dentro | fora | falta_seguro | perto_do_limite. A decisão do que fazer com isso (contribuição por conta
     própria mantém ou não a cobertura, por exemplo) fica com o roteiro do escritório: aqui só vai a conta."""
+    if _saida_depois_sem_carteira(fatos):
+        return "falta_saida_antes", "ainda não dá para saber: falta o último emprego de carteira ANTES do acidente"
     dados = {chave: fatos.get(chave) for chave in FATOS_DO_PERIODO if fatos.get(chave) not in (None, "")}
     try:
         decisao = aa.calcular_periodo_graca(dados, regras or aa.Regras())
@@ -116,7 +138,10 @@ def cobertura_na_data_do_acidente(fatos: dict[str, Any], regras: aa.Regras | Non
             or decisao.motivo == "contribuiu_por_conta_propria":
         return "fora", "não coberta pelas datas"
     if "seguro_desemprego" in decisao.faltam:
-        return "falta_seguro", "depende de ter recebido seguro-desemprego (falta saber)"
+        return "falta_seguro", ("depende de ter recebido seguro-desemprego (falta saber). Se o lead não lembrar, pergunte "
+                                "uma vez de outro jeito (\"depois que saiu, você recebeu umas parcelas do governo por "
+                                "alguns meses?\"); se continuar sem saber, siga para o Closer: a equipe confere no CNIS "
+                                "depois do contrato")
     if decisao.resultado == "analise_manual":
         return "perto_do_limite", "perto do limite: peça análise humana"
     falta = {"demissao_mes": "falta o mês em que saiu do emprego", "acidente_mes": "falta o mês do acidente"}

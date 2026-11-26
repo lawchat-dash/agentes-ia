@@ -255,7 +255,11 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
                                                       partes_do_auditor(getattr(produto, "beneficio", None)) if catalogo else None)
         saida.sinais = validos
         from app.cerebro.sinais import SEM_PAUSA
-        if validos and all(s in SEM_PAUSA for s in validos):
+        # "Quero ir pessoalmente": na 1ª vez a IA quebra a objeção (por aqui é mais rápido); se insistir, a equipe assume.
+        sem_pausa = tuple(s for s in SEM_PAUSA if not (s == "atendimento_presencial" and entrada.fatos.get(MARCA_PRESENCIAL)))
+        if validos and all(s in sem_pausa for s in validos):
+            if "atendimento_presencial" in validos:
+                _gravar_controle(saida, MARCA_PRESENCIAL, True)
             # Sinal que só avisa a equipe (deficiência auditiva): a IA segue a conversa, com a orientação do sinal.
             for sinal in validos:
                 saida.eventos.append(_evento("sinal_" + sinal, "aviso", "lead", f"Lead sinalizou: {sinal}",
@@ -509,6 +513,14 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         guardas += _guardas_de_midia(entrada, mensagens, permitidas, ja_enviadas)
         if resposta.get("ferramenta") == "zapsign" and "zapsign" in acoes and not confirmou:
             guardas.append(_Guarda("contrato_sem_confirmacao", ORIENTACAO_SEM_CONFIRMACAO))
+        if (ferramentas["calculadora"] and etapa == "periododegraca" and resposta.get("notificacao") == "analise_humana"
+                and (cob := contexto.cobertura_na_data_do_acidente(saida.fatos_depois, regras)) and cob[0] == "dentro"):
+            # Lead coberto pelas datas e a IA mandou para a equipe ("não lembro do seguro"): o seguro só importa fora do
+            # prazo curto, então segue o roteiro de quem está coberto.
+            guardas.append(_Guarda("periodo_coberto_analise",
+                                   "Pelos FATOS DO SISTEMA a pessoa estava coberta na data do acidente: não peça análise "
+                                   "da equipe por causa de seguro-desemprego ou de data (o seguro não muda nada aqui). "
+                                   "Deixe notificacao vazia e siga o roteiro de quem está coberto (passe para o Closer)."))
         if esquecida := _desqualificacao_esquecida(entrada, produto, saida, etapa, destino, destinos):
             guardas.append(_Guarda("desqualificacao_esquecida", esquecida))
         novas_marcas += [g.marca for g in guardas if g.marca and g.marca not in novas_marcas]
@@ -993,6 +1005,7 @@ MARCA_DESTINOS_IGNORADOS = "_destinos_ignorados"        # ["assinatura>contratos
 MARCA_VOLTOU_AO_SDR = "_voltou_ao_sdr"                  # o Desqualificado já devolveu o lead ao SDR uma vez
 MARCA_VARIAVEIS_SEM_VALOR = "_variaveis_sem_valor"      # ["LINK AVALIACAO GOOGLE", ...]: evento já registrado
 MARCA_FORA_DO_TEMA = "_fora_do_tema_seguidas"           # quantas mensagens seguidas fora do tema (B6)
+MARCA_PRESENCIAL = "_pediu_presencial"                # já pediu atendimento presencial uma vez (na 2ª, pausa)
 MARCA_PEDIU_PESSOA = "_pediu_pessoa"                   # o lead já pediu uma pessoa uma vez (no 2º pedido, pausa)
 ORIENTACAO_PRIMEIRO_PEDIDO = ("O lead pediu para falar com uma pessoa. Diga em 1 frase, com simpatia, que você mesma "
                               "consegue ajudar por aqui e responda a dúvida dele (ou pergunte qual é); não prometa "

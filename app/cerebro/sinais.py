@@ -37,8 +37,10 @@ ORIENTACAO_SEM_PAUSA = {
                              "áudio nem peça para ele ouvir algo."),
     # Objeção insistente: a equipe é avisada e acompanha, mas a IA não sai da conversa (o lead segue sendo atendido).
     # Quer ir ao escritório: o atendimento inicial é pelo WhatsApp; a equipe fica sabendo e a IA segue.
-    "atendimento_presencial": ("O lead quer atendimento presencial: diga que o atendimento inicial é por aqui mesmo, "
-                               "pelo WhatsApp, mande o que houver nos DADOS DO ESCRITÓRIO (endereço, OAB) e siga a etapa."),
+    "atendimento_presencial": ("O lead quer atendimento presencial: acolha e mostre a vantagem de seguir por aqui (é mais "
+                               "rápido, sem fila nem deslocamento, e a gente conduz tudo por mensagem, do começo ao fim), "
+                               "mande o que houver nos DADOS DO ESCRITÓRIO (endereço, OAB) para ele ver que somos reais e "
+                               "siga a etapa. Não prometa visita nem chamar a equipe."),
     "muitas_objecoes": ("O lead está resistente: responda a dúvida com calma, em 1 ou 2 frases, sem pressionar e sem "
                         "prometer retorno da equipe, e siga o roteiro da etapa."),
 }
