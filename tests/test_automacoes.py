@@ -73,7 +73,9 @@ async def test_pipeline_poe_as_acoes_na_fila():
         # sem a nota interna "atendimento iniciado" (pipeline, fora das automações)
         return [a for a in repo.acoes if a["tipo"] != "conferir_entrega" and not a["chave_unica"].endswith(":nota:atendimento_iniciado")]
     assert [a["tipo"] for a in crm()] == ["mover_card", "etiquetar"]             # lead novo
-    await atendimento.receber(webhook("caí, 2023, sim, carteira, não, não"))
+    # frase completa: "sim"/"não" soltos sem a pergunta certa não viram fato (trava das respostas curtas)
+    await atendimento.receber(webhook("caí da moto em 2023, fiquei com sequela sim, trabalhava de carteira, "
+                                      "não sou aposentado e não tenho advogado"))
     await atendimento.aguardar_esperas()
     assert [(a["tipo"], a["dados"].get("id_etapa_helena")) for a in crm()[2:]] == [
         ("mover_card", "s2"), ("etiquetar", None)]
