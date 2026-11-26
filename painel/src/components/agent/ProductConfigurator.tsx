@@ -31,6 +31,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ROLE_META, ROLE_ORDER, ALL_ROLES_ORDERED, AgentRole, roleSortIndex } from "@/hooks/useProducts";
 import { PipelineAgentEditor } from "@/components/agent/PipelineAgentEditor";
 import { TestePrompt } from "@/components/agent/TestePrompt";
+
+// "Testar o rascunho" escondido por enquanto (pedido do dono, 26/11). Para voltar, é só trocar para true.
+const MOSTRAR_TESTE_RASCUNHO = false;
 import { VersoesProduto, type ConteudoVersao } from "@/components/agent/VersoesProduto";
 import ConhecimentoManager from "@/components/agent/ConhecimentoManager";
 import { buildBlocksForRole } from "@/data/roleBlocks";
@@ -2124,7 +2127,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                   )}
 
                   {step3Tab === "agente" && currentAgent && (
-                    <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(340px,380px)] gap-5 items-start">
+                    <div className={MOSTRAR_TESTE_RASCUNHO ? "grid xl:grid-cols-[minmax(0,1fr)_minmax(340px,380px)] gap-5 items-start" : "grid gap-5 items-start"}>
                       <div className="space-y-4 min-w-0">
                         {/* Faixa de contexto/navegação — qual agente, posição e ir/voltar */}
                         <div className="flex items-center justify-between gap-3">
@@ -2164,10 +2167,10 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                       </div>
 
                       {/* Painel lateral: teste do RASCUNHO no motor real do servidor (app/gestao/rotas_rascunho.py). */}
-                      <div className="xl:sticky xl:top-[5.5rem]">
+                      {MOSTRAR_TESTE_RASCUNHO && <div className="xl:sticky xl:top-[5.5rem]">
                         <TestePrompt idProduto={groupId} obterRascunho={obterRascunhoTeste} etapas={etapasTeste}
                                      etapaSugerida={currentAgent.role} c1={catC1} />
-                      </div>
+                      </div>}
                     </div>
                   )}
 
@@ -2647,7 +2650,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           )}
         </div>
         </div>
-        {template && step === 6 && groupId ? (
+        {MOSTRAR_TESTE_RASCUNHO && template && step === 6 && groupId ? (
           <div className="lg:sticky lg:top-[5.5rem] self-start">
             <TestePrompt idProduto={groupId} obterRascunho={obterRascunhoTeste} etapas={etapasTeste} c1={catC1} />
           </div>

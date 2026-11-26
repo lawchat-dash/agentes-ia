@@ -68,7 +68,7 @@ export function TelaModelo() {
     if (!dados) return;
     setForm({
       nome: dados.nome, descricao: dados.descricao, situacao: dados.situacao, honorarios: dados.config.honorarios ?? "",
-      modelo_ia: dados.config.modelo_ia ?? "gpt-4.1", definicao: dados.config.definicao, instrucoes: dados.config.instrucoes ?? {},
+      modelo_ia: dados.config.modelo_ia ?? "gpt-4.1-mini", definicao: dados.config.definicao, instrucoes: dados.config.instrucoes ?? {},
       funcoes: dados.config.funcoes ?? {}, automacoes: dados.config.automacoes ?? {},
     });
     setEtapa((e) => e || dados.etapas[0]?.codigo || "");

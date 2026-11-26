@@ -36,7 +36,7 @@ export function TelaAgenteNovo() {
   // Comportamento
   const [espera, setEspera] = useState(10);
   const [pausa, setPausa] = useState<number | null>(30);
-  const [modelo, setModelo] = useState("gpt-4.1");
+  const [modelo, setModelo] = useState("gpt-4.1-mini");
   // Conteúdo
   const [definicao, setDefinicao] = useState<Definicao | null>(null);
   const [erroDefinicao, setErroDefinicao] = useState<string | null>(null);
