@@ -255,6 +255,7 @@ from app.gestao.rotas_avisos import api as api_avisos; app.include_router(api_av
 from app.gestao.rotas_resumo_contrato import api as api_resumo_contrato; app.include_router(api_resumo_contrato)  # noqa: E402,E702  Ferramentas > Resumo de contrato
 from app.gestao.rotas_reprocessar import api as api_reprocessar; app.include_router(api_reprocessar)  # noqa: E402,E702  Conversas > Responder agora
 from app.gestao.login_codigo import api as api_login_codigo; app.include_router(api_login_codigo)  # noqa: E402,E702  entrar com o código da plataforma
+from app.gestao.rotas_central_notificacoes import api as api_central_notificacoes; app.include_router(api_central_notificacoes)  # noqa: E402,E702  sino do topo: central de notificações
 if os.environ.get("AGENTESIA_PAINEL_CRM_LIGADO", "").strip() == "1":
     # Painel padrão do CRM pela API interna da Helena (impersonate): desligado por padrão. Se um dia o recebimento de
     # webhooks virar um app separado, este router NÃO entra nele.

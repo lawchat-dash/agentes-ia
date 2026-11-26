@@ -795,6 +795,10 @@ html { scroll-behavior: smooth; }
   border: 5px solid #0a8f35; box-shadow: 0 2px 8px rgba(10,143,53,.4); cursor: pointer; }
 .cr-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: #fff; border: 5px solid #0a8f35; box-shadow: 0 2px 8px rgba(10,143,53,.4); cursor: pointer; }
 .cr-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(10,143,53,.25); }
+/* Simulador: controle com mola (ElasticSlider). Bolinha branca com aro verde, como o controle antigo. */
+.cr-elastico { color: #0a8f35; }
+.cr-elastico .elastic-slider__thumb { box-sizing: border-box; border: 5px solid #0a8f35; box-shadow: 0 2px 8px rgba(10,143,53,.4); }
+.cr-elastico .elastic-slider__hit:focus-visible .elastic-slider__track { outline-color: rgba(10,143,53,.45); }
 @media (prefers-reduced-motion: reduce) {
   .cr-entra, .cr-barra, .cr-brilho, .cr-coluna { animation: none; }
   .cr-barra, .cr-anel, .cr-botao-verde { transition: none; }

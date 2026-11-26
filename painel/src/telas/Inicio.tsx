@@ -27,6 +27,7 @@ import { conectarAvisoAssinatura } from "@/hooks/useZapsign";
 import { toast } from "sonner";
 import { PrimeirosPassos, type PrimeirosPassosDados } from "@/components/dashboard/PrimeirosPassos";
 import { BentoIndicadores } from "@/components/dashboard/BentoIndicadores";
+import TextType from "@/components/reactbits/TextType";
 import "../estilo-inicio.css";
 
 /* ---------- dados da API ---------- */
@@ -281,7 +282,13 @@ export function TelaInicio() {
       <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6 flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="flex flex-wrap items-center gap-2 text-[28px] md:text-[33px] font-bold tracking-tight text-[#0b1220]">
-            {saudacao}, {firstName}!
+            {/* Saudação que se digita sozinha (React Bits TextType), uma vez só. A cópia invisível guarda o lugar:
+                o emoji e o selo não pulam enquanto as letras aparecem. */}
+            <span className="relative inline-block">
+              <span className="invisible whitespace-nowrap" aria-hidden>{saudacao}, {firstName}!</span>
+              <TextType as="span" className="!absolute inset-0 !whitespace-nowrap" text={`${saudacao}, ${firstName}!`} loop={false}
+                typingSpeed={55} initialDelay={250} cursorStyle="bar" cursorColor="#00bc33" hideCursorOnDone />
+            </span>
             <span className="inline-block animate-[wiggle_2s_ease-in-out_infinite]" aria-hidden>{saudacaoEmoji}</span>
             <span title={`Versão ${APP_VERSION} — em fase beta`} className="inline-flex items-center gap-1 rounded-full border border-[#fde9c8] bg-[#fff4df] px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#d97706]">
               <Sparkles className="size-3" /> Beta

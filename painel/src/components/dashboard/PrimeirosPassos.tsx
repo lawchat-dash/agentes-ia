@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowRight, CheckCircle2, Circle, MinusCircle, Rocket } from "lucide-react";
+import { ArrowRight, Circle, MinusCircle, Rocket } from "lucide-react";
+import SpringCheck from "@/components/reactbits/SpringCheck";
 
 /** GET /api/inicio/primeiros-passos (app/gestao/primeiros_passos.py). */
 export interface PassoInicial {
@@ -39,7 +40,7 @@ export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
           return (
             <li key={p.codigo} className={`rounded-xl border p-3 flex flex-col gap-1.5 ${proximo ? "border-[#00bc33]/50 bg-[#f3fdf6]" : "border-[#EAECF0] bg-white"}`}>
               <div className="flex items-center gap-2">
-                {feito ? <CheckCircle2 className="size-4 text-[#00a32c] shrink-0" aria-label="feito" />
+                {feito ? <SpringCheck checked somenteLeitura animarAoAparecer atraso={0.25 + i * 0.12} boxSize={16} boxRadius={999} bounce={0.35} ariaLabel="feito" />
                   : naoSeAplica ? <MinusCircle className="size-4 text-[#98A2B3] shrink-0" aria-label="não se aplica" />
                   : <Circle className="size-4 text-[#cbd5e1] shrink-0" aria-label="falta" />}
                 <span className={`text-[13px] font-semibold ${feito || naoSeAplica ? "text-[#667085]" : "text-[#101828]"}`}>{i + 1}. {p.titulo}</span>

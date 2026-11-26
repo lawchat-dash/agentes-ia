@@ -15,6 +15,10 @@ import Carousel, { type CarouselItem } from "@/components/reactbits/Carousel";
 import BorderGlow from "@/components/reactbits/BorderGlow";
 import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import LogoEscrita from "@/components/reactbits/LogoEscrita";
+import TextType from "@/components/reactbits/TextType";
+
+/** Finais do título do painel escuro (um de cada vez). */
+const FINAIS_DO_TITULO = ["seu escritório.", "seu WhatsApp.", "seu dia a dia."];
 import { toast } from "sonner";
 import { api } from "../api";
 import { useSessao } from "../sessao";
@@ -128,6 +132,7 @@ const splitStyle = `
   .lcsplit-marca .le-logo{filter:drop-shadow(0 4px 14px rgba(0,0,0,.35))}
   .lcsplit-titulo{font-family:var(--fs);font-weight:700;font-size:clamp(2rem,3.4vw,3rem);line-height:1.08;letter-spacing:-.03em;max-width:15ch;margin:0}
   .lcsplit-titulo em{font-style:normal;background:linear-gradient(135deg,var(--g1),var(--g2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lcsplit-titulo .lcsplit-digita{position:absolute;inset:0;white-space:nowrap;background:linear-gradient(135deg,var(--g1),var(--g2));-webkit-background-clip:text;background-clip:text;color:transparent}
   .lcsplit-lista{list-style:none;padding:0;margin:26px 0 0;display:flex;flex-direction:column;gap:14px;max-width:440px}
   .lcsplit-lista li{display:flex;gap:12px;align-items:flex-start;font-size:.95rem;line-height:1.5;color:rgba(240,242,245,.78)}
   .lcsplit-lista b{color:#fff;font-weight:600}
@@ -286,7 +291,13 @@ function TelaEntrada({ comSenha }: { comSenha: boolean }) {
           {/* Texto embaixo, sobre o degradê escuro; a linha do rodapé fecha o painel. */}
           <div className="lcsplit-baixo">
             <div className="lcsplit-texto">
-              <h1 className="lcsplit-titulo">Atendimento com IA para o <em>seu escritório.</em></h1>
+              <h1 className="lcsplit-titulo">Atendimento com IA para o{" "}
+                {/* Final da frase que se digita sozinho (React Bits TextType), devagar e com pausa longa para ler. */}
+                {/* A cópia invisível do final mais longo guarda o lugar: o título não muda de altura enquanto digita. */}
+                <em style={{ position: "relative", display: "inline-block" }}>
+                  <span style={{ visibility: "hidden" }} aria-hidden>seu escritório.</span>
+                  <TextType as="span" text={FINAIS_DO_TITULO} typingSpeed={70} deletingSpeed={35} pauseDuration={3600}
+                    initialDelay={900} cursorStyle="bar" cursorColor="#00BC33" className="lcsplit-digita" /></em></h1>
               {/* O que o LawChat faz, em carrossel (React Bits): passa sozinho, para com o mouse em cima. */}
               <div className="lcsplit-carrossel">
                 <Carousel items={DESTAQUES} baseWidth="100%" aspectRatio={estreito ? 2.1 : 3.1} frame effect="slide" indicator="bars"

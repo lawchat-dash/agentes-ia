@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig, motion } from "framer-motion";
 import {
-  BarChart3, Cpu, Workflow, Activity, AlertOctagon, Headset, Bell, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, History, Home, LayoutGrid, Library,
+  BarChart3, Cpu, Workflow, Activity, AlertOctagon, Headset, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, History, Home, LayoutGrid, Library,
   CreditCard, LogOut, Target, Menu, MessagesSquare, Package, ShieldCheck, Wrench, PanelLeftClose, PanelLeftOpen, PlugZap, Search, Settings, Users, Wallet, X,
 } from "lucide-react";
 import { NOME_PAPEL, type Agente } from "../api";
@@ -23,6 +23,7 @@ import { Modal, useCarregar } from "./ui";
 import { DockAtalhos } from "./DockAtalhos";
 import { AvisoSaldo } from "./AvisoSaldo";
 import { SaldoTopo } from "./SaldoTopo";
+import { CentralNotificacoes } from "./CentralNotificacoes";
 
 /*
  * Casca do painel: menu lateral, barra do topo e gaveta do celular.
@@ -191,11 +192,9 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
           <Search /><span>Buscar em tudo</span><kbd>Ctrl K</kbd>
         </button>
         <div className="lc-pilula">
-          {lawchat && escritorio && !impersonando && (   // na visão de cliente, nada de erros
-            <Link to="/admin/erros" className="lc-ico" aria-label={erros ? `${erros} erros abertos` : "Erros"} title="Erros abertos">
-              <Bell className="lc-sino" />{erros > 0 && <span className="lc-badge num">{erros > 9 ? "9+" : erros}</span>}
-            </Link>
-          )}
+          {/* Sino: central de notificações da IA (lead qualificado, IA pausada, contrato). Os erros técnicos entram só
+              para a equipe LawChat na visão dela; na visão de cliente (e para o cliente), só as notificações de negócio. */}
+          {escritorio && <CentralNotificacoes escritorio={escritorio} erros={erros} mostrarErros={lawchat && !impersonando} />}
           {lawchat && !impersonando && !modoAdmin && (
             <Link to="/admin/escritorios" className="lc-btn-admin" title="Entrar no modo superadmin"><ShieldCheck />Admin</Link>
           )}

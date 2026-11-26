@@ -12,6 +12,7 @@ import { quando } from "../api";
 import { useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { ListaRecargas, PedirRecarga, reais, type Movimento, type Recarga } from "./Carteira";
+import ElasticSlider from "@/components/reactbits/ElasticSlider";
 
 /*
  * Créditos & Consumo (cliente, /consumo). Foco: quantos leads o saldo atende. Tudo em R$ cobrado (o que sai da
@@ -314,8 +315,11 @@ function Simulador({ p, valor, setValor, aoRecarregar }: { p: PainelConsumo; val
         <div className="min-w-0 flex-1">
           <div className="text-[11.5px] font-bold uppercase tracking-[.12em] text-[#667085]">Recarregar</div>
           <div className="mt-1 text-[30px] font-extrabold leading-tight tracking-[-0.02em] tabular-nums text-[#0c111d] md:text-[34px]">{reais(valor)}</div>
-          <input type="range" min={10} max={2000} step={10} value={valor} onChange={(e) => setValor(Number(e.target.value))}
-            aria-label="Valor da recarga" className="cr-range mt-3 w-full" style={{ ["--pct" as any]: `${fracao * 100}%` }} />
+          {/* Controle com mola (React Bits ElasticSlider): mesmos valores do antigo (R$ 10 a R$ 2.000, de 10 em 10). */}
+          <ElasticSlider value={valor} startingValue={10} maxValue={2000} isStepped stepSize={10} onChange={setValor}
+            leftIcon={null} rightIcon={null} valuePosition="none" thumb thickness={6} activeThickness={12} maxStretch={14}
+            restOpacity={1} trackColor="#e5ece8" rangeColor="#0a8f35" thumbColor="#ffffff" ariaLabel="Valor da recarga"
+            formatValue={(v) => reais(v)} className="cr-elastico mt-1.5" style={{ width: "100%" }} />
           <div className="mt-1.5 flex justify-between text-[11.5px] text-[#98A2B3]"><span>R$ 10</span><span>R$ 2.000</span></div>
         </div>
       </div>
