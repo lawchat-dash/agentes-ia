@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
-import { RefreshCw, ExternalLink, MessagesSquare } from "lucide-react";
+import { RefreshCw, ExternalLink } from "lucide-react";
 import { Alerta } from "./ui";
 import { TelaEntrando, linkDaHelena } from "../telas/Atendimento";
 
@@ -64,6 +64,22 @@ export function useVagaLawChat(ref: RefObject<HTMLElement>, codigo: string, titu
 
 interface Quadro { codigo: string; titulo: string; estilo: CSSProperties; url: string | null; erro: string | null; pronto: boolean; vez: number }
 
+/** Caminho de cada tela dentro da LawChat (o mesmo do servidor, app/gestao/rotas.py PAGINAS_DE_AJUSTES). */
+const CAMINHOS: Record<string, string> = {
+  atendimento: "/chat2/sessions", usuarios: "/settings/core/agents", equipes: "/settings/core/departments",
+  modelos: "/settings/chat/templates", conta: "/settings/core/company", horario: "/settings/core/company/office-hours",
+  canais: "/settings/core/company/channels", consumo: "/settings/core/company/balance", integracoes: "/integration",
+  contatos: "/contacts", paineis: "/panels", chatbots: "/chatbots/list",
+};
+
+/**
+ * LOGIN ÚNICO: todas as telas são do mesmo endereço da LawChat e dividem o mesmo login no navegador. Cada login
+ * integrado novo derrubava o das telas já abertas (ficavam em branco). Agora só a 1ª tela faz o login; as outras
+ * abrem direto no endereço dela, aproveitando a sessão. "Recarregar" de uma tela faz um login novo, se precisar.
+ */
+let origemLawChat: string | null = null;
+let loginPronto = false;
+
 export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | null; escondida: boolean }) {
   const atual = useSyncExternalStore(assinar, lerVaga);
   const recarga = useSyncExternalStore(assinar, lerRecarga);
@@ -72,11 +88,17 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
   const vezDaRecarga = useRef(0);
 
   // Trocou de escritório: começa do zero (as telas eram da outra conta).
-  useEffect(() => { setQuadros({}); preabrir = []; }, [escritorio]);
+  useEffect(() => { setQuadros({}); preabrir = []; origemLawChat = null; loginPronto = false; }, [escritorio]);
 
-  const abrir = (codigo: string, titulo: string, estilo: CSSProperties) => {
+  const abrir = (codigo: string, titulo: string, estilo: CSSProperties, comLogin = false) => {
     setQuadros((q) => ({ ...q, [codigo]: { codigo, titulo, estilo, url: null, erro: null, pronto: false, vez: (q[codigo]?.vez ?? 0) + 1 } }));
+    if (!comLogin && loginPronto && origemLawChat && CAMINHOS[codigo]) {
+      const url = origemLawChat + CAMINHOS[codigo];
+      setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], url } } : q));
+      return;
+    }
     linkDaHelena(undefined, codigo === "atendimento" ? undefined : codigo)
+      .then((url) => { try { origemLawChat = new URL(url).origin; } catch { /* fica sem */ } return url; })
       .then((url) => setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], url } } : q)))
       .catch((e) => setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], erro: (e as Error).message, pronto: true } } : q)));
   };
@@ -92,6 +114,8 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
     if (!escritorio) return;
     const faltam = fila.filter((p) => !quadros[p.codigo]);
     if (!faltam.length) return;
+    const algumaEntrando = Object.values(quadros).some((q) => !q.pronto);
+    if (!loginPronto && algumaEntrando) return; // espera o login único terminar
     // Uma por vez e com folga (1,2 s): o painel continua leve enquanto as telas entram por trás.
     const t = window.setTimeout(() => abrir(faltam[0].codigo, faltam[0].titulo, faltam[0].estilo), 1200);
     return () => window.clearTimeout(t);
@@ -102,7 +126,7 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
     if (!recarga || recarga.vez === vezDaRecarga.current) return;
     vezDaRecarga.current = recarga.vez;
     const q = quadros[recarga.codigo];
-    if (q) abrir(q.codigo, q.titulo, q.estilo);
+    if (q) abrir(q.codigo, q.titulo, q.estilo, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarga]);
 
@@ -119,15 +143,22 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
           <div key={q.codigo} className="lc-quadro-lawchat" style={posicao} aria-hidden={!visivel}>
             {q.url && !q.erro && (
               <iframe key={`${q.vez}`} title={q.titulo} src={q.url} className="border-0" style={q.estilo}
-                onLoad={() => window.setTimeout(() => setQuadros((s) => (s[q.codigo] ? { ...s, [q.codigo]: { ...s[q.codigo], pronto: true } } : s)), 1200)}
+                onLoad={(e) => {
+                  loginPronto = true;
+                  const quadro = e.currentTarget;
+                  // Conferência dupla do corte: reaplica o recorte ao carregar e de novo 2 s depois (a LawChat às vezes
+                  // monta a tela em duas etapas); o tamanho também se reajusta sozinho com zoom e janela (vaga).
+                  const reaplicar = () => { if (quadro.isConnected) Object.assign(quadro.style, q.estilo); };
+                  reaplicar();
+                  window.setTimeout(reaplicar, 2000);
+                  window.setTimeout(() => setQuadros((s) => (s[q.codigo] ? { ...s, [q.codigo]: { ...s[q.codigo], pronto: true } } : s)), 1200);
+                }}
                 allow="clipboard-read; clipboard-write; microphone; camera" referrerPolicy="no-referrer" />
             )}
             {/* Central: a faixa verde "Ative as notificações na web" fica no topo da lista de conversas (400px); dentro do
                 painel o navegador não deixa ativar notificação, então ela nunca sairia. Fica coberta. */}
             {q.codigo === "atendimento" && (
-              <div aria-hidden className="lc-central-titulo" style={{ width: 400, height: 38 }}>
-                <MessagesSquare size={16} /> Conversas
-              </div>
+              <div aria-hidden className="lc-central-cobre" style={{ width: 400, height: 38 }} />
             )}
             {!q.pronto && <TelaEntrando titulo={`Abrindo ${q.titulo}`} />}
             {q.erro && (

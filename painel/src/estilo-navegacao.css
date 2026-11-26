@@ -38,7 +38,9 @@
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   height: 100dvh;
-  background: var(--bg, #F1F5F9);
+  background:
+    radial-gradient(1200px 520px at 0% 0%, rgba(0, 188, 51, .05), transparent 60%),
+    var(--bg, #F1F5F9);
   transition: grid-template-columns .22s var(--nav-suave);
 }
 .lc-casca.recolhido { --nav-w: var(--nav-largura-recolhido); }
@@ -551,12 +553,10 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 .lc-mt-selo { margin-left: 2px; padding: 2px 7px; border-radius: 99px; background: #00a32c; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: .03em; line-height: 1.2; }
 
 /* Telas da LawChat embaixo do menu do topo: sem o recuo da página, ocupando a altura que sobra. */
-.page.page-lawchat { max-width: none; padding: 0; animation: none; }
-/* De ponta a ponta, sem moldura, no branco da plataforma; o menu do topo flutua por cima com sombra. */
-.lc-tela-lawchat-cheia { position: relative; height: calc(100dvh - 66px); min-height: 460px; overflow: hidden; background: #fff; }
-.lc-quadro-lawchat { border-radius: 0; background: #fff; box-shadow: none !important; }
-.lc-casca:has(.page-lawchat) { background: #fff; }
-.lc-casca:has(.page-lawchat) .lc-topo { position: relative; z-index: 30; box-shadow: 0 10px 30px -12px rgba(16, 24, 40, .28), 0 1px 0 rgba(16, 24, 40, .04); background: #fff; }
+.page.page-lawchat { max-width: none; padding: 10px 16px 12px; animation: none; }
+.lc-tela-lawchat-cheia { position: relative; height: calc(100dvh - 92px); min-height: 460px; overflow: hidden;
+  border: 1px solid var(--nav-borda); border-radius: 16px; background: var(--lc-fundo-lawchat); }
+.lc-quadro-lawchat { border-radius: 16px; }
 .lc-casca:has(.page-lawchat) .lc-conteudo > .scroll { overflow: hidden; }
 
 /* Central: no lugar do aviso "Ative as notificações na web" (que não sai dentro do painel), o título da lista. */
@@ -567,3 +567,9 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 /* Menu de Configurações: rola sem mostrar barra (ela aparecia entre o menu e a tela). */
 .lc-conta-menu { scrollbar-width: none; }
 .lc-conta-menu::-webkit-scrollbar { display: none; }
+
+/* Central: cobre o aviso "Ative as notificações na web" sem chamar atenção (mesmo branco da lista). */
+.lc-central-cobre { position: absolute; left: 0; top: 0; z-index: 5; background: #fff; }
+
+/* Menu do topo sem sombra (ela parecia uma faixa sobrando embaixo dele). */
+@media (min-width: 821px) { .lc-topo { box-shadow: none; } }
