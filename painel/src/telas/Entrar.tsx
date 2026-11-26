@@ -1,18 +1,23 @@
-// Entrada do painel no visual do agents-lawchat-main (pages/Auth.tsx e pages/EntryGate.tsx).
-// Comportamento e rotas da API são os nossos:
-//  - cliente entra pela LawChat (/entrar/helena no servidor, sem senha) → enquanto a sessão carrega,
-//    mostra a tela "Validando seu acesso"; se a LawChat recusar, o servidor volta com ?erro=...;
-//  - sem sessão e sem vir da LawChat → "Acesso restrito" (com um link discreto para a equipe);
-//  - /login (ou /acesso, ?equipe) → login da equipe LawChat com e-mail e senha (POST /entrar);
+// Entrada do painel.
+//  - Tela principal (layout dividido): à esquerda o painel escuro com o que o LawChat faz; à direita o cartão
+//    "Entrar no LawChat" com o código que a plataforma manda por e-mail ou SMS (POST /entrar/codigo e
+//    /entrar/codigo/confirmar). "Entrar com senha" mostra o formulário de e-mail e senha (POST /entrar).
+//  - Quem vem do botão dentro da plataforma (/entrar/helena no servidor) continua entrando sem senha; se a
+//    plataforma recusar, o servidor volta com ?erro=... e mostramos o erro;
+//  - /login (ou /acesso, ?equipe) → abre direto no formulário de senha;
 //  - /superadmin → página própria do superadmin (só equipe LawChat; o servidor recusa quem é de escritório).
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Bot, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import {
+  AlertTriangle, ArrowLeft, ArrowRight, Bot, CalendarCheck, Eye, EyeOff, FileSignature, Loader2, Lock, Mail,
+  MessageSquare, ShieldCheck, Smartphone, Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
 import { useSessao } from "../sessao";
 import { Button } from "@/components/ui/button";
 import { BlockedAccountDialog } from "@/components/auth/BlockedAccountDialog";
 import logoMark from "@/assets/lawchat-logo.png";
+import iconeLawChat from "@/assets/lawchat-icone.svg";
 
 const ERROS_DA_HELENA: Record<string, string> = {
   link_incompleto: "O link da LawChat veio incompleto. Abra a IA de novo pelo botão dentro da LawChat.",
@@ -100,56 +105,335 @@ const Background = () => (
   </>
 );
 
-/** Sem sessão: decide entre o erro da LawChat, o "Acesso restrito" e o login da equipe. */
-export function Entrar() {
-  const [formulario, setFormulario] = useState(querFormulario());
-  // Página própria do superadmin: formulário direto, só para a equipe LawChat.
-  if (window.location.pathname.startsWith("/superadmin")) return <LoginEquipe superadmin />;
-  const [erroHelena] = useState(() => new URLSearchParams(window.location.search).get("erro"));
-  if (erroHelena && !formulario) return <ErroDeEntrada codigo={erroHelena} />;
-  if (!formulario) {
-    return <AcessoRestrito aoAbrirEquipe={() => {
-      try { sessionStorage.setItem(CHAVE_FORM, "1"); } catch { /* sem armazenamento: só nesta tela */ }
-      window.history.replaceState(null, "", "/login");
-      setFormulario(true);
-    }} />;
+// ----- Layout dividido (tela principal de entrada) -----
+const splitStyle = `
+  .lcsplit{--g1:#A7D7A4;--g2:#00BC33;--g3:#009926;--d9:#0B0D0F;--l0:#F8F9FB;--l2:#E2E5EA;--td:#111318;--tdm:#5F6570;--fs:'Space Grotesk',sans-serif;--fi:'Inter',sans-serif;
+    min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);background:#F3F5F7;font-family:var(--fi);overflow-x:hidden}
+  .lcsplit *{box-sizing:border-box}
+  .lcsplit-esq{position:relative;margin:16px 0 16px 16px;border-radius:28px;overflow:hidden;background:var(--d9);color:#F0F2F5;
+    display:flex;flex-direction:column;justify-content:space-between;padding:44px 48px;min-height:calc(100vh - 32px)}
+  .lcsplit-esq>*{position:relative;z-index:1}
+  .lcsplit-esq>.lcauth-bg,.lcsplit-esq>.lcauth-grid,.lcsplit-esq>.lcauth-orb{position:absolute;z-index:0}
+  .lcsplit-marca{display:flex;align-items:center;gap:10px;font-family:var(--fs);font-weight:700;font-size:1.25rem;letter-spacing:-.01em}
+  .lcsplit-marca img{height:30px;width:auto}
+  .lcsplit-titulo{font-family:var(--fs);font-weight:700;font-size:clamp(2rem,3.4vw,3rem);line-height:1.08;letter-spacing:-.03em;max-width:15ch;margin:0}
+  .lcsplit-titulo em{font-style:normal;background:linear-gradient(135deg,var(--g1),var(--g2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lcsplit-lista{list-style:none;padding:0;margin:26px 0 0;display:flex;flex-direction:column;gap:14px;max-width:440px}
+  .lcsplit-lista li{display:flex;gap:12px;align-items:flex-start;font-size:.95rem;line-height:1.5;color:rgba(240,242,245,.78)}
+  .lcsplit-lista b{color:#fff;font-weight:600}
+  .lcsplit-ic{flex:none;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:rgba(0,188,51,.14);border:1px solid rgba(0,188,51,.28);color:var(--g1)}
+  .lcsplit-chat{display:flex;flex-direction:column;gap:10px;max-width:380px;margin-top:34px}
+  .lcsplit-bolha{padding:11px 14px;border-radius:16px;font-size:.84rem;line-height:1.45;max-width:85%;animation:lcUp .6s cubic-bezier(.22,1,.36,1) both}
+  .lcsplit-bolha.lead{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-bottom-left-radius:6px;align-self:flex-start}
+  .lcsplit-bolha.ia{background:linear-gradient(135deg,rgba(0,188,51,.9),rgba(0,153,38,.9));color:#fff;border-bottom-right-radius:6px;align-self:flex-end}
+  .lcsplit-rodape{font-size:.75rem;color:rgba(240,242,245,.45);display:flex;gap:16px;flex-wrap:wrap}
+  .lcsplit-rodape span{display:inline-flex;align-items:center;gap:5px}
+  .lcsplit-dir{display:grid;place-items:center;padding:32px 24px}
+  .lcsplit-card{width:100%;max-width:420px;background:#fff;border:1px solid var(--l2);border-radius:24px;padding:36px 32px;
+    box-shadow:0 24px 60px -28px rgba(17,19,24,.22),0 2px 8px rgba(17,19,24,.04);animation:lcUp .5s cubic-bezier(.22,1,.36,1) both}
+  .lcsplit-abas{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:var(--l0);border:1px solid var(--l2);border-radius:14px;margin-bottom:18px}
+  .lcsplit-aba{height:38px;border:none;border-radius:10px;background:transparent;color:var(--tdm);font-family:var(--fi);font-size:.82rem;font-weight:600;
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:background .2s,color .2s,box-shadow .2s}
+  .lcsplit-aba[aria-selected="true"]{background:#fff;color:var(--td);box-shadow:0 1px 3px rgba(17,19,24,.1)}
+  .lcsplit-otp{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+  .lcsplit-otp input{width:100%;height:54px;text-align:center;font-family:var(--fs);font-size:1.35rem;font-weight:600;color:var(--td);
+    background:var(--l0);border:1px solid var(--l2);border-radius:14px;outline:none;transition:border-color .2s,box-shadow .2s,background .2s}
+  .lcsplit-otp input:focus{border-color:rgba(0,188,51,.6);background:#fff;box-shadow:0 0 0 4px rgba(0,188,51,.12)}
+  .lcsplit-linha{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:.8rem;color:var(--tdm)}
+  .lcsplit-sep{display:flex;align-items:center;gap:12px;color:#A6ABB4;font-size:.75rem;margin:20px 0 14px}
+  .lcsplit-sep::before,.lcsplit-sep::after{content:"";flex:1;height:1px;background:var(--l2)}
+  .lcsplit-erro{font-size:.8rem;line-height:1.5;color:#B42318;background:#FEF3F2;border:1px solid #FECDCA;border-radius:12px;padding:10px 12px}
+  @media (max-width: 900px){
+    .lcsplit{grid-template-columns:minmax(0,1fr)}
+    .lcsplit-esq{margin:12px 12px 0;min-height:auto;padding:28px 24px;border-radius:22px}
+    .lcsplit-titulo{font-size:1.75rem}
+    .lcsplit-chat,.lcsplit-rodape{display:none}
+    .lcsplit-lista{margin-top:18px;gap:10px}
+    .lcsplit-lista li{font-size:.86rem}
+    .lcsplit-dir{padding:16px 16px 32px}
+    .lcsplit-card{padding:28px 20px}
   }
-  return <LoginEquipe />;
+  @media (max-width: 380px){ .lcsplit-otp{gap:5px} .lcsplit-otp input{height:46px;font-size:1.15rem} }
+`;
+
+const CHAVE_DISPOSITIVO = "agentesia_dispositivo";
+const ESPERA_REENVIO_S = 60;
+
+/** Id deste navegador para a plataforma (internalDeviceId): um UUID guardado no aparelho. */
+function idDoDispositivo(): string | undefined {
+  try {
+    let id = localStorage.getItem(CHAVE_DISPOSITIVO);
+    if (!id) {
+      if (typeof crypto === "undefined" || !("randomUUID" in crypto)) return undefined;
+      id = crypto.randomUUID();
+      localStorage.setItem(CHAVE_DISPOSITIVO, id);
+    }
+    return id || undefined;
+  } catch {
+    return undefined;   // sem armazenamento: o servidor deriva um
+  }
 }
 
-/** Tela pública (pages/Auth.tsx sem ?admin): acesso somente pela LawChat. */
-function AcessoRestrito({ aoAbrirEquipe }: { aoAbrirEquipe: () => void }) {
+function mensagemDe(falha: unknown, padrao: string): string {
+  const f = falha as { status?: number; message?: string };
+  return f?.status && f.message ? f.message : padrao;
+}
+
+/** Sem sessão: decide entre o erro da plataforma, a tela de entrada e o superadmin. */
+export function Entrar() {
+  const [senha] = useState(querFormulario());
+  const [erroHelena] = useState(() => new URLSearchParams(window.location.search).get("erro"));
+  // Página própria do superadmin: formulário direto, só para a equipe LawChat.
+  if (window.location.pathname.startsWith("/superadmin")) return <LoginEquipe superadmin />;
+  if (erroHelena && !senha) return <ErroDeEntrada codigo={erroHelena} />;
+  return <TelaEntrada comSenha={senha} />;
+}
+
+type Meio = "email" | "telefone";
+
+function formatarTelefone(bruto: string): string {
+  const d = bruto.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "").slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
+/** Tela principal: layout dividido com o login por código (e o por senha num clique). */
+function TelaEntrada({ comSenha }: { comSenha: boolean }) {
+  const [modo, setModo] = useState<"codigo" | "senha">(comSenha ? "senha" : "codigo");
   return (
     <>
       <style>{brandStyle}</style>
-      <div className="lcauth">
-        <Background />
-        <div className="lcauth-card" style={{ maxWidth: 420, textAlign: "center" }}>
-          <div className="lcauth-panel">
-            <img src={logoMark} alt="LawChat" style={{ height: 38, objectFit: "contain", margin: "0 auto 22px", display: "block" }} />
-            <div style={{ width: 56, height: 56, margin: "0 auto 18px", borderRadius: 18, display: "grid", placeItems: "center", background: "rgba(0,188,51,.1)", border: "1px solid rgba(0,188,51,.2)" }}>
-              <Lock className="size-7" style={{ color: "#009926" }} />
-            </div>
-            <h1 className="lcauth-title" style={{ fontSize: "1.4rem" }}>Acesso restrito</h1>
-            <p className="lcauth-sub">
-              O acesso à IA da LawChat é feito automaticamente pelo botão dentro da LawChat.
-              Abra a LawChat e entre por lá, sem senha.
-            </p>
-            <div className="lcauth-foot">
-              Não consegue acessar? Fale com o time comercial.
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <button type="button" onClick={aoAbrirEquipe} className="lcauth-link">Acesso da equipe</button>
+      <style>{splitStyle}</style>
+      <div className="lcsplit">
+        <aside className="lcsplit-esq">
+          <Background />
+          <div className="lcsplit-marca"><img src={iconeLawChat} alt="" /> LawChat</div>
+          <div>
+            <h1 className="lcsplit-titulo">Atendimento com IA para o <em>seu escritório.</em></h1>
+            <ul className="lcsplit-lista">
+              <li><span className="lcsplit-ic"><MessageSquare className="size-4" /></span>
+                <span><b>Responde no WhatsApp na hora</b>, 24 horas, com o jeito e as regras do seu escritório.</span></li>
+              <li><span className="lcsplit-ic"><CalendarCheck className="size-4" /></span>
+                <span><b>Qualifica cada contato</b> e passa para a equipe só quem tem caso, no momento certo.</span></li>
+              <li><span className="lcsplit-ic"><FileSignature className="size-4" /></span>
+                <span><b>Coleta os dados e envia o contrato</b> para assinar, e acompanha até a assinatura.</span></li>
+            </ul>
+            <div className="lcsplit-chat" aria-hidden>
+              <div className="lcsplit-bolha lead">Oi, sofri um acidente no trabalho e fiquei com sequela. Tenho direito?</div>
+              <div className="lcsplit-bolha ia" style={{ animationDelay: ".25s" }}>Sinto muito pelo acidente. Vou te ajudar a entender: o acidente aconteceu há quanto tempo?</div>
             </div>
           </div>
-        </div>
+          <div className="lcsplit-rodape">
+            <span><Bot className="size-3.5" /> Agentes de IA</span>
+            <span><Sparkles className="size-3.5" /> Modelos de ponta</span>
+            <span><ShieldCheck className="size-3.5" /> Dados protegidos</span>
+          </div>
+        </aside>
+
+        <main className="lcsplit-dir">
+          <div className="lcsplit-card">
+            <img src={logoMark} alt="LawChat" style={{ height: 34, objectFit: "contain", marginBottom: 20 }} />
+            <h2 className="lcauth-title" style={{ fontSize: "1.5rem" }}>Entrar no LawChat</h2>
+            {modo === "codigo" ? (
+              <>
+                <p className="lcauth-sub" style={{ marginBottom: 20 }}>
+                  Use o mesmo e-mail ou celular da sua conta de atendimento. Enviamos um código, sem senha.
+                </p>
+                <FormCodigo />
+                <div className="lcsplit-sep">ou</div>
+                <button type="button" className="lcauth-link" style={{ width: "100%", textAlign: "center" }}
+                        onClick={() => setModo("senha")}>
+                  <Lock className="size-3.5" style={{ display: "inline", marginRight: 6, verticalAlign: "-2px" }} />
+                  Entrar com senha
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="lcauth-sub" style={{ marginBottom: 20 }}>Entre com o e-mail e a senha do painel.</p>
+                <FormSenha />
+                <div className="lcsplit-sep">ou</div>
+                <button type="button" className="lcauth-link" style={{ width: "100%", textAlign: "center" }}
+                        onClick={() => setModo("codigo")}>
+                  <Mail className="size-3.5" style={{ display: "inline", marginRight: 6, verticalAlign: "-2px" }} />
+                  Entrar com código (sem senha)
+                </button>
+              </>
+            )}
+          </div>
+        </main>
       </div>
     </>
   );
 }
 
-/** Login da equipe LawChat (pages/Auth.tsx mode="login"), com o nosso POST /entrar. */
-function LoginEquipe({ superadmin = false }: { superadmin?: boolean }) {
+/** E-mail ou celular → código de 6 dígitos → entrar. */
+function FormCodigo() {
+  const { recarregar, trocarVisao } = useSessao();
+  const [meio, setMeio] = useState<Meio>("email");
+  const [email, setEmail] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [etapa, setEtapa] = useState<"pedir" | "codigo">("pedir");
+  const [digitos, setDigitos] = useState<string[]>(Array(6).fill(""));
+  const [ocupado, setOcupado] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [espera, setEspera] = useState(0);
+  const caixas = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    if (espera <= 0) return;
+    const id = setTimeout(() => setEspera((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [espera]);
+
+  const identificador = () => (meio === "email" ? { email: email.trim() } : { telefone: telefone.replace(/\D/g, "") });
+  const valido = meio === "email"
+    ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) && email.length <= 255
+    : /^\d{10,11}$/.test(telefone.replace(/\D/g, ""));
+
+  async function pedir(e?: FormEvent) {
+    e?.preventDefault();
+    setErro(null);
+    if (!valido) { setErro(meio === "email" ? "Digite um e-mail válido." : "Digite o celular com DDD."); return; }
+    setOcupado(true);
+    try {
+      await api("/entrar/codigo", { corpo: identificador() });
+      setEtapa("codigo");
+      setDigitos(Array(6).fill(""));
+      setEspera(ESPERA_REENVIO_S);
+      toast.success(meio === "email" ? "Se o e-mail tiver acesso, o código chega em instantes." : "Se o celular tiver acesso, o código chega em instantes.");
+      setTimeout(() => caixas.current[0]?.focus(), 50);
+    } catch (falha) {
+      setErro(mensagemDe(falha, "Não foi possível pedir o código. Tente de novo."));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function confirmar(codigo: string) {
+    if (ocupado) return;
+    setErro(null);
+    setOcupado(true);
+    try {
+      const r = await api<{ destino?: string }>("/entrar/codigo/confirmar", {
+        corpo: { ...identificador(), codigo, dispositivo: idDoDispositivo() },
+      });
+      trocarVisao("lawchat");
+      // A rota /login leva a equipe LawChat para /admin/escritorios; escritório vai para /.
+      window.history.replaceState(null, "", r?.destino === "/admin/escritorios" ? "/login" : "/");
+      await recarregar();
+      toast.success("Bem-vindo!");
+    } catch (falha) {
+      setErro(mensagemDe(falha, "Não foi possível conectar ao login."));
+      setDigitos(Array(6).fill(""));
+      setTimeout(() => caixas.current[0]?.focus(), 50);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  function digitar(i: number, valor: string) {
+    const d = valor.replace(/\D/g, "");
+    if (d.length > 1) { colar(d, i); return; }
+    const novos = [...digitos];
+    novos[i] = d;
+    setDigitos(novos);
+    if (d && i < 5) caixas.current[i + 1]?.focus();
+    if (novos.every(Boolean)) void confirmar(novos.join(""));
+  }
+
+  function colar(texto: string, inicio = 0) {
+    const d = texto.replace(/\D/g, "").slice(0, 6 - inicio);
+    if (!d) return;
+    const novos = [...digitos];
+    d.split("").forEach((c, k) => { novos[inicio + k] = c; });
+    setDigitos(novos);
+    caixas.current[Math.min(inicio + d.length, 5)]?.focus();
+    if (novos.every(Boolean)) void confirmar(novos.join(""));
+  }
+
+  function tecla(i: number, e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && !digitos[i] && i > 0) caixas.current[i - 1]?.focus();
+    if (e.key === "ArrowLeft" && i > 0) caixas.current[i - 1]?.focus();
+    if (e.key === "ArrowRight" && i < 5) caixas.current[i + 1]?.focus();
+  }
+
+  if (etapa === "codigo") {
+    const destino = meio === "email" ? email.trim() : formatarTelefone(telefone);
+    return (
+      <form onSubmit={(e) => { e.preventDefault(); if (digitos.every(Boolean)) void confirmar(digitos.join("")); }}
+            noValidate style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <p style={{ fontSize: ".85rem", color: "var(--tdm)", margin: 0, overflowWrap: "anywhere" }}>
+          Digite o código de 6 dígitos enviado para <b style={{ color: "var(--td)" }}>{destino}</b>.
+        </p>
+        <div className="lcsplit-otp" role="group" aria-label="Código de 6 dígitos">
+          {digitos.map((d, i) => (
+            <input key={i} ref={(el) => { caixas.current[i] = el; }} value={d} inputMode="numeric" maxLength={6}
+                   autoComplete={i === 0 ? "one-time-code" : "off"} aria-label={`Dígito ${i + 1}`}
+                   onChange={(e) => digitar(i, e.target.value)} onKeyDown={(e) => tecla(i, e)}
+                   onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); colar(e.clipboardData.getData("text"), i); }}
+                   disabled={ocupado} />
+          ))}
+        </div>
+        {erro && <div className="lcsplit-erro" role="alert">{erro}</div>}
+        <button type="submit" disabled={ocupado || !digitos.every(Boolean)} className="lcauth-btn">
+          {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>Entrar<ArrowRight className="size-4" /></>}
+        </button>
+        <div className="lcsplit-linha" style={{ marginTop: 2 }}>
+          <button type="button" className="lcauth-link" onClick={() => { setEtapa("pedir"); setErro(null); }}>
+            <ArrowLeft className="size-3.5" style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />
+            {meio === "email" ? "Usar outro e-mail" : "Usar outro celular"}
+          </button>
+          {espera > 0
+            ? <span>Reenviar código em {espera}s</span>
+            : <button type="button" className="lcauth-link" disabled={ocupado} onClick={() => void pedir()}>Reenviar código</button>}
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <form onSubmit={pedir} noValidate style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div className="lcsplit-abas" role="tablist" style={{ marginBottom: 2 }}>
+        <button type="button" role="tab" aria-selected={meio === "email"} className="lcsplit-aba"
+                onClick={() => { setMeio("email"); setErro(null); }}>
+          <Mail className="size-3.5" /> Entrar com e-mail
+        </button>
+        <button type="button" role="tab" aria-selected={meio === "telefone"} className="lcsplit-aba"
+                onClick={() => { setMeio("telefone"); setErro(null); }}>
+          <Smartphone className="size-3.5" /> Entrar com telefone
+        </button>
+      </div>
+      {meio === "email" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <label htmlFor="email-codigo" className="lcauth-label">E-mail</label>
+          <div className="lcauth-field">
+            <Mail className="size-4 lcauth-ic" />
+            <input id="email-codigo" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                   placeholder="seu@escritorio.com.br" className="lcauth-input" autoComplete="email" maxLength={255} autoFocus />
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <label htmlFor="telefone-codigo" className="lcauth-label">Celular com DDD</label>
+          <div className="lcauth-field">
+            <Smartphone className="size-4 lcauth-ic" />
+            <input id="telefone-codigo" type="tel" value={telefone} onChange={(e) => setTelefone(formatarTelefone(e.target.value))}
+                   placeholder="(31) 98693-6492" className="lcauth-input" autoComplete="tel-national" inputMode="tel" autoFocus />
+          </div>
+        </div>
+      )}
+      {erro && <div className="lcsplit-erro" role="alert">{erro}</div>}
+      <button type="submit" disabled={ocupado} className="lcauth-btn">
+        {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>Receber código<ArrowRight className="size-4" /></>}
+      </button>
+    </form>
+  );
+}
+
+/** E-mail e senha (POST /entrar), na tela principal e na do superadmin. */
+function FormSenha({ superadmin = false }: { superadmin?: boolean }) {
   const { recarregar, trocarVisao } = useSessao();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -178,79 +462,82 @@ function LoginEquipe({ superadmin = false }: { superadmin?: boolean }) {
   }
 
   return (
+    <form onSubmit={enviar} noValidate style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        <label htmlFor="email" className="lcauth-label">E-mail</label>
+        <div className="lcauth-field">
+          <Mail className="size-4 lcauth-ic" />
+          <input
+            id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+            placeholder={superadmin ? "voce@lawchat.com.br" : "seu@escritorio.com.br"} className="lcauth-input" required
+            autoComplete="username" maxLength={255}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <label htmlFor="senha" className="lcauth-label">Senha</label>
+          <button type="button" onClick={() => setEsqueci((v) => !v)} className="lcauth-link">Esqueci minha senha</button>
+        </div>
+        <div className="lcauth-field">
+          <Lock className="size-4 lcauth-ic" />
+          <input
+            id="senha" type={verSenha ? "text" : "password"} value={senha}
+            onChange={(e) => setSenha(e.target.value)} placeholder="••••••••"
+            className="lcauth-input" required maxLength={72} autoComplete="current-password"
+          />
+          <button
+            type="button" onClick={() => setVerSenha((v) => !v)} tabIndex={-1}
+            className="lcauth-eye" aria-label={verSenha ? "Ocultar senha" : "Mostrar senha"}
+          >
+            {verSenha ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </div>
+      </div>
+
+      {esqueci && (
+        <div className="lcauth-nota" role="status">
+          {superadmin
+            ? "Peça uma senha provisória ao dono da LawChat (equipe)."
+            : "Entre com o código (sem senha), usando o e-mail da sua conta de atendimento. Ou peça uma senha provisória ao gestor do seu escritório."}
+        </div>
+      )}
+
+      <button type="submit" disabled={ocupado} className="lcauth-btn">
+        {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>{superadmin ? "Entrar como superadmin" : "Entrar"}<ArrowRight className="size-4" /></>}
+      </button>
+    </form>
+  );
+}
+
+/** Página do superadmin (/superadmin): só e-mail e senha, só equipe LawChat. */
+function LoginEquipe({ superadmin = false }: { superadmin?: boolean }) {
+  return (
     <>
       <style>{brandStyle}</style>
       <div className="lcauth">
         <Background />
         <div className="lcauth-card">
           <div className="lcauth-panel">
-            {/* Logo + badge */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginBottom: 26 }}>
               <img src={logoMark} alt="LawChat" style={{ height: 40, objectFit: "contain" }} />
               <span className="lcauth-badge">
                 <ShieldCheck className="size-3.5" /> {superadmin ? "Superadmin · área restrita" : "Plataforma LawChat"}
               </span>
             </div>
-
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <h1 className="lcauth-title">{superadmin ? "Acesso do superadmin" : "Acesse sua conta"}</h1>
               <p className="lcauth-sub">{superadmin
                 ? "Só para a equipe LawChat. Dá acesso a todas as contas, produtos, planos, recargas e erros da plataforma."
                 : "Entre na plataforma LawChat para gerenciar os agentes de IA."}</p>
             </div>
-
-            <form onSubmit={enviar} noValidate style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <label htmlFor="email" className="lcauth-label">E-mail</label>
-                <div className="lcauth-field">
-                  <Mail className="size-4 lcauth-ic" />
-                  <input
-                    id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                    placeholder={superadmin ? "voce@lawchat.com.br" : "seu@escritorio.com.br"} className="lcauth-input" required
-                    autoComplete="username" maxLength={255}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <label htmlFor="senha" className="lcauth-label">Senha</label>
-                  <button type="button" onClick={() => setEsqueci((v) => !v)} className="lcauth-link">Esqueci minha senha</button>
-                </div>
-                <div className="lcauth-field">
-                  <Lock className="size-4 lcauth-ic" />
-                  <input
-                    id="senha" type={verSenha ? "text" : "password"} value={senha}
-                    onChange={(e) => setSenha(e.target.value)} placeholder="••••••••"
-                    className="lcauth-input" required maxLength={72} autoComplete="current-password"
-                  />
-                  <button
-                    type="button" onClick={() => setVerSenha((v) => !v)} tabIndex={-1}
-                    className="lcauth-eye" aria-label={verSenha ? "Ocultar senha" : "Mostrar senha"}
-                  >
-                    {verSenha ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {esqueci && (
-                <div className="lcauth-nota" role="status">
-                  Peça uma senha provisória ao dono da LawChat (equipe) ou ao gestor do seu escritório. Quem é de escritório também pode entrar pela LawChat, sem senha.
-                </div>
-              )}
-
-              <button type="submit" disabled={ocupado} className="lcauth-btn">
-                {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>{superadmin ? "Entrar como superadmin" : "Entrar"}<ArrowRight className="size-4" /></>}
-              </button>
-            </form>
-
+            <FormSenha superadmin={superadmin} />
             <div className="lcauth-foot">
               É de um escritório?{" "}
-              <span style={{ color: "#009926", fontWeight: 600 }}>{superadmin ? "Este acesso não é para você: entre pela sua conta." : "Entre pelo botão dentro da LawChat."}</span>
+              <span style={{ color: "#009926", fontWeight: 600 }}>Este acesso não é para você: entre pela página inicial, com o código.</span>
             </div>
           </div>
-
-          {/* Selos de confiança */}
           <div className="lcauth-trust">
             <span><Bot className="size-3.5" /> Agentes de IA</span>
             <span><Sparkles className="size-3.5" /> Modelos de ponta</span>
