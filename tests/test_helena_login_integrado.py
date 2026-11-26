@@ -115,3 +115,31 @@ async def test_rota_abre_lista_e_conversa_e_recusa_o_que_nao_deve(ambiente, monk
     await cliente.post("/api/sair")
     cliente.cookies.clear()
     assert (await cliente.post(rota, headers=h, json={})).status_code == 401
+
+
+@pytest.mark.skipif(not URL, reason="sem AGENTESIA_TESTE_PG_URL")
+async def test_conta_lawchat_entra_com_o_email_do_atendimento(ambiente, monkeypatch):
+    """Na conta da própria LawChat, a equipe LawChat entra no atendimento com AGENTESIA_HELENA_EMAIL_ATENDIMENTO."""
+    from tests.test_gestao import _entrar
+
+    cliente, _simulada, email_admin, _banco = ambiente
+    chamadas: list[dict] = []
+
+    async def login_falso(self, *, email, id_conta, destino=None):
+        chamadas.append({"email": email, "id_conta": id_conta})
+        return {"urlRedirect": "https://advmidia.wts.chat/auth/external-login?code=x"}
+
+    monkeypatch.setattr(helena_conta.HelenaConta, "login_integrado", login_falso)
+    conta = str(uuid.uuid4())
+    monkeypatch.setenv("AGENTESIA_HELENA_CONTA_LAWCHAT", conta)
+    monkeypatch.setenv("AGENTESIA_HELENA_EMAIL_ATENDIMENTO", "atendimento@lawchat.test")
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    lawchat = (await cliente.post("/api/admin/escritorios", json={
+        "nome": "LawChat", "id_conta_helena": conta, "token_helena": "token-bom-123456"})).json()["escritorio"]
+    outra = (await cliente.post("/api/admin/escritorios", json={
+        "nome": "Cliente", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+    r = await cliente.post("/api/atendimento/entrar", headers={"x-escritorio": lawchat["id"]}, json={})
+    assert r.status_code == 200 and chamadas[-1]["email"] == "atendimento@lawchat.test"
+    # Em conta de cliente, nunca: vale o próprio e-mail de quem está logado.
+    r = await cliente.post("/api/atendimento/entrar", headers={"x-escritorio": outra["id"]}, json={})
+    assert r.status_code == 200 and chamadas[-1]["email"] == email_admin

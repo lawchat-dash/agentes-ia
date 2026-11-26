@@ -2388,6 +2388,18 @@ async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto
         email = (atendente or {}).get("email") or ""
     if not email or email.endswith(".helena.local"):
         raise HTTPException(409, "Seu usuário não tem um e-mail da Helena. Peça para cadastrar seu e-mail como atendente na Helena.")
+    # Conta da própria LawChat: a equipe LawChat entra no atendimento sempre com o usuário definido para isso
+    # (AGENTESIA_HELENA_EMAIL_ATENDIMENTO; padrão: o e-mail do administrador da conta, vindo da sincronização).
+    # O login do painel (ex.: admin@lawchat.com.br) é do parceiro e a Helena não faz o login integrado com ele.
+    conta_lawchat = os.environ.get("AGENTESIA_HELENA_CONTA_LAWCHAT", "").strip().lower()
+    if ctx.lawchat and conta_lawchat and str(id_conta).lower() == conta_lawchat:
+        fixo = os.environ.get("AGENTESIA_HELENA_EMAIL_ATENDIMENTO", "").strip().lower()
+        if not fixo:
+            from app.gestao import sincronizar_conta
+            conta_dados = (await sincronizar_conta.ler_dados_helena(repo.pool, id_escritorio)).get("conta") or {}
+            fixo = str(conta_dados.get("email_contato") or conta_dados.get("email") or "").strip().lower()
+        if fixo:
+            email = fixo
     destino = "/chat2/sessions"
     if dados.id_lead:
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", dados.id_lead):
@@ -2404,16 +2416,18 @@ async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto
         resposta = await helena.login_integrado(email=email, id_conta=str(id_conta), destino=destino)
     except ErroHelenaApi as erro:
         if erro.motivo in ("nao_encontrado", "erro_helena") and (erro.status or 0) in (400, 404, 422):
-            raise HTTPException(409, f"A Helena não achou um usuário com o e-mail {email} nesta conta. "
-                                     "Peça para cadastrar esse e-mail como atendente na Helena.") from erro
+            raise HTTPException(409, f"O e-mail {email} não é usuário desta conta na LawChat (super administrador do "
+                                     "parceiro não entra pelo atendimento). Cadastre esse e-mail como usuário da conta "
+                                     "em Ajustes › Usuários, ou entre com um usuário da conta.") from erro
         raise _erro_helena(erro) from erro
     url = str(resposta.get("urlRedirect") or "")
     if not _link_da_helena_e_seguro(url, pedido.app.state.cfg.helena_url):
         raise HTTPException(502, "A Helena não devolveu um link de entrada válido.")
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=id_escritorio, tabela="agentesia_escritorios",
                                    id_registro=id_escritorio, acao="abriu_atendimento",
-                                   resumo=f"Abriu o atendimento da Helena{' (conversa de um lead)' if dados.id_lead else ''}",
-                                   depois={"id_lead": dados.id_lead})
+                                   resumo=f"Abriu o atendimento da Helena{' (conversa de um lead)' if dados.id_lead else ''}"
+                                          + (f" como {email}" if email != str(ctx.usuario.get("email") or "").lower() else ""),
+                                   depois={"id_lead": dados.id_lead, "entrou_como": email})
     return {"url": url, "expira_em": resposta.get("expiresIn")}
 
 

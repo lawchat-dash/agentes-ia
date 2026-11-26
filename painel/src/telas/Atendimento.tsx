@@ -62,7 +62,7 @@ export function TelaAtendimento() {
           </span>
         </div>
         <span className="flex gap-1 shrink-0">
-          <button type="button" className="btn ghost sm" onClick={() => void carregar()} title="Recarregar a Helena" disabled={carregando}><RefreshCw size={14} /></button>
+          <button type="button" className="btn ghost sm" onClick={() => void carregar()} title="Recarregar o atendimento" disabled={carregando}><RefreshCw size={14} /></button>
           <button type="button" className="btn ghost sm" onClick={abrirFora} title="Use se a tela ficar em branco ou pedir login"><ExternalLink size={14} /> Janela separada</button>
         </span>
       </div>
@@ -74,7 +74,7 @@ export function TelaAtendimento() {
       {erro && (
         <div className="flex-1 grid place-items-center p-6">
           <div style={{ maxWidth: 520 }}>
-            <Alerta tipo="bad" titulo="Não deu para abrir a Helena">{erro}</Alerta>
+            <Alerta tipo="bad" titulo="Não deu para abrir o atendimento">{erro}</Alerta>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button type="button" className="btn" onClick={() => void carregar()}><RefreshCw size={15} /> Tentar de novo</button>
               <button type="button" className="btn pri" onClick={abrirFora}><ExternalLink size={15} /> Abrir em janela separada</button>
