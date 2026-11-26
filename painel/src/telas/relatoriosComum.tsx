@@ -9,17 +9,18 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, type Variants } from "framer-motion";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import {
-  Bot, Calendar, Check, ChevronDown, Clock, Copy, Download, ExternalLink, Facebook, FileCheck, FileDown, FileText, Filter, Globe,
-  Info, Instagram, Kanban, Layers, Megaphone, MousePointerClick, Music2, PenLine, Phone, RefreshCw, Search, Sparkles, Tag, TrendingUp,
-  Trophy, UserCheck, UserRound, Users, X, Youtube,
+  Bot, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, Download, ExternalLink, Facebook, FileCheck, FileDown, FileText, Filter, Globe,
+  Info, Instagram, Kanban, Layers, Megaphone, MessageCircle, MousePointerClick, Music2, PenLine, Phone, RefreshCw, Search, Sparkles, Tag, TrendingUp,
+  Trophy, UserCheck, UserRound, UserX, Users, X, Youtube,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { CONTORNO_ESTADOS, NOMES_ESTADOS } from "@/data/estadosBrasil";
@@ -995,142 +996,373 @@ export function ModalTodosAnuncios({ aberto, aoFechar, anuncios, ordem, abrir, t
   );
 }
 
+// --------------------------------------------------------------------------- detalhe do anúncio (popup central)
+interface LeadDoAnuncio {
+  id: string; nome: string | null; telefone: string | null; criado_em: string; etapa: string; alcancou: string; fase: string;
+  assinado: boolean; desqualificado: boolean; assinado_em: string | null; estado: string;
+}
 interface DetalheAnuncio extends Anuncio {
+  termo: string | null; qualificacao: number | null; desqualificacao: number | null;
+  primeiro_lead: string | null; ultimo_lead: string | null; ranking?: { posicao: number | null; posicao_leads?: number | null; total: number };
   funil: { fase: string; nome: string; chegaram: number }[];
   serie: { dia: string; leads: number; assinados: number }[];
-  lista_leads: { id: string; nome: string | null; telefone: string | null; criado_em: string; etapa: string; alcancou: string;
-           assinado: boolean; desqualificado: boolean; assinado_em: string | null; estado: string }[];
+  lista_leads: LeadDoAnuncio[]; total_leads?: number;
 }
 
-const CAIXA = "rounded-lg border border-border bg-muted/30 p-3 text-center";
+/** Cor e ícone grandes da plataforma (cabeçalho do detalhe). */
+const MARCA_PLATAFORMA: Record<string, { icone: typeof Users; fundo: string; sombra: string }> = {
+  instagram: { icone: Instagram, fundo: "linear-gradient(135deg, #f58529 0%, #dd2a7b 50%, #8134af 100%)", sombra: "rgba(221,42,123,0.45)" },
+  facebook: { icone: Facebook, fundo: "linear-gradient(135deg, #3b8bff 0%, #1460d8 100%)", sombra: "rgba(24,119,242,0.45)" },
+  google: { icone: Search, fundo: "linear-gradient(135deg, #4285f4 0%, #34a853 45%, #fbbc05 75%, #ea4335 100%)", sombra: "rgba(66,133,244,0.40)" },
+  youtube: { icone: Youtube, fundo: "linear-gradient(135deg, #ff4b4b 0%, #d00000 100%)", sombra: "rgba(220,0,0,0.40)" },
+  tiktok: { icone: Music2, fundo: "linear-gradient(135deg, #25f4ee 0%, #111827 45%, #111827 60%, #fe2c55 100%)", sombra: "rgba(254,44,85,0.35)" },
+};
+const MARCA_OUTRA = { icone: Megaphone, fundo: "linear-gradient(135deg, #8ED393 0%, #15BF41 100%)", sombra: "rgba(21,191,65,0.40)" };
 
-/** "Detalhes do Anúncio" do original, com o funil, os dias e os leads daquele anúncio. */
+const fmtDataHora = (d: string | null | undefined) =>
+  d ? new Date(d).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "–";
+const pctDe = (parte: number, todo: number) => (todo > 0 ? Math.round((parte / todo) * 1000) / 10 : null);
+const POR_PAGINA = 8;
+
+function Indicador({ icone, rotulo, cor, valor, sub, classe }: {
+  icone: ReactNode; rotulo: string; cor: string; valor: ReactNode; sub?: ReactNode; classe?: string;
+}) {
+  return (
+    <motion.div variants={ITEM_CASCATA} className={cn("relative overflow-hidden rounded-2xl border border-border/60 bg-card p-3.5", classe)}>
+      <span className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full opacity-[0.12]" style={{ background: cor }} />
+      <div className="flex items-center gap-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: cor }}>{icone}</span>
+        <span className="text-xs font-semibold leading-tight text-muted-foreground">{rotulo}</span>
+      </div>
+      <p className="mt-2 text-2xl font-extrabold tabular-nums tracking-tight text-foreground">{valor}</p>
+      {sub && <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>}
+    </motion.div>
+  );
+}
+
+function Secao({ titulo, icone, children, direita, classe }: { titulo: string; icone: ReactNode; children: ReactNode; direita?: ReactNode; classe?: string }) {
+  return (
+    <motion.section variants={ITEM_CASCATA} className={cn("rounded-2xl border border-border/60 bg-card p-4", classe)}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="flex items-center gap-2 text-sm font-bold text-foreground"><span className="text-primary">{icone}</span>{titulo}</h4>
+        {direita}
+      </div>
+      {children}
+    </motion.section>
+  );
+}
+
+function MiniFunil({ funil, leads }: { funil: DetalheAnuncio["funil"]; leads: number }) {
+  return (
+    <div className="-mx-1 overflow-x-auto px-1 pb-1">
+      <div className="flex min-w-[600px] items-stretch">
+        {funil.map((e, i) => {
+          const v = VISUAL_FASE[e.fase] ?? VISUAL_FASE.sdr;
+          const Icone = v.icone;
+          const anterior = i > 0 ? funil[i - 1].chegaram : null;
+          const largura = leads ? Math.max(4, (e.chegaram / leads) * 100) : 0;
+          return (
+            <div key={e.fase} className="flex flex-1 items-stretch">
+              {anterior != null && (
+                <div className="flex w-12 shrink-0 flex-col items-center justify-center text-center" title={`Passagem de ${funil[i - 1].nome} para ${e.nome}`}>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
+                  <span className={cn("text-[11px] font-bold tabular-nums", anterior ? "text-foreground" : "text-muted-foreground")}>{fmtPct(pctDe(e.chegaram, anterior), 0)}</span>
+                </div>
+              )}
+              <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-border/60 bg-muted/20 p-2.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white" style={{ background: `linear-gradient(135deg, ${v.de}, ${v.ate})` }}>
+                    <Icone className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="truncate text-[11px] font-semibold text-muted-foreground" title={e.nome}>{e.nome}</span>
+                </div>
+                <p className="mt-1.5 text-lg font-extrabold tabular-nums text-foreground"><Contador valor={e.chegaram} /></p>
+                <div className="mt-auto h-1.5 overflow-hidden rounded-full bg-secondary">
+                  <motion.div className="h-full rounded-full" style={{ background: `linear-gradient(90deg, ${v.de}, ${v.ate})` }}
+                    initial={{ width: 0 }} animate={{ width: `${largura}%` }} transition={{ delay: 0.25 + i * 0.08, duration: 0.8, ease: "easeOut" }} />
+                </div>
+                <span className="mt-1 text-[10px] tabular-nums text-muted-foreground">{fmtPct(pctDe(e.chegaram, leads), 0)} do total</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GraficoDoAnuncio({ serie }: { serie: DetalheAnuncio["serie"] }) {
+  const anima = useAnimaGrafico(1200);
+  const id = useId().replace(/[^a-zA-Z0-9]/g, "");
+  return (
+    <>
+      <div className="mb-2 flex items-center gap-3 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#15BF41]" />Leads</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-violet-500" />Contratos</span>
+      </div>
+      <div style={{ height: 200 }}>
+        <ResponsiveContainer>
+          <AreaChart data={serie} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+            <defs>
+              <linearGradient id={`${id}l`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#15BF41" stopOpacity={0.45} /><stop offset="100%" stopColor="#15BF41" stopOpacity={0} /></linearGradient>
+              <linearGradient id={`${id}a`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.45} /><stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient>
+            </defs>
+            <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="dia" tickFormatter={fmtDia} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} minTickGap={18} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} width={40} axisLine={false} tickLine={false} />
+            <RTooltip labelFormatter={(v) => fmtData(String(v) + "T12:00:00")} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+            <Area type="monotone" dataKey="leads" name="Leads" stroke="#15BF41" fill={`url(#${id}l)`} strokeWidth={2.6} {...anima} />
+            <Area type="monotone" dataKey="assinados" name="Contratos" stroke="#8b5cf6" fill={`url(#${id}a)`} strokeWidth={2.6} {...anima} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </>
+  );
+}
+
+function SobreOAnuncio({ a }: { a: DetalheAnuncio }) {
+  const [copiadoId, setCopiadoId] = useState(false);
+  const itens: [string, ReactNode][] = [
+    ["Campanha", a.campanha],
+    ["Conjunto / anúncio", a.titulo],
+    ["Fonte", a.fonte],
+    ["Meio", a.meio],
+    ["Conteúdo", a.conteudo],
+    ["Termo", a.termo],
+    ["Id do anúncio", a.id_anuncio && (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="break-all font-mono text-xs">{a.id_anuncio}</span>
+        <button type="button" aria-label="Copiar o id do anúncio" className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+          onClick={() => navigator.clipboard?.writeText(a.id_anuncio!).then(() => { setCopiadoId(true); window.setTimeout(() => setCopiadoId(false), 1600); })}>
+          {copiadoId ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      </span>
+    )],
+    ["Primeiro lead", fmtDataHora(a.primeiro_lead)],
+    ["Último lead", fmtDataHora(a.ultimo_lead)],
+  ];
+  return (
+    <dl className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3">
+      {itens.map(([rotulo, valor]) => (
+        <div key={rotulo} className="min-w-0 rounded-xl bg-muted/40 px-3 py-2">
+          <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{rotulo}</dt>
+          <dd className={cn("mt-0.5 break-words text-sm", valor ? "text-foreground" : "text-muted-foreground/60")}>{valor || "não informado"}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function LeadsDoAnuncio({ a, aoAbrirConversa }: { a: DetalheAnuncio; aoAbrirConversa: () => void }) {
+  const [busca, setBusca] = useState("");
+  const [pagina, setPagina] = useState(0);
+  const filtrados = useMemo(() => {
+    const t = busca.trim().toLowerCase();
+    const digitos = t.replace(/\D/g, "");
+    if (!t) return a.lista_leads;
+    return a.lista_leads.filter((l) => (l.nome ?? "").toLowerCase().includes(t) || l.etapa.toLowerCase().includes(t)
+      || (digitos.length >= 2 && (l.telefone ?? "").replace(/\D/g, "").includes(digitos)));
+  }, [a.lista_leads, busca]);
+  const paginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
+  const atual = Math.min(pagina, paginas - 1);
+  const visiveis = filtrados.slice(atual * POR_PAGINA, (atual + 1) * POR_PAGINA);
+  const total = a.total_leads ?? a.lista_leads.length;
+  const exportar = () => baixarCsv(`anuncio-${a.chave}-leads.csv`,
+    ["Lead", "Telefone", "Entrou em", "Etapa atual", "Chegou até", "Assinou", "Desqualificado"],
+    a.lista_leads.map((l) => [l.nome, l.telefone, fmtDataHora(l.criado_em), l.etapa, l.alcancou, l.assinado ? "sim" : "não", l.desqualificado ? "sim" : "não"]));
+  return (
+    <Secao titulo={`Leads deste anúncio (${fmtNum(total)})`} icone={<Users className="h-4 w-4" />}
+      direita={
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <label className="relative flex-1 sm:w-56 sm:flex-none">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(0); }} placeholder="Buscar nome, telefone ou etapa"
+              aria-label="Buscar nos leads do anúncio"
+              className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-2 text-xs text-foreground outline-none transition-shadow placeholder:text-muted-foreground/70 focus:border-primary/50 focus:ring-2 focus:ring-primary/15" />
+          </label>
+          <button type="button" onClick={exportar}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+            <Download className="h-3.5 w-3.5" />Exportar CSV
+          </button>
+        </div>
+      }>
+      <div className="overflow-hidden rounded-xl border border-border/60">
+        <div className="hidden grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_96px_120px] gap-3 bg-secondary/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:grid">
+          <span>Lead</span><span>Etapa atual</span><span>Entrou em</span><span className="text-right">Conversa</span>
+        </div>
+        {visiveis.map((l) => {
+          const cor = COR_ETAPA[l.fase] ?? COR_ETAPA.outra;
+          return (
+            <div key={l.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-t border-border/40 px-3 py-2.5 transition-colors first:border-t-0 hover:bg-secondary/30 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_96px_120px] sm:first:border-t">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{l.nome || "Contato sem nome"}</p>
+                <p className="font-mono text-[11px] text-muted-foreground">{l.telefone ?? "–"}</p>
+              </div>
+              <div className="order-3 col-span-2 min-w-0 sm:order-none sm:col-span-1">
+                <span className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                  style={{ background: `${cor}17`, color: cor }} title={`Chegou até ${l.alcancou}`}>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: cor }} />
+                  <span className="truncate">{l.etapa}</span>
+                </span>
+                {l.assinado && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600"><Check className="h-3 w-3" />Assinou</span>}
+                {l.estado === "pausado" && !l.assinado && <span className="ml-1.5 text-[10px] font-medium text-amber-600">com a equipe</span>}
+              </div>
+              <span className="order-4 hidden text-xs tabular-nums text-muted-foreground sm:order-none sm:block">{fmtData(l.criado_em)}</span>
+              <Link to={`/conversas/${l.id}`} onClick={aoAbrirConversa}
+                className="flex items-center justify-end gap-1 text-xs font-semibold text-primary transition-colors hover:text-primary/80">
+                <MessageCircle className="h-3.5 w-3.5" />Abrir conversa
+              </Link>
+            </div>
+          );
+        })}
+        {!visiveis.length && <Vazio icone={<Search className="h-5 w-5" />}>{busca ? "Nenhum lead encontrado nesta busca" : "Nenhum lead"}</Vazio>}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span>
+          {filtrados.length ? `${atual * POR_PAGINA + 1}–${Math.min(filtrados.length, (atual + 1) * POR_PAGINA)} de ${fmtNum(filtrados.length)}` : "0 leads"}
+          {total > a.lista_leads.length && ` · lista com os ${fmtNum(a.lista_leads.length)} mais recentes`}
+        </span>
+        {paginas > 1 && (
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={atual === 0} onClick={() => setPagina(atual - 1)} aria-label="Página anterior"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background transition-colors hover:bg-muted disabled:opacity-40">
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <span className="min-w-[64px] text-center tabular-nums">Página {atual + 1} de {paginas}</span>
+            <button type="button" disabled={atual >= paginas - 1} onClick={() => setPagina(atual + 1)} aria-label="Próxima página"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background transition-colors hover:bg-muted disabled:opacity-40">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </Secao>
+  );
+}
+
+function CorpoDoAnuncio({ a, aoFechar }: { a: DetalheAnuncio; aoFechar: () => void }) {
+  const horasTexto = fmtHoras(a.horas_ate_assinar);
+  const indicadores = [
+    { rotulo: "Leads", cor: "linear-gradient(135deg,#8ED393,#15BF41)", icone: <Users className="h-3.5 w-3.5" />,
+      valor: <Contador valor={a.leads} />, sub: a.custo_por_lead != null ? `${fmtBRL(a.custo_por_lead)} de IA por lead` : "no período" },
+    { rotulo: "Qualificados", cor: "linear-gradient(135deg,#22d3ee,#0891b2)", icone: <UserCheck className="h-3.5 w-3.5" />,
+      valor: <Contador valor={a.qualificados} />, sub: <><b className="text-foreground"><Contador valor={a.qualificacao ?? 0} casas={1} sufixo="%" /></b> dos leads</> },
+    { rotulo: "Contratos assinados", cor: "linear-gradient(135deg,#fbbf24,#f59e0b)", icone: <Trophy className="h-3.5 w-3.5" />,
+      valor: <Contador valor={a.assinados} />,
+      sub: a.qualificados ? <><b className="text-foreground"><Contador valor={pctDe(a.assinados, a.qualificados) ?? 0} casas={1} sufixo="%" /></b> dos qualificados</> : "nenhum qualificado ainda" },
+    { rotulo: "Desqualificados", cor: "linear-gradient(135deg,#f87171,#dc2626)", icone: <UserX className="h-3.5 w-3.5" />,
+      valor: <Contador valor={a.desqualificados} />, sub: <><b className="text-foreground"><Contador valor={a.desqualificacao ?? 0} casas={1} sufixo="%" /></b> dos leads</> },
+    { rotulo: "Conversão", cor: "linear-gradient(135deg,#a78bfa,#7c3aed)", icone: <TrendingUp className="h-3.5 w-3.5" />,
+      valor: <Contador valor={a.conversao ?? 0} casas={1} sufixo="%" />, sub: "de lead para contrato" },
+    { rotulo: "Tempo até assinar", cor: "linear-gradient(135deg,#60a5fa,#2563eb)", icone: <Clock className="h-3.5 w-3.5" />,
+      valor: horasTexto, sub: a.horas_ate_assinar != null ? "média entre a entrada e a assinatura" : "nenhum contrato assinado" },
+    ...(a.custo_brl > 0 ? [{ rotulo: "Custo da IA", cor: "linear-gradient(135deg,#94a3b8,#475569)", icone: <Bot className="h-3.5 w-3.5" />,
+      valor: <Contador valor={a.custo_brl} casas={2} prefixo="R$ " />,
+      sub: a.custo_por_contrato != null ? `${fmtBRL(a.custo_por_contrato)} por contrato` : "nenhum contrato ainda" }] : []),
+  ];
+  return (
+    <Cascata className="space-y-4" passo={0.05} atraso={0.05}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {indicadores.map((k, i) => (
+          <Indicador key={k.rotulo} {...k}
+            classe={cn(i === 0 && "sm:col-span-2", indicadores.length === 6 && i === 5 && "sm:col-span-2",
+              indicadores.length === 7 && i === 6 && "col-span-2 sm:col-span-1")} />
+        ))}
+      </div>
+      <Secao titulo="Funil do anúncio" icone={<Layers className="h-4 w-4" />}
+        direita={<span className="text-[11px] text-muted-foreground">quantos chegaram em cada etapa e a passagem de uma para a outra</span>}>
+        <MiniFunil funil={a.funil} leads={a.leads} />
+      </Secao>
+      <Secao titulo="Leads e contratos por dia" icone={<TrendingUp className="h-4 w-4" />}>
+        <GraficoDoAnuncio serie={a.serie} />
+      </Secao>
+      <Secao titulo="Sobre o anúncio" icone={<Info className="h-4 w-4" />}>
+        <SobreOAnuncio a={a} />
+      </Secao>
+      <LeadsDoAnuncio a={a} aoAbrirConversa={aoFechar} />
+    </Cascata>
+  );
+}
+
+/** Detalhe do anúncio: popup central com indicadores, funil, gráfico, dados do anúncio e os leads dele. */
 export function DetalheDoAnuncio({ chave, consulta, aoFechar }: { chave: string | null; consulta: string; aoFechar: () => void }) {
   const r = useCarregar<DetalheAnuncio>(chave ? `/relatorios/campanhas/anuncio/${chave}?${consulta}` : null, [chave, consulta]);
   const [copiado, setCopiado] = useState(false);
   const a = chave && r.dados?.chave === chave ? r.dados : null;
-  const copiar = (texto: string) => navigator.clipboard?.writeText(texto).then(() => { setCopiado(true); window.setTimeout(() => setCopiado(false), 2000); },
-    () => toast.error("Não deu para copiar."));
-  const exportar = () => {
-    if (!a) return;
-    baixarCsv(`anuncio-${a.chave}.csv`, ["Lead", "Telefone", "Entrou em", "Etapa atual", "Chegou até", "Assinou", "Desqualificado"],
-      a.lista_leads.map((l) => [l.nome, l.telefone, fmtData(l.criado_em), l.etapa, l.alcancou, l.assinado ? "sim" : "não", l.desqualificado ? "sim" : "não"]));
-  };
   const url = a?.url ? (/^https?:\/\//.test(a.url) ? a.url : `https://${a.url}`) : null;
+  const marca = (a?.plataforma && MARCA_PLATAFORMA[a.plataforma]) || MARCA_OUTRA;
+  const IconeMarca = marca.icone;
+  const medalhas: [string, number][] = [];
+  for (const [onde, n] of [["em contratos", a?.ranking?.posicao], ["em leads", a?.ranking?.posicao_leads]] as [string, number | null | undefined][])
+    if (n != null && n <= 3) medalhas.push([onde, n]);
+  const copiar = () => url && navigator.clipboard?.writeText(url).then(
+    () => { setCopiado(true); toast.success("Link do anúncio copiado."); window.setTimeout(() => setCopiado(false), 2000); },
+    () => toast.error("Não deu para copiar."));
   return (
-    <Dialog open={Boolean(chave)} onOpenChange={(v) => !v && aoFechar()}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-base font-bold text-foreground">Detalhes do Anúncio</DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">{a ? a.nome : "Carregando os dados do anúncio…"}</DialogDescription>
-        </DialogHeader>
-        {!a ? (
-          r.erro ? <p className="text-sm text-destructive">{r.erro}</p> : <div className="h-40 animate-pulse rounded-lg bg-muted/40" />
-        ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className={CAIXA}><Users className="mx-auto mb-1 h-4 w-4 text-primary" /><p className="text-lg font-bold text-foreground">{fmtNum(a.leads)}</p><p className="text-[11px] text-muted-foreground">Leads</p></div>
-              <div className={CAIXA}><FileCheck className="mx-auto mb-1 h-4 w-4 text-emerald-500" /><p className="text-lg font-bold text-foreground">{fmtNum(a.assinados)}</p><p className="text-[11px] text-muted-foreground">Contratos</p></div>
-              <div className={CAIXA}><TrendingUp className="mx-auto mb-1 h-4 w-4 text-amber-500" /><p className="text-lg font-bold text-foreground">{fmtPct(a.conversao ?? 0)}</p><p className="text-[11px] text-muted-foreground">Conversão</p></div>
-              <div className={CAIXA}><p className="text-lg font-bold text-foreground">{fmtNum(a.closer)}</p><p className="text-[11px] text-muted-foreground">Chegaram ao Closer</p></div>
-              <div className={CAIXA}><p className="text-lg font-bold text-red-500">{fmtNum(a.desqualificados)}</p><p className="text-[11px] text-muted-foreground">Desqualificados</p></div>
-              <div className={CAIXA}><p className="text-lg font-bold text-foreground">{fmtHoras(a.horas_ate_assinar)}</p><p className="text-[11px] text-muted-foreground">Tempo até assinar</p></div>
-            </div>
-            <div className="space-y-2 text-sm">
-              <div><span className="font-medium text-muted-foreground">Plataforma: </span><span className="text-foreground">{infoPlataforma(a.plataforma, a.plataforma_nome).nome}</span></div>
-              <div><span className="font-medium text-muted-foreground">Campanha: </span><span className="text-foreground">{a.campanha}</span></div>
-              {a.titulo && <div><span className="font-medium text-muted-foreground">Título: </span><span className="text-foreground">{a.titulo}</span></div>}
-              {a.conteudo && <div><span className="font-medium text-muted-foreground">Conteúdo: </span><span className="text-foreground">{a.conteudo}</span></div>}
-              {a.fonte && <div><span className="font-medium text-muted-foreground">Fonte: </span><span className="text-foreground">{a.fonte}{a.meio ? ` / ${a.meio}` : ""}</span></div>}
-              {a.id_anuncio && <div><span className="font-medium text-muted-foreground">Id do anúncio: </span><span className="font-mono text-xs text-foreground">{a.id_anuncio}</span></div>}
-              <div><span className="font-medium text-muted-foreground">Custo da IA: </span><span className="text-foreground">{fmtBRL(a.custo_brl)}{a.custo_por_contrato != null ? ` (${fmtBRL(a.custo_por_contrato)} por contrato)` : ""}</span></div>
-            </div>
-            {url && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold text-foreground">Link do anúncio</h4>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-primary transition-colors hover:bg-muted/60">
-                    <ExternalLink className="h-4 w-4" />{/instagram\.com/.test(url) ? "Abrir no Instagram" : /fb\.me|facebook\.com/.test(url) ? "Abrir no Facebook" : "Abrir no navegador"}
-                  </button>
-                  <button type="button" onClick={() => copiar(url)}
-                    className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/60">
-                    {copiado ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}{copiado ? "Copiado!" : "Copiar"}
-                  </button>
-                </div>
-              </div>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2 rounded-xl border border-border/50 bg-muted/20 p-3">
-                <p className="text-xs font-semibold text-foreground">Até onde os leads chegaram</p>
-                {a.funil.map((e) => {
-                  const v = VISUAL_FASE[e.fase] ?? VISUAL_FASE.sdr;
-                  return (
-                    <div key={e.fase}>
-                      <div className="mb-1 flex justify-between text-[11px]"><span className="text-muted-foreground">{e.nome}</span><span className="font-semibold text-foreground">{fmtNum(e.chegaram)}</span></div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                        <div className="h-full rounded-full" style={{ width: `${a.leads ? (e.chegaram / a.leads) * 100 : 0}%`, background: `linear-gradient(90deg, ${v.de}, ${v.ate})` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-                <p className="mb-2 text-xs font-semibold text-foreground">Leads e contratos por dia</p>
-                <div style={{ height: 150 }}>
-                  <ResponsiveContainer>
-                    <BarChart data={a.serie} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                      <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="dia" tickFormatter={fmtDia} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} minTickGap={16} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} width={32} axisLine={false} tickLine={false} />
-                      <RTooltip labelFormatter={(v) => fmtData(String(v) + "T12:00:00")} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                      <Bar dataKey="leads" name="Leads" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="assinados" name="Contratos" fill="#15BF41" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-border/60">
-              <div className="flex items-center justify-between border-b border-border p-3">
-                <h4 className="text-sm font-semibold text-foreground">Leads deste anúncio ({fmtNum(a.lista_leads.length)})</h4>
-                <button type="button" onClick={exportar}
-                  className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-                  <Download className="h-3.5 w-3.5" />CSV
-                </button>
-              </div>
-              <div className="max-h-72 overflow-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-secondary/30 text-xs text-muted-foreground">
-                      <th className="px-3 py-2 text-left font-medium">Lead</th><th className="px-3 py-2 text-left font-medium">Entrou em</th>
-                      <th className="px-3 py-2 text-left font-medium">Etapa atual</th><th className="px-3 py-2 text-right font-medium">Situação</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {a.lista_leads.map((l) => (
-                      <tr key={l.id} className="border-b border-border/30 transition-colors last:border-0 hover:bg-secondary/30">
-                        <td className="px-3 py-2"><Link to={`/conversas/${l.id}`} className="font-medium text-foreground hover:text-primary">{l.nome || "Contato sem nome"}</Link>
-                          <span className="block font-mono text-[11px] text-muted-foreground">{l.telefone}</span></td>
-                        <td className="px-3 py-2 text-muted-foreground">{fmtData(l.criado_em)}</td>
-                        <td className="px-3 py-2 text-foreground">{l.etapa}<span className="block text-[11px] text-muted-foreground">chegou até {l.alcancou}</span></td>
-                        <td className="px-3 py-2 text-right">
-                          {l.assinado ? <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">Assinou</span>
-                            : l.desqualificado ? <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500">Desqualificado</span>
-                            : l.estado === "pausado" ? <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-600">Com a equipe</span>
-                            : <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Em andamento</span>}
-                        </td>
-                      </tr>
+    <DialogPrimitive.Root open={Boolean(chave)} onOpenChange={(v) => !v && aoFechar()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay onMouseDown={(e) => { if (e.target === e.currentTarget) aoFechar(); }} className="rl-modal-fundo fixed inset-0 z-50 flex items-stretch justify-center bg-slate-900/50 backdrop-blur-[6px] sm:items-center sm:p-6">
+          <DialogPrimitive.Content aria-describedby={undefined}
+            className="rl-modal relative flex h-full w-full flex-col overflow-hidden bg-background shadow-[0_30px_80px_-20px_rgba(15,23,42,0.45),0_0_0_1px_rgba(15,23,42,0.06)] outline-none sm:h-auto sm:max-h-[min(92vh,960px)] sm:max-w-[880px] sm:rounded-3xl">
+            {/* cabeçalho */}
+            <div className="relative shrink-0 overflow-hidden border-b border-border/60 px-5 pb-4 pt-5 sm:px-6">
+              <div className="pointer-events-none absolute inset-0 opacity-[0.10]" style={{ background: marca.fundo }} />
+              <div className="relative flex items-start gap-3.5 pr-10">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white"
+                  style={{ background: marca.fundo, boxShadow: `0 10px 22px -10px ${marca.sombra}` }}>
+                  <IconeMarca className="h-6 w-6" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Detalhe do anúncio{a ? ` · ${infoPlataforma(a.plataforma, a.plataforma_nome).nome}` : ""}
+                    </span>
+                    {medalhas.map(([onde, n]) => (
+                      <span key={onde} className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50 py-0.5 pl-0.5 pr-2 text-[11px] font-bold text-amber-700">
+                        <Posicao i={n - 1} />Top {n} {onde}
+                      </span>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                  <DialogPrimitive.Title className="mt-0.5 break-words text-lg font-extrabold leading-snug tracking-tight text-foreground sm:text-xl">
+                    {a ? a.nome : chave && r.erro ? "Detalhe do anúncio" : "Carregando o anúncio…"}
+                  </DialogPrimitive.Title>
+                  {a && <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"><Megaphone className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{a.campanha}</span></p>}
+                </div>
               </div>
-              {a.lista_leads.length >= 100 && <p className="p-3 text-[11px] text-muted-foreground">Mostrando os 100 leads mais recentes.</p>}
+              {a && (
+                <div className="relative mt-3.5 flex flex-wrap gap-2 sm:pl-[62px]">
+                  <button type="button" disabled={!url} onClick={() => url && window.open(url, "_blank", "noopener,noreferrer")}
+                    title={url ? url : "Este anúncio não trouxe link"}
+                    className="btn-lawchat flex h-9 items-center gap-2 rounded-xl px-4 text-xs font-semibold">
+                    <ExternalLink className="h-3.5 w-3.5" />Abrir anúncio
+                  </button>
+                  <button type="button" disabled={!url} onClick={copiar}
+                    className="flex h-9 items-center gap-2 rounded-xl border border-border bg-background px-4 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">
+                    {copiado ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}{copiado ? "Copiado!" : "Copiar link"}
+                  </button>
+                </div>
+              )}
+              <DialogPrimitive.Close aria-label="Fechar"
+                className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-background/80 text-muted-foreground shadow-sm ring-1 ring-border/60 transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                <X className="h-4 w-4" />
+              </DialogPrimitive.Close>
             </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+            {/* corpo com rolagem própria */}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-muted/25 px-4 py-4 sm:px-6 sm:py-5">
+              {a ? <CorpoDoAnuncio a={a} aoFechar={aoFechar} />
+                : r.erro ? <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">{r.erro}</div>
+                : (
+                  <div className="space-y-4" role="status" aria-label="Carregando o anúncio">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{Array.from({ length: 7 }, (_, i) => <div key={i} className={cn("rl-brilho h-[104px] rounded-2xl", i === 0 && "sm:col-span-2")} />)}</div>
+                    <div className="rl-brilho h-[120px] rounded-2xl" />
+                    <div className="rl-brilho h-[260px] rounded-2xl" />
+                  </div>
+                )}
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Overlay>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 

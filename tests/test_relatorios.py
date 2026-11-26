@@ -135,7 +135,7 @@ async def _semear(cliente, pool, nome_conta):
                 id_esc, id_lead, criado + timedelta(hours=assinado_horas))
         return id_lead
 
-    insta = {"origem": "anuncio", "campanha": "Campanha Auxílio", "titulo": "Anúncio 1", "fonte": "instagram",
+    insta = {"origem": "anuncio", "campanha": "Campanha Auxílio", "titulo": "Anúncio 1", "fonte": "instagram", "termo": "bpc loas",
              "url": "https://www.instagram.com/p/abc/", "clid": "x1"}
     ids["a"] = await lead("Maria Relatório", "5531999990001", insta,
                           ["sdr", "closer", "contratos", "assinatura", "contrato_assinado"], assinado_horas=30)
@@ -233,6 +233,10 @@ async def test_dashboard_campanhas_e_anuncio(ambiente):  # noqa: F811
     assert a["leads"] == 2 and a["campanha"] == "Campanha Auxílio" and [x["chegaram"] for x in a["funil"]] == [2, 2, 1, 1, 1]
     assert {x["nome"] for x in a["lista_leads"]} == {"Maria Relatório", "João Relatório"}
     assert all("*****" in x["telefone"] for x in a["lista_leads"]) and "5531999990001" not in json.dumps(a)
+    assert a["plataforma"] == "instagram" and a["ranking"] == {"posicao": 1, "posicao_leads": 1, "total": 2} and a["total_leads"] == 2
+    assert {x["nome"]: x["fase"] for x in a["lista_leads"]} == {"Maria Relatório": "assinado", "João Relatório": "desqualificado"}
+    assert a["qualificacao"] == 50.0 and a["desqualificacao"] == 50.0 and a["primeiro_lead"] and a["ultimo_lead"]
+    assert a["termo"] == "bpc loas"
     # A outra conta tem um anúncio igual (mesma chave): cada uma vê só os próprios leads.
     do_outro = (await cliente.get(f"/api/relatorios/campanhas/anuncio/{melhor['chave']}", headers=outro["h"])).json()
     assert {x["id"] for x in do_outro["lista_leads"]} == {outro["a"], outro["b"]}

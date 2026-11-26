@@ -771,7 +771,8 @@ async def _crm(pool: Any, id_escritorio: str, inicio: datetime, fim: datetime) -
 
 # ------------------------------------------------------------------ campanhas
 _ATRIBUTOS = """min(l_titulo) as titulo, min(l_conteudo) as conteudo, min(l_url) as url, min(l_fonte) as fonte,
-                min(l_meio) as meio, min(l_id_anuncio) as id_anuncio, min(plataforma) as plataforma_exemplo"""
+                min(l_meio) as meio, min(l_id_anuncio) as id_anuncio, min(plataforma) as plataforma_exemplo,
+                min(l_termo) as termo"""
 
 
 def _linha_grupo(r: dict[str, Any]) -> dict[str, Any]:
@@ -792,7 +793,8 @@ def _linha_grupo(r: dict[str, Any]) -> dict[str, Any]:
 _EXTRA_CAMPANHA = """,
          (select coalesce(sum(c.custo_brl), 0) from agentesia_chamadas_ia c where c.id_lead = l.id) as custo,
          l.origem->>'titulo' as l_titulo, l.origem->>'conteudo' as l_conteudo, l.origem->>'url' as l_url,
-         l.origem->>'fonte' as l_fonte, l.origem->>'meio' as l_meio, l.origem->>'id_anuncio' as l_id_anuncio"""
+         l.origem->>'fonte' as l_fonte, l.origem->>'meio' as l_meio, l.origem->>'id_anuncio' as l_id_anuncio,
+         l.origem->>'termo' as l_termo"""
 
 _AGREGADOS_GRUPO = f"""count(*)::int as leads, {", ".join(f"count(*) filter (where nivel >= {i})::int as n{i}" for i in range(2, 6))},
        count(*) filter (where desq)::int as desq, count(*) filter (where (nivel >= 2 or analise) and not desq)::int as qualificados,
@@ -938,8 +940,8 @@ async def anuncio(chave: str, pedido: Request, f: Filtros = Depends(_filtros), c
         _lista(f"""select to_char(criado_em at time zone '{FUSO}', 'YYYY-MM-DD') as dia, count(*)::int as leads,
                           count(*) filter (where assinado)::int as assinados from n group by 1""") + " as leads_dia",
         _lista("""select id::text as id, nome_contato as nome, tel, criado_em, etapa, fase_atual, id_agente::text as id_agente,
-                         assinado, desq, nivel, assinado_em, estado
-                    from n order by criado_em desc limit 100""") + " as leads",
+                         assinado, desq, nivel, assinado_em, estado, fase_card
+                    from n order by criado_em desc limit 500""") + " as leads",
     ])
     linha = await pool.fetchrow(sql, *args)
     r = _json(linha["resumo"], None)
@@ -952,11 +954,19 @@ async def anuncio(chave: str, pedido: Request, f: Filtros = Depends(_filtros), c
         if d["dia"] in serie:
             serie[d["dia"]].update(leads=d["leads"], assinados=d["assinados"])
     nivel_nome = {i: nome for i, (_, nome) in enumerate(FUNIL, start=1)}
+    # Posição no ranking de anúncios (mesma ordem da tela: contratos, conversão, leads) — reaproveita o cache da lista.
+    lista = (await _CACHE.obter((id(pedido.app), "campanhas", id_escritorio, f.chave()),
+                                lambda: _calcular_campanhas(pool, id_escritorio, f)))["anuncios"]
+    posicao = next((i for i, x in enumerate(lista, start=1) if x["chave"] == chave), None)
+    por_leads = sorted(lista, key=lambda x: (-x["leads"], -(x["conversao"] or 0)))      # aba "Leads" do ranking
+    posicao_leads = next((i for i, x in enumerate(por_leads, start=1) if x["chave"] == chave), None)
     return {
         "chave": chave, "campanha": r["campanha"],
         "nome": r["titulo"] or r["conteudo"] or r["id_anuncio"] or r["url"] or "(anúncio sem identificação)",
         "titulo": r["titulo"], "conteudo": r["conteudo"], "url": r["url"], "fonte": r["fonte"], "meio": r["meio"],
-        "id_anuncio": r["id_anuncio"], "plataforma_nome": PLATAFORMAS.get(r["plataforma_exemplo"] or "", "Outra origem"),
+        "termo": r["termo"], "id_anuncio": r["id_anuncio"], "plataforma": r["plataforma_exemplo"],
+        "plataforma_nome": PLATAFORMAS.get(r["plataforma_exemplo"] or "", "Outra origem"),
+        "ranking": {"posicao": posicao, "posicao_leads": posicao_leads, "total": len(lista)},
         **_linha_grupo(r),
         "funil": [{"fase": fase, "nome": nome, "chegaram": r[f"n{i}"] if i > 1 else r["leads"]}
                   for i, (fase, nome) in enumerate(FUNIL, start=1)],
@@ -965,7 +975,12 @@ async def anuncio(chave: str, pedido: Request, f: Filtros = Depends(_filtros), c
                    "etapa": (nomes.get(x["id_agente"] or "", {}).get(x["etapa"] or "") if x["etapa"] else None)
                    or NOMES_FASE.get(x["fase_atual"] or "", x["etapa"] or "Sem etapa"),
                    "alcancou": nivel_nome.get(x["nivel"], "SDR"), "assinado": x["assinado"], "desqualificado": x["desq"],
-                   "assinado_em": x["assinado_em"], "estado": x["estado"]} for x in leads],
+                   "assinado_em": x["assinado_em"], "estado": x["estado"],
+                   # cor da etapa atual na lista (o "Assinou" vem à parte, em assinado)
+                   "fase": "desqualificado" if x["desq"] and not x["assinado"]
+                   else (x["fase_atual"] if x["fase_atual"] not in (None, "outra") else x["fase_card"]) or "sem_etapa"}
+                  for x in leads],
+        "total_leads": int(r["leads"] or 0),
     }
 
 
