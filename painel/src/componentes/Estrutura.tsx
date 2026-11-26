@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { NOME_PAPEL, type Agente } from "../api";
 import iconeLawChat from "@/assets/lawchat-icone.svg";
+import escritaLawChat from "@/assets/lawchat-escrita.svg";
 import fotoLawChat from "@/assets/lawchat-perfil.jpg";
 import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -311,7 +312,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             <button type="button" className="lc-topo-menu" onClick={() => setAbertos(true)} aria-label="Abrir menu" aria-expanded={abertos} aria-controls="lc-menu">
               <Menu />
             </button>
-            <Link to="/" className="lc-topo-marca" title="Início"><img src={iconeLawChat} alt="" width={30} height={31} /><b>LawChat IA</b></Link>
+            <Link to="/" className="lc-topo-marca" title="Início"><img src={iconeLawChat} alt="" className="lc-topo-simbolo" /><img src={escritaLawChat} alt="LawChat" className="lc-topo-escrita" /></Link>
             <MenuDoTopo itens={todosItens} />
             <nav className="lc-crumb" aria-label="Você está em">
               <span className="lc-crumb-esc">{escritorio ? nomeEscritorio : "LawChat"}</span>

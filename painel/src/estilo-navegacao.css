@@ -573,3 +573,11 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 
 /* Menu do topo sem sombra (ela parecia uma faixa sobrando embaixo dele). */
 @media (min-width: 821px) { .lc-topo { box-shadow: none; } }
+
+/* Marca no topo: símbolo um pouco maior e a escrita "lawchat" (law verde, chat escuro) menor ao lado. */
+@media (min-width: 821px) {
+  .lc-topo-marca { gap: 7px; margin-right: 12px; }
+  .lc-topo-marca .lc-topo-simbolo { width: 36px; height: 37px; }
+  .lc-topo-marca .lc-topo-escrita { width: auto; height: 17px; margin-top: 2px; }
+}
+@media (min-width: 821px) and (max-width: 1360px) { .lc-topo-marca .lc-topo-escrita { display: none; } }
