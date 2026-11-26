@@ -4,6 +4,8 @@ import { enviar, type Agente } from "../api";
 import { Alerta, Carregando, Interruptor, Painel, useAcao, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { DashboardFollowup, HistoricoFollowup } from "./Followup";
+import { Button } from "@/components/ui/button";
+import { LIMITE_ETAPA_FOLLOWUP, LIMITE_PROMPT_FOLLOWUP, PromptFollowupEditor, type VariavelFollowup } from "@/components/followup/PromptFollowupEditor";
 
 interface Passo { apos_horas: number; modo: "ia" | "texto" | "modelo"; instrucao: string; texto: string }
 interface Config {
@@ -13,7 +15,8 @@ interface Config {
   decidir?: boolean;   // o agente de follow-up decide antes (enviar, adiar se o lead pediu para esperar, não enviar)
 }
 interface Dados {
-  config: Config; padrao: { prompt: string; cadencia: number[]; instrucoes: Record<string, string> };
+  config: Config; padrao: { prompt: string; cadencia: number[]; instrucoes: Record<string, string>; por_etapa?: Record<string, string> };
+  variaveis?: VariavelFollowup[];
   etapas: { codigo: string; nome: string; tipo: string }[]; tipo_canal: string;
   proximos: { passo: number; agendado_para: string; situacao: string; motivo: string | null; nome: string | null; final: string }[];
   recentes: { passo: number; enviado_em: string | null; atualizado_em: string; situacao: string; motivo: string | null; mensagens: unknown; nome: string | null }[];
@@ -47,6 +50,10 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
   const mudarPasso = (i: number, p: Partial<Passo>) => setC({ ...c, passos: c.passos.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   // Toda tentativa é escrita pelo agente de follow-up (sem mensagem fixa).
   const salvar = () => executar(async () => {
+    if (c.prompt.length > LIMITE_PROMPT_FOLLOWUP)
+      throw new Error(`O prompt do follow-up passou de ${LIMITE_PROMPT_FOLLOWUP.toLocaleString("pt-BR")} caracteres. Encurte para salvar.`);
+    const longa = dados.etapas.find((e) => (c.por_etapa[e.codigo] ?? "").length > LIMITE_ETAPA_FOLLOWUP);
+    if (longa) throw new Error(`A instrução da etapa ${longa.nome} passou de ${LIMITE_ETAPA_FOLLOWUP.toLocaleString("pt-BR")} caracteres. Encurte para salvar.`);
     setC(await enviar<Config>(`/agentes/${agente.id}/followup`, { ...c, passos: c.passos.map((p) => ({ ...p, modo: "ia", texto: "" })) }, "PUT"));
     recarregar();
   },
@@ -76,32 +83,28 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
         <button key={d} type="button" className={dias === d ? "on" : ""} aria-pressed={dias === d} onClick={() => setDias(d)}>{d} dias</button>))}</span></h3>}>
         <DashboardFollowup dias={dias} agente={agente.id} compacto />
       </Painel>
-      <Painel titulo="Agente de follow-up" acoes={<>
-        <button className="btn sm" onClick={() => setC({ ...c, prompt: dados.padrao.prompt })}><RotateCcw />Prompt padrão</button>
-        <button className="btn sm" onClick={() => previa(0)} disabled={ocupado}><Eye />Ver como fica</button>
-      </>}>
-        <div className="form">
-          <p className="sec" style={{ margin: 0 }}>Quem escreve cada retomada é um agente de IA: ele lê a conversa e segue este prompt. Não há mensagem fixa.
-            Ele fala como {agente.nome}, do escritório, e cada tentativa fica um pouco mais curta e leve.</p>
-          <label className="field" style={{ maxWidth: 360 }}><span className="lbl">Modelo de IA do follow-up</span>
-            <select value={c.modelo ?? ""} onChange={(e) => setC({ ...c, modelo: e.target.value || null })}>
-              <option value="">Padrão do servidor (GPT-4.1 mini)</option>
-              {(catalogo?.modelos ?? []).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
-            </select></label>
-          <label className="field"><span className="lbl">Prompt do agente de follow-up</span>
-            <textarea className="codigo" rows={9} aria-label="Prompt do agente de follow-up" value={c.prompt} onChange={(e) => setC({ ...c, prompt: e.target.value })} /></label>
-          <details>
-            <summary className="lbl" style={{ cursor: "pointer" }}>Instrução extra por etapa</summary>
-            <div className="form" style={{ marginTop: 8 }}>{dados.etapas.filter((e) => conversa.has(e.codigo)).map((e) => (
-              <label key={e.codigo} className="field"><span className="lbl">{e.nome}</span>
-                <textarea rows={2} value={c.por_etapa[e.codigo] ?? ""} placeholder="Ex.: lembre que os honorários só são pagos no final."
-                  onChange={(ev) => setC({ ...c, por_etapa: { ...c.por_etapa, [e.codigo]: ev.target.value } })} /></label>
-            ))}</div>
-          </details>
-          {previas[0] && <div className="previa-fu"><span className="muted" style={{ fontSize: 12 }}>Exemplo da 1ª retomada (conversa de teste):</span>
-            {previas[0].map((t, j) => <div key={j} className="bolha ia">{t}</div>)}</div>}
-          <p className="muted" style={{ fontSize: 12, margin: 0 }}>Valem sempre: sem link, sem prometer resultado ou valor. Se a IA escrever algo assim, sai uma mensagem simples de reserva.</p>
-        </div>
+      <Painel titulo="Agente de follow-up">
+        <PromptFollowupEditor
+          nomeAgente={agente.nome}
+          prompt={c.prompt} promptSalvo={dados.config.prompt} promptPadrao={dados.padrao.prompt}
+          porEtapa={c.por_etapa} porEtapaSalvo={dados.config.por_etapa} porEtapaPadrao={dados.padrao.por_etapa ?? {}}
+          etapas={dados.etapas.filter((e) => conversa.has(e.codigo))}
+          variaveis={dados.variaveis ?? []}
+          onPrompt={(t) => setC((v) => (v ? { ...v, prompt: t } : v))}
+          onEtapa={(codigo, t) => setC((v) => (v ? { ...v, por_etapa: { ...v.por_etapa, [codigo]: t } } : v))}
+          acoes={<Button size="sm" variant="outline" onClick={() => previa(0)} disabled={ocupado}
+            title="Escreve um exemplo com uma conversa de teste (usa uma chamada de IA)"><Eye className="size-3.5 mr-1.5" />Ver como fica</Button>}
+          rodape={<div className="form">
+            <label className="field" style={{ maxWidth: 360 }}><span className="lbl">Modelo de IA do follow-up</span>
+              <select value={c.modelo ?? ""} onChange={(e) => setC({ ...c, modelo: e.target.value || null })}>
+                <option value="">Padrão do servidor (GPT-4.1 mini)</option>
+                {(catalogo?.modelos ?? []).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+              </select></label>
+            {previas[0] && <div className="previa-fu"><span className="muted" style={{ fontSize: 12 }}>Exemplo da 1ª retomada (conversa de teste):</span>
+              {previas[0].map((t, j) => <div key={j} className="bolha ia">{t}</div>)}</div>}
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Valem sempre: sem link, sem prometer resultado ou valor. Se a IA escrever algo assim, sai uma mensagem simples de reserva.</p>
+          </div>}
+        />
       </Painel>
 
       <Painel titulo="Fluxo de cadência" acoes={<>

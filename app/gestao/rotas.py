@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from app import automacoes, notificacoes
 from app.canal.helena import normalizar_telefone
 from app.canal.helena_conta import ErroHelenaApi, HelenaConta, HelenaParceiro
-from app.canal.webhook import url_do_botao_ia, url_do_escritorio
+from app.canal.webhook import segredo_do_escritorio, url_do_botao_ia, url_do_escritorio
 from app.cerebro import agente as agente_ia
 from app.cerebro import auxilio_acidente, sinais
 from app.cerebro import produto as produtos
@@ -38,14 +38,13 @@ from app.gestao.cache_curto import CacheCurto
 from app.gestao.repositorio import RepositorioGestao, _linhas
 
 COOKIE = "agentesia_sessao"
+# Modelos oferecidos na escolha do agente (fase de testes: só estes dois).
 MODELOS = [
-    {"id": "gpt-4.1", "nome": "GPT-4.1", "provedor": "openai", "padrao": True},
-    {"id": "gpt-4.1-mini", "nome": "GPT-4.1 mini", "provedor": "openai"},
+    {"id": "gpt-4.1-mini", "nome": "GPT-4.1 mini", "provedor": "openai", "padrao": True},
     {"id": "gpt-6-luna", "nome": "GPT-6 Luna", "provedor": "openai"},
-    {"id": "claude-opus-5-5", "nome": "Claude Opus 5.5", "provedor": "anthropic"},
-    {"id": "claude-sonnet-5-5", "nome": "Claude Sonnet 5.5", "provedor": "anthropic"},
 ]
-IDS_MODELOS = {m["id"] for m in MODELOS}
+# Aceitos ao salvar: os oferecidos e os que agentes antigos ainda usam (não quebra quem já está em outro modelo).
+IDS_MODELOS = {m["id"] for m in MODELOS} | {"gpt-4.1", "claude-opus-5-5", "claude-sonnet-5-5"}
 PRODUTOS = [
     {"id": "auxilio_acidente", "nome": "Auxílio-Acidente", "tipo": "pronto",
      "descricao": "Agente pronto da LawChat: qualificação e período de graça com as regras validadas.",
@@ -1107,17 +1106,49 @@ class ConfigCrm(BaseModel):
     titulo_painel: str | None = None
 
 
+TOKEN_DE_OUTRO_ESCRITORIO = ("Este token da LawChat já está ligado a outro escritório. Cada escritório usa o token da "
+                             "própria conta: gere um token na conta deste escritório (Ajustes › Integrações › Integração via API).")
+
+
+def _token_de_outra_conta(conta_do_token: str, conta_do_escritorio: str) -> str:
+    return (f"Este token é de outra conta da LawChat (conta {conta_do_token[:8]}…), não da conta deste escritório "
+            f"({conta_do_escritorio[:8]}…). Gere o token dentro da conta certa e cole de novo.")
+
+
 async def _salvar_token_helena(pedido: Request, repo: RepositorioGestao, id_escritorio: str, token: str) -> dict[str, Any]:
-    _esquecer_helena(id_escritorio)          # token novo: etiquetas/equipes guardadas eram da conta antiga
+    """Isolamento: o token não pode estar ligado a outro escritório, e a conta dona do token (companyId lido pela
+    API) tem de ser a do escritório (id_conta_helena). Recusado, nada muda no cadastro."""
+    token = token.strip()
+    if await repo.pool.fetchval(
+            """select true from agentesia_integracoes i join vault.decrypted_secrets s on s.id = i.id_segredo_vault
+               where i.tipo = 'helena' and i.id_escritorio <> $1::uuid and s.decrypted_secret = $2 limit 1""",
+            id_escritorio, token):
+        raise HTTPException(409, TOKEN_DE_OUTRO_ESCRITORIO)
     atual = await repo.integracao(id_escritorio, "helena")
-    id_segredo = await repo.guardar_segredo(f"agentesia_helena_{id_escritorio}", token.strip(),
-                                            (atual or {}).get("id_segredo_vault"))
+    helena = HelenaConta(token, pedido.app.state.cfg.helena_url)
     try:
-        canais = await HelenaConta(token, pedido.app.state.cfg.helena_url).canais()
+        canais = await helena.canais()
+        conta_do_token = await helena.id_da_conta()
     except ErroHelenaApi as erro:
+        id_segredo = await repo.guardar_segredo(f"agentesia_helena_{id_escritorio}", token,
+                                                (atual or {}).get("id_segredo_vault"))
         await repo.salvar_integracao(id_escritorio, "helena", id_segredo_vault=id_segredo,
                                      final_segredo=_final(token), situacao="erro", erro=str(erro))
         raise _erro_helena(erro) from erro
+    conta_do_escritorio = str(await repo.pool.fetchval(
+        "select id_conta_helena from agentesia_escritorios where id = $1::uuid", id_escritorio) or "").lower()
+    if conta_do_token and conta_do_escritorio and conta_do_token != conta_do_escritorio:
+        raise HTTPException(409, _token_de_outra_conta(conta_do_token, conta_do_escritorio))
+    if conta_do_token and not conta_do_escritorio and await repo.pool.fetchval(
+            "select true from agentesia_escritorios where id_conta_helena::text = $1 and id <> $2::uuid limit 1",
+            conta_do_token, id_escritorio):
+        raise HTTPException(409, TOKEN_DE_OUTRO_ESCRITORIO)
+    if not conta_do_token:
+        import logging
+        logging.getLogger(__name__).warning("token da Helena salvo sem conferir a conta: a API não mandou companyId (escritório %s)", id_escritorio)
+    _esquecer_helena(id_escritorio)          # token novo: etiquetas/equipes guardadas eram da conta antiga
+    id_segredo = await repo.guardar_segredo(f"agentesia_helena_{id_escritorio}", token,
+                                            (atual or {}).get("id_segredo_vault"))
     await repo.sincronizar_canais(id_escritorio, [
         {**c, "numero_normalizado": normalizar_telefone(c["numero"]) or c["numero"]} for c in canais if c["id"]])
     return await repo.salvar_integracao(id_escritorio, "helena", id_segredo_vault=id_segredo,
@@ -1132,7 +1163,9 @@ async def ver_integracoes(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> d
     return {"integracoes": integracoes, "canais": canais,
             "url_webhook_configurada": bool(_url_webhook(pedido, ctx.escritorio())),
             "url_webhook_zapsign": url_do_escritorio(ctx.escritorio(), "zapsign"),
-            "url_botao_ia": url_do_botao_ia(ctx.escritorio())}
+            "url_botao_ia": url_do_botao_ia(ctx.escritorio()),
+            # segredo do link do Controle da IA (rotas_controle_ia /publico): sem ele o link não funciona
+            "segredo_controle_ia": segredo_do_escritorio(ctx.escritorio(), "controle")}
 
 
 @api.put("/integracoes/helena")
@@ -1471,7 +1504,7 @@ class NovoAgente(BaseModel):
     nome: str = Field(min_length=2, max_length=60)
     id_canal: str
     produto: str = "auxilio_acidente"
-    modelo: str = "gpt-4.1"
+    modelo: str = "gpt-4.1-mini"
     definicao: dict[str, Any] | None = None   # só no agente próprio
     id_modelo: str | None = None               # modelo da biblioteca escolhido no assistente
     espera_s: int | None = Field(default=None, ge=0, le=120)          # tempo antes de responder
@@ -1616,7 +1649,7 @@ async def criar_agente(dados: NovoAgente, pedido: Request, ctx: Contexto = Depen
         dados.produto = modelo_biblioteca["produto"]
         base = modelo_biblioteca.get("config") or {}
         dados.definicao = base.get("definicao") if dados.produto == "proprio" else None
-        if base.get("modelo_ia") in IDS_MODELOS and dados.modelo == "gpt-4.1":
+        if base.get("modelo_ia") in IDS_MODELOS and dados.modelo == "gpt-4.1-mini":
             dados.modelo = base["modelo_ia"]
     if dados.modelo not in IDS_MODELOS:
         raise HTTPException(400, "Modelo de IA desconhecido.")
@@ -1948,11 +1981,49 @@ async def ver_followup(id_agente: str, pedido: Request, ctx: Contexto = Depends(
         raise HTTPException(404, "Agente não encontrado.")
     produto = _produto_do(agente)
     proximos, recentes = _linhas(proximos), _linhas(recentes)
+    variaveis, por_etapa_padrao = await _extras_do_editor_followup(repo, ctx.escritorio(), agente)
     return {"config": _followup_para_tela((agente.get("config") or {}).get("followup")),
             "padrao": {"prompt": regras.PROMPT_PADRAO, "cadencia": list(regras.CADENCIA_PADRAO),
-                       "instrucoes": {str(k): v for k, v in regras.INSTRUCAO_PASSO_PADRAO.items()}},
+                       "instrucoes": {str(k): v for k, v in regras.INSTRUCAO_PASSO_PADRAO.items()},
+                       "por_etapa": por_etapa_padrao},
+            "variaveis": variaveis,
             "etapas": [{"codigo": e.codigo, "nome": e.nome, "tipo": e.tipo} for e in produto.etapas],
             "tipo_canal": agente.get("tipo_canal"), "proximos": proximos, "recentes": recentes}
+
+
+async def _extras_do_editor_followup(repo: Any, id_escritorio: str, agente: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Para o editor do prompt de follow-up: as variáveis que o motor preenche (app/followup/agente.valores, com o valor
+    de agora) e as instruções por etapa do padrão do produto da biblioteca (para "Restaurar padrão"). Falha = vazio."""
+    from app.cerebro import catalogo
+    from app.followup import agente as fagente, padrao
+    variaveis: list[dict[str, Any]] = []
+    por_etapa: dict[str, str] = {}
+    try:
+        escritorio = await repo.escritorio(id_escritorio) or {}
+        config = agente.get("config") or {}
+        vals = fagente.valores({"nome_agente": agente.get("nome"), "escritorio": escritorio.get("nome", ""),
+                                "config_agente": config, "config_escritorio": escritorio.get("config") or {}})
+        proprias = config.get("variables") if isinstance(config.get("variables"), dict) else {}
+        vistos: set[str] = set()
+        for rotulo in ("Nome Agente", "Nome Escritório", "Honorários",
+                       *[str(k) for k, v in proprias.items() if not isinstance(v, (dict, list))]):
+            chave = catalogo.chave_da_variavel(rotulo)
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            variaveis.append({"nome": rotulo, "valor": vals.get(chave) or None})
+    except Exception:  # noqa: BLE001 - extra da tela; o editor funciona sem
+        variaveis = []
+    try:
+        linha = await repo.pool.fetchrow(
+            """select b.padrao_followup from agentesia_produtos_ativados p
+               join agentesia_biblioteca_produtos b on b.id = p.id_produto_biblioteca
+               where p.id_agente = $1::uuid and p.excluido_em is null limit 1""", agente["id"])
+        if linha and linha["padrao_followup"]:
+            por_etapa = padrao.config_do_produto({"padrao_followup": linha["padrao_followup"]}, ativo=False)["por_etapa"]
+    except Exception:  # noqa: BLE001
+        por_etapa = {}
+    return variaveis, por_etapa
 
 
 @api.put("/agentes/{id_agente}/followup")
@@ -1996,9 +2067,12 @@ class PreviaFollowup(BaseModel):
 
 @api.post("/agentes/{id_agente}/followup/previa")
 async def previa_followup(id_agente: str, dados: PreviaFollowup, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
-    """Mostra como fica a mensagem do passo com uma conversa de exemplo (gasta uma chamada de IA no modo IA)."""
+    """Mostra como fica a mensagem do passo com uma conversa de exemplo (gasta uma chamada de IA no modo IA: entra na
+    carteira com origem 'previa' e é bloqueada no pré-pago sem saldo, como o laboratório)."""
+    from app import cobranca
     from app.followup import regras
     from app.followup.servico import ESQUEMA, TEXTO_RESERVA
+    from app.gestao.rotas_rascunho import SEM_SALDO, _modelo_falso
     repo = _repo(pedido)
     agente = await repo.agente(ctx.escritorio(), id_agente)
     if not agente:
@@ -2027,11 +2101,18 @@ async def previa_followup(id_agente: str, dados: PreviaFollowup, pedido: Request
     conversa = ("lead: oi, sofri um acidente de moto ano passado\nvocê: Poxa, sinto muito. Ficou com alguma sequela ou limitação?\n"
                 "lead: fiquei com dor no joelho\nvocê: Entendi. Na época do acidente você trabalhava de carteira assinada?")
     modelo = pedido.app.state.laboratorios._modelo
+    if not _modelo_falso(pedido) and await cobranca.bloqueado(repo.pool, ctx.escritorio()):
+        raise HTTPException(402, SEM_SALDO)
     try:
         resultado = await modelo.gerar(papel="followup", sistema=sistema, conteudo="Conversa até aqui:\n" + conversa, esquema=ESQUEMA,
                                        modelo=config.modelo or (agente.get("config") or {}).get("modelos", {}).get("followup") or "gpt-4.1-mini", esforco="low")
+        await cobranca.gravar_teste(repo.pool, id_escritorio=ctx.escritorio(), chamadas=resultado.chamadas, origem="previa",
+                                    id_agente=id_agente, codigo_etapa=etapa or None)
         return {"mensagens": resultado.dados.get("mensagens") or [], "exemplo": conversa}
-    except Exception:
+    except Exception as erro:
+        # Tentativas que falharam (saída inválida, cortada) também foram pagas.
+        await cobranca.gravar_teste(repo.pool, id_escritorio=ctx.escritorio(), chamadas=getattr(erro, "chamadas", []),
+                                    origem="previa", id_agente=id_agente, codigo_etapa=etapa or None)
         return {"mensagens": [TEXTO_RESERVA.format(virgula=", ", nome="Maria")], "exemplo": conversa, "aviso": "A IA não respondeu; este é o texto de reserva."}
 
 
@@ -2141,7 +2222,7 @@ class ModeloAgente(BaseModel):
     funcoes: dict[str, bool] = {}
     automacoes: dict[str, dict[str, Any]] = {}
     honorarios: str | None = None
-    modelo_ia: str = "gpt-4.1"
+    modelo_ia: str = "gpt-4.1-mini"
 
 
 def _modelo_para_tela(modelo: dict[str, Any]) -> dict[str, Any]:
@@ -2235,14 +2316,23 @@ class MensagemLab(BaseModel):
 
 @api.post("/agentes/{id_agente}/laboratorio")
 async def laboratorio(id_agente: str, dados: MensagemLab, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
-    """Conversa de teste com a configuração salva do agente. Não envia nada e não grava no banco."""
+    """Conversa de teste com a configuração salva do agente. Não envia nada e a conversa fica só em memória; o gasto de
+    IA entra na carteira (origem 'laboratorio') e o pré-pago sem saldo é bloqueado, como no laboratório do rascunho."""
+    from app import cobranca
+    from app.gestao.rotas_rascunho import SEM_SALDO, _modelo_falso
     repo = _repo(pedido)
     agente = await repo.agente(ctx.escritorio(), id_agente)
     escritorio = await repo.escritorio(ctx.escritorio())
     if not agente or not escritorio:
         raise HTTPException(404, "Agente não encontrado.")
-    return await pedido.app.state.laboratorios.mensagem(
+    if not _modelo_falso(pedido) and await cobranca.bloqueado(repo.pool, ctx.escritorio()):
+        raise HTTPException(402, SEM_SALDO)
+    resultado = await pedido.app.state.laboratorios.mensagem(
         escritorio=escritorio, agente=agente, id_conversa=dados.id_conversa, texto=dados.texto.strip())
+    turno = resultado.get("turno") or {}
+    await cobranca.gravar_teste(repo.pool, id_escritorio=ctx.escritorio(), chamadas=turno.get("chamadas") or [],
+                                origem="laboratorio", id_agente=id_agente, codigo_etapa=turno.get("etapa_antes") or None)
+    return resultado
 
 
 # ============================================================================ avisos à equipe

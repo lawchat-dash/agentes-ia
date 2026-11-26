@@ -26,8 +26,50 @@ def tirar_chips(texto: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", limpo).strip()
 
 
+# Sobras de sistema que o modelo às vezes escreve no texto (cat. 31 da auditoria): chamada de função
+# ("functions.zapsign({...})", "to=functions.x"), chaves vazias "{}" / "[]" e JSON solto ({"transferir_para": ""}).
+_CHAMADA_DE_FUNCAO = re.compile(r"(?:\bto=)?\b(?:functions|multi_tool_use)\.[A-Za-z_][\w.]*"
+                                r"(?:\s*\((?:[^()]|\([^()]*\))*\))?")
+_JSON_INLINE = re.compile(r"\{\s*\"[^\"{}\n]*\"\s*:[^{}\n]*\}")
+_VAZIOS = re.compile(r"(?<![{\[])(?:\{\s*\}|\[\s*\])(?![}\]])")
+
+
+def _linha_e_json(linha: str) -> bool:
+    import json
+
+    linha = linha.strip()
+    if not linha or linha[0] not in "{[" or linha[-1] not in "}]":
+        return False
+    if linha.startswith("{{") or linha.startswith("[["):        # variável {{X}} e marcador [[audio:x]]: outras travas
+        return False
+    try:
+        json.loads(linha)
+        return True
+    except ValueError:
+        return bool(re.search(r"\"\w+\"\s*:", linha))
+
+
+def tirar_sobras_de_sistema(texto: str) -> str:
+    """Tira do texto ao lead as sobras de sistema: chamada de função, JSON solto e chaves vazias."""
+    if not any(c in texto for c in "{[."):
+        return texto
+    limpo = "\n".join(linha for linha in texto.split("\n") if not _linha_e_json(linha))
+    limpo = _CHAMADA_DE_FUNCAO.sub("", limpo)
+    limpo = _JSON_INLINE.sub("", limpo)
+    limpo = _VAZIOS.sub("", limpo)
+    limpo = re.sub(r"[ \t]+([,.;!?])", r"\1", limpo)
+    return re.sub(r"[ \t]{2,}", " ", limpo).strip()
+
+
+def tem_conteudo(texto: str) -> bool:
+    """Balão com alguma letra, número ou emoji. Só aspas, pontuação ou chaves ('""', '{}', '...') não vai ao lead."""
+    import unicodedata
+
+    return any(c.isalnum() or unicodedata.category(c) == "So" for c in texto or "")
+
+
 def limpar(texto: str) -> str:
-    texto = tirar_chips(texto)
+    texto = tirar_sobras_de_sistema(tirar_chips(texto))
     texto = re.sub(r"\*\*(.+?)\*\*", r"\1", texto)            # negrito de Markdown
     texto = re.sub(r"^#{1,6}\s*", "", texto, flags=re.MULTILINE)  # títulos
     texto = re.sub(r"^\s*[-•]\s+", "", texto, flags=re.MULTILINE)  # marcadores de lista
@@ -167,5 +209,7 @@ def formatar(mensagens: list[dict[str, str]]) -> list[dict[str, object]]:
                           **({"url": mensagem["url"]} if mensagem.get("url") else {})})
             continue
         for parte in dividir(limpar(mensagem["texto"])):
+            if not tem_conteudo(parte):
+                continue                                  # sobra sem nenhuma letra (só aspas, chaves): não vai
             saida.append({"tipo": "texto", "texto": parte, "espera_s": tempo_de_digitacao(parte)})
     return saida

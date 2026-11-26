@@ -56,8 +56,9 @@ def _lab_antigo_no_painel() -> bool:
 
 
 def _da_ia(caminho: str) -> bool:
-    """Webhooks (/webhook/helena, /webhook/helena/{id}, /webhook/helena/{id}/ia, /webhook/zapsign/{id}) e /saude."""
-    return caminho.startswith("/webhook/") or caminho == "/saude"
+    """Webhooks (/webhook/helena, /webhook/helena/{id}, /webhook/helena/{id}/ia, /webhook/zapsign/{id}), /saude e o
+    diagnóstico com o banco /saude/banco."""
+    return caminho.startswith("/webhook/") or caminho in ("/saude", "/saude/banco")
 
 
 def _do_painel(caminho: str) -> bool:

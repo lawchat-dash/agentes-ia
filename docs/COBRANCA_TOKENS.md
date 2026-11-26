@@ -31,7 +31,7 @@ custo_usd = ( entrada × preço_entrada
 
 - Os preços estão em `PRECOS_USD_POR_MILHAO`, em US$ por milhão de tokens.
 - A gravação de cache (`cache_gravado`) só existe na Anthropic e é cobrada a 1,25 vez a entrada.
-- Transcrição de áudio usa o uso informado pela OpenAI. Se ele não vier, o custo é estimado pela duração do áudio.
+- Transcrição de áudio usa o uso informado pela OpenAI, separando tokens de áudio de entrada, texto de entrada e saída (cada um com seu preço, numa linha só). Se os tokens não vierem, vale `usage.seconds`; sem ele, a duração lida do próprio arquivo (OGG, MP4, WAV), pelo preço por minuto. Estimativa pelo tamanho do arquivo só para áudio, nunca para vídeo.
 
 ### 2.2 De dólar para real, com markup (feito pelo banco, no momento em que a chamada é gravada)
 
@@ -269,10 +269,10 @@ Essas funções não podem ser chamadas pela API pública do Supabase.
 
 - **Pagamento online**: a estrutura está pronta, mas a chamada ao Asaas não está ligada (seção 5.4).
 - **Preços a conferir** em `app/modelo.py`:
-  - o cache da família GPT-6 foi estimado em 1/4 da entrada;
+  - o cache da família GPT-6 foi conferido na página oficial da OpenAI em 26/11/2026 (antes era estimado em 1/4 da entrada); o teste `tests/test_precos_ia.py` trava a tabela;
   - o `gpt-6-luna` antes contava custo zero e agora tem o preço da tabela do Weaver.
   - Chamadas com tokens e custo zero ficam marcadas como "sem preço" e aparecem em Admin › Consumo e margem. **Essas chamadas não são cobradas.**
 - **Histórico anterior à 007**: o R$ foi calculado com a cotação inicial só para relatório, e essas chamadas ficaram como "isenta". Nada antigo foi cobrado.
-- **Laboratório do agente** (simulação no painel): roda em memória e não é cobrado.
+- **Laboratório e prévia do follow-up** (testes no painel): a conversa roda em memória e não envia nada, mas a IA é a de verdade e **é cobrada**. As chamadas entram na carteira com `origem = 'laboratorio'` (laboratório do agente salvo e do rascunho) ou `origem = 'previa'` (prévia da mensagem do follow-up). Com o escritório pré-pago sem saldo, o teste é bloqueado (HTTP 402), como os agentes no ar. O painel avisa que o teste gasta créditos.
 - **Concorrência**: o débito usa "skip locked" e o crédito usa chave única. Os testes provam que nada é debitado ou creditado duas vezes, mesmo com várias chamadas ao mesmo tempo. O banco local de teste tem uma conexão só, então a corrida real entre dois servidores fica garantida pelo Postgres, não pelo teste.
 - **Não houve** chamada a API real, commit nem migração aplicada em produção.

@@ -158,10 +158,12 @@ def _extras_do_modelo(modelo: Any) -> dict[str, Any]:
     return extras
 
 
-async def resumir(repo: Any, modelo: Any, id_lead: str) -> tuple[dict[str, Any], list[Any]]:
+async def resumir(repo: Any, modelo: Any, id_lead: str, gravar_chamadas: Any = None) -> tuple[dict[str, Any], list[Any]]:
     """Refaz a ficha do lead: lê até 150 antigas ainda sem resumo, pede o resumo e grava.
 
     Devolve (resultado, chamadas de IA). Erro da IA sobe como ErroModelo (a fila tenta de novo).
+    `gravar_chamadas` (async, recebe a lista): grava o consumo logo que a IA responde, ANTES de gravar a ficha, para o
+    gasto não se perder se o banco falhar em gravar_resumo. Quem passa não grava de novo as chamadas devolvidas.
     """
     trecho = await repo.trecho_para_resumir(id_lead, janela=JANELA, limite=LER_PARA_RESUMIR, corte=CORTE_PARA_RESUMIR)
     mensagens = [m for m in trecho.get("mensagens") or [] if _limpo(m.get("texto"))]
@@ -171,6 +173,8 @@ async def resumir(repo: Any, modelo: Any, id_lead: str) -> tuple[dict[str, Any],
     resultado = await modelo.gerar(papel=PAPEL, sistema=sistema, conteudo=conteudo, esquema=ESQUEMA_DO_RESUMO,
                                    modelo=MODELO, esforco="low", **_extras_do_modelo(modelo))
     chamadas = list(resultado.chamadas)
+    if gravar_chamadas is not None:
+        await gravar_chamadas(chamadas)
     ficha = str(resultado.dados.get("resumo") or "").strip()[:CORTE_DA_FICHA]
     if not ficha:                                   # como no n8n: só grava se a IA devolveu texto
         return {"resumo": "vazio"}, chamadas

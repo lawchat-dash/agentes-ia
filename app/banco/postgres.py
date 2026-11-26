@@ -141,10 +141,116 @@ def _reset_do_pool() -> Any:
     return None if os.environ.get("AGENTESIA_BANCO_RESET", "").strip() == "1" else _sem_reset
 
 
+class BancoOcupado(TimeoutError):
+    """Nenhuma conexão do pool ficou livre dentro do prazo (AGENTESIA_BANCO_ESPERA_S). Nome próprio: a tela
+    Execuções/Erros classifica como erro de banco ("banco ocupado"), e não como timeout da IA ou da plataforma."""
+
+
+# Monotônico da última consulta que voltou sem erro (qualquer conexão do pool). O /saude lê daqui, sem ir ao banco:
+# com o pool cheio de turnos, o "select 1" do /saude esperava conexão, estourava o prazo do HEALTHCHECK e o provedor
+# reiniciava o container no meio dos atendimentos.
+ULTIMA_CONSULTA_OK: list[float] = [0.0]
+
+
+def _marcar_consulta(registro: Any) -> None:
+    if getattr(registro, "exception", None) is None:
+        import time
+        ULTIMA_CONSULTA_OK[0] = time.monotonic()
+
+
+def segundos_desde_a_ultima_consulta_ok() -> float | None:
+    import time
+    return None if not ULTIMA_CONSULTA_OK[0] else time.monotonic() - ULTIMA_CONSULTA_OK[0]
+
+
+class PoolComPrazo(asyncpg.Pool):
+    """Pool do asyncpg com prazo na espera por conexão: `pool.fetch*`/`execute` e `acquire()` sem timeout esperavam
+    para sempre com o pool cheio. Passou do prazo: BancoOcupado (o turno fecha como erro de banco, com evento)."""
+
+    prazo_s: float = 5.0
+
+    async def _acquire(self, timeout):  # type: ignore[override]
+        prazo = self.prazo_s if timeout is None else timeout
+        try:
+            return await super()._acquire(prazo)
+        except asyncio.TimeoutError as erro:
+            if isinstance(erro, BancoOcupado):
+                raise
+            raise BancoOcupado(f"nenhuma conexão livre no banco em {prazo:.0f} s "
+                               f"(pool de {self.get_max_size()})") from erro
+
+
 async def _ao_abrir_conexao(conexao: Any) -> None:
-    """Cada conexão nova do pool conta as idas ao banco do turno em andamento (app/tempos.py, resposta["tempos"])."""
+    """Cada conexão nova do pool conta as idas ao banco do turno em andamento (app/tempos.py, resposta["tempos"]) e
+    marca a última consulta bem-sucedida (o /saude responde sem ir ao banco)."""
     from app import tempos
     conexao.add_query_logger(tempos.contar_ida)
+    conexao.add_query_logger(_marcar_consulta)
+
+
+def _inteiro_do_env(nome: str, padrao: int, minimo: int = 1) -> int:
+    import os
+    try:
+        return max(minimo, int(os.environ.get(nome, padrao)))
+    except ValueError:
+        return padrao
+
+
+def conexoes_do_env(padrao: int = 10) -> int:
+    """Tamanho do pool: AGENTESIA_BANCO_CONEXOES (padrão 10)."""
+    return _inteiro_do_env("AGENTESIA_BANCO_CONEXOES", padrao)
+
+
+def _cache_config_s() -> float:
+    """AGENTESIA_CACHE_CONFIG_S (padrão 30; 0 desliga): quanto tempo a IA guarda em memória o escritório da conta, o
+    canal do número, o agente do canal e o token da Helena (lidos a cada webhook e a cada turno)."""
+    import os
+    try:
+        return max(0.0, float(os.environ.get("AGENTESIA_CACHE_CONFIG_S", "30")))
+    except ValueError:
+        return 30.0
+
+
+class _CacheDaConfig:
+    """Cache curto da configuração lida a cada webhook/turno. Usa o app/gestao/cache_curto.py: no mesmo processo, qualquer
+    escrita no painel (/api/) apaga tudo; em processos separados (app "painel" e app "ia"), a mudança vale em até
+    AGENTESIA_CACHE_CONFIG_S. None (não achou) não fica guardado: um canal recém-cadastrado vale na hora."""
+
+    def __init__(self) -> None:
+        from app.gestao.cache_curto import CacheCurto
+        self._cache = CacheCurto(_cache_config_s(), maximo=2000)
+
+    async def obter(self, chave: Any, ler: Any) -> Any:
+        if self._cache.segundos <= 0:
+            return await ler()
+        async def calcular() -> Any:
+            valor = await ler()
+            if valor is None:
+                raise _NaoGuardar()
+            return valor
+        try:
+            return await self._cache.obter(chave, calcular)
+        except _NaoGuardar:
+            return None
+
+
+class _NaoGuardar(Exception):
+    pass
+
+
+_CACHE_CONFIG = {nome: _CacheDaConfig() for nome in
+                 ("escritorio_por_conta", "canal_por_numero", "agente_do_canal", "token_helena")}
+
+
+def limpar_cache_da_config() -> None:
+    for cache in _CACHE_CONFIG.values():
+        cache._cache.limpar()
+
+
+def _copia(valor: Any) -> Any:
+    """Cópia do que está no cache: quem recebe pode mexer (config é dict) sem mudar o guardado."""
+    import copy
+    return copy.deepcopy(valor) if valor is not None else None
 
 
 class RepositorioPostgres:
@@ -155,14 +261,25 @@ class RepositorioPostgres:
 
     @classmethod
     async def conectar(cls, url: str, max_conexoes: int = 10, conferir: bool = False) -> "RepositorioPostgres":
-        """statement_cache_size=0: necessário com o pooler do Supabase (modo transação). `timeout` limita a espera por
-        conexão e `command_timeout` uma consulta pendurada (pooler que não fecha o TCP): sem eles um turno ou webhook
-        ficava preso para sempre. AGENTESIA_BANCO_TIMEOUT_S (padrão 10) e AGENTESIA_BANCO_COMANDO_S (padrão 15).
-        conferir=True confere as migrações essenciais e falha na hora se faltar alguma."""
-        pool = await asyncpg.create_pool(url, min_size=1, max_size=max_conexoes, statement_cache_size=0,
-                                         reset=_reset_do_pool(), init=_ao_abrir_conexao,
-                                         timeout=_segundos_do_env("AGENTESIA_BANCO_TIMEOUT_S", 10),
-                                         command_timeout=_segundos_do_env("AGENTESIA_BANCO_COMANDO_S", 15))
+        """statement_cache_size=0: necessário com o pooler do Supabase (modo transação). Três prazos:
+          - AGENTESIA_BANCO_ESPERA_S (padrão 5): espera por uma conexão LIVRE do pool (PoolComPrazo); passou, BancoOcupado;
+          - AGENTESIA_BANCO_TIMEOUT_S (padrão 10): abrir uma conexão nova com o banco (`timeout` do connect);
+          - AGENTESIA_BANCO_COMANDO_S (padrão 15): uma consulta pendurada (pooler que não fecha o TCP).
+        Tamanho: `max_conexoes` (AGENTESIA_BANCO_CONEXOES, padrão 10); mínimo aberto AGENTESIA_BANCO_CONEXOES_MIN
+        (padrão 4, nunca acima do máximo: a 1ª consulta do turno não paga a abertura de conexão); conexão parada há
+        mais de AGENTESIA_BANCO_OCIOSA_S (padrão 600) fecha. conferir=True confere as migrações essenciais e falha na
+        hora se faltar alguma."""
+        max_conexoes = max(1, int(max_conexoes))
+        pool = PoolComPrazo(url, min_size=min(max_conexoes, _inteiro_do_env("AGENTESIA_BANCO_CONEXOES_MIN", 4, 0)),
+                            max_size=max_conexoes, max_queries=50000,
+                            max_inactive_connection_lifetime=_segundos_do_env("AGENTESIA_BANCO_OCIOSA_S", 600),
+                            connect=None, setup=None, init=_ao_abrir_conexao, reset=_reset_do_pool(), loop=None,
+                            connection_class=asyncpg.Connection, record_class=asyncpg.Record,
+                            statement_cache_size=0,
+                            timeout=_segundos_do_env("AGENTESIA_BANCO_TIMEOUT_S", 10),
+                            command_timeout=_segundos_do_env("AGENTESIA_BANCO_COMANDO_S", 15))
+        pool.prazo_s = _segundos_do_env("AGENTESIA_BANCO_ESPERA_S", 5)
+        await pool
         repo = cls(pool)
         try:
             repo._midia_pendente = await repo._tem_coluna("agentesia_mensagens", "midia_pendente_desde")
@@ -220,12 +337,15 @@ class RepositorioPostgres:
                           id_segredo_helena=_texto(linha["id_segredo_helena"]), config=_json(linha["config"]))
 
     async def escritorio_por_conta(self, id_conta):
-        try:
-            linha = await self._pool.fetchrow(
-                "select * from agentesia_escritorios where id_conta_helena = $1::uuid", id_conta)
-        except (asyncpg.DataError, ValueError):
-            return None                              # id de conta que não é uuid
-        return self._escritorio(linha)
+        """Escritório da conta da Helena (cada webhook). Cache curto (CACHE_CONFIG_S): ver _CACHE_CONFIG."""
+        async def ler():
+            try:
+                linha = await self._pool.fetchrow(
+                    "select * from agentesia_escritorios where id_conta_helena = $1::uuid", id_conta)
+            except (asyncpg.DataError, ValueError):
+                return None                          # id de conta que não é uuid
+            return self._escritorio(linha)
+        return _copia(await _CACHE_CONFIG["escritorio_por_conta"].obter(str(id_conta), ler))
 
     async def escritorio(self, id_escritorio):
         # O token da Helena vem da integração cadastrada no painel; a coluna antiga fica como reserva.
@@ -245,14 +365,21 @@ class RepositorioPostgres:
                      ativo=linha["ativo"], tipo=linha.get("tipo") or "nao_oficial")
 
     async def canal_por_numero(self, id_escritorio, numero):
-        return self._canal(await self._pool.fetchrow(
-            "select * from agentesia_canais where id_escritorio = $1::uuid and numero_normalizado = $2 and ativo",
-            id_escritorio, numero))
+        async def ler():
+            return self._canal(await self._pool.fetchrow(
+                "select * from agentesia_canais where id_escritorio = $1::uuid and numero_normalizado = $2 and ativo",
+                id_escritorio, numero))
+        return _copia(await _CACHE_CONFIG["canal_por_numero"].obter((str(id_escritorio), numero), ler))
 
     async def canal(self, id_canal):
         return self._canal(await self._pool.fetchrow("select * from agentesia_canais where id = $1::uuid", id_canal))
 
     async def agente_do_canal(self, id_canal):
+        """Agente do canal com as etapas. Cache curto (CACHE_CONFIG_S): o envio relê a situação do agente fresca
+        (situacao_para_enviar), então pausar o agente vale na hora para o que sai."""
+        return _copia(await _CACHE_CONFIG["agente_do_canal"].obter(str(id_canal), lambda: self._agente_do_canal(id_canal)))
+
+    async def _agente_do_canal(self, id_canal):
         # Agente e etapas numa ida só (antes eram duas em fila).
         linha = await self._pool.fetchrow(
             """select a.*, coalesce((select json_agg(json_build_object(
@@ -337,6 +464,17 @@ class RepositorioPostgres:
     async def lead(self, id_lead):
         return self._lead(await self._pool.fetchrow(self._LEAD + " where l.id = $1::uuid", id_lead))
 
+    async def situacao_para_enviar(self, id_lead) -> dict[str, Any] | None:
+        """Lead, escritório e agente frescos (sem cache), numa ida só: o envio confere antes de CADA parte se a IA ainda
+        pode falar (IA desligada no escritório ou no lead, agente pausado, lead fora do estado ativo)."""
+        linha = await self._pool.fetchrow(
+            """select l.estado, l.motivo_estado, e.ia_desligada, e.situacao as situacao_escritorio,
+                      a.situacao as situacao_agente
+               from agentesia_leads l join agentesia_escritorios e on e.id = l.id_escritorio
+               left join agentesia_agentes a on a.id_canal = l.id_canal
+               where l.id = $1::uuid""", id_lead)
+        return dict(linha) if linha else None
+
     async def lead_por_sessao(self, id_escritorio, id_sessao):
         """Lead do atendimento da Helena (para a fala do atendente que chega sem o número do contato)."""
         return self._lead(await self._pool.fetchrow(
@@ -402,7 +540,8 @@ class RepositorioPostgres:
             "select max(enviada_em) from agentesia_mensagens where id_lead = $1::uuid and autor = 'lead'", id_lead)
 
     async def token_helena(self, id_escritorio):
-        return await token_helena(self._pool, id_escritorio)
+        return await _CACHE_CONFIG["token_helena"].obter(str(id_escritorio),
+                                                         lambda: token_helena(self._pool, id_escritorio))
 
     async def marcar_envio_falhou(self, *, id_escritorio, id_externo, erro) -> dict | None:
         """A Helena avisou (status FAILED) que a mensagem da IA não foi entregue. Devolve a mensagem se mudou agora."""
@@ -872,6 +1011,20 @@ class RepositorioPostgres:
         valor = await self._pool.fetchval(
             "select config from agentesia_integracoes where id_escritorio = $1::uuid and tipo = 'zapsign'", id_escritorio)
         return _json(valor) if valor is not None else {}
+
+    async def reservar_acao_feita(self, *, id_escritorio, id_lead, tipo, chave_unica, dados) -> bool:
+        """Grava a ação já como 'feita' (quem chama faz o envio direto, fora da fila). False se a chave já existe (já foi
+        ou vai pela fila): não envia de novo. Se o envio direto falhar, devolver_acao_para_fila põe na fila."""
+        return await self._pool.fetchval(
+            """insert into agentesia_acoes (id_escritorio, id_lead, tipo, chave_unica, dados, situacao, resultado)
+               values ($1::uuid, $2::uuid, $3, $4, $5::jsonb, 'feita', '{"direto": true}'::jsonb)
+               on conflict (chave_unica) do nothing returning true""",
+            id_escritorio, id_lead, tipo, chave_unica, json.dumps(dados, ensure_ascii=False)) is not None
+
+    async def devolver_acao_para_fila(self, chave_unica) -> None:
+        await self._pool.execute(
+            """update agentesia_acoes set situacao = 'pendente', resultado = null, proxima_em = now(), atualizado_em = now()
+               where chave_unica = $1 and situacao = 'feita'""", chave_unica)
 
     async def enfileirar_acoes(self, *, id_escritorio, id_lead, id_turno, acoes) -> None:
         if not acoes:

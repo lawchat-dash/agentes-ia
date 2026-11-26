@@ -33,6 +33,10 @@ NOMES_DE_EVENTO: dict[str, str] = {
     "sinal:endereco_sem_falar": "Lead não quer passar o endereço",
     "sinal:contrato_manual": "Precisa de contrato manual",
     "sinal:analise_humana": "Pediu análise humana",
+    "sinal:atendimento_presencial": "Lead quer atendimento presencial",
+    "sinal:ligacao_telefonica": "Lead pediu ligação",
+    "sinal:parceria_comercial": "Contato comercial (não é lead)",
+    "sinal:deficiencia_auditiva": "Lead com deficiência auditiva",
     # Etapas do catálogo (papéis do n8n): closer -> lead_qualificado, contratos -> lead_iniciou_coleta,
     # assinatura -> aguardando_assinatura, contrato_assinado -> contrato_assinado.
     "etapa:contratos": "Lead começou a passar os dados",

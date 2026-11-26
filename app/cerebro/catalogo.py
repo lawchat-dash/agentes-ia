@@ -31,7 +31,7 @@ TOOLS_DE_PAPEL = {"sdr": "sdr", "closer": "closer", "coletadedados": "contratos"
                   # "Tool `qualificado`" do Período de Graça enxuto do dono: é a passagem para o Closer (não some calada).
                   "qualificado": "closer"}
 TOOLS_DE_ACAO = {"buscarcep": "buscar_cep", "zapsign": "zapsign", "desenvolverdocumento": "zapsign"}
-INTENCOES = INTENCOES_BASE + ("diz_que_assinou", "pediu_link")
+INTENCOES = INTENCOES_BASE + ("diz_que_assinou", "pediu_link", "confirmou_dados")
 _URL_MIDIA = re.compile(r"^https?://\S+\.(?:ogg|oga|opus|mp3|wav|m4a|aac|flac|mp4|webm|mov|jpe?g|png|webp)(?:\?\S*)?$", re.I)
 _URL_NOSSA = re.compile(r"^https?://\S+/midia/[0-9a-f-]{36}/(?:audio|video|imagem)/\S+$", re.I)
 
@@ -315,6 +315,8 @@ class ProdutoCatalogo:
         linhas += [f"- {n}: {d}" for n, d in DESCRICAO_INTENCOES_BASE.items()]
         linhas.append("- diz_que_assinou: diz que já assinou o contrato.")
         linhas.append("- pediu_link: pede o link do contrato de novo.")
+        linhas.append("- confirmou_dados: confirma de forma clara que o resumo dos dados do contrato que a IA mostrou está "
+                      "certo (\"sim, está certo\", \"tudo certo, pode gerar\"). NÃO é: mandar um dado novo, corrigir um dado.")
         return "\n".join(linhas)
 
     def validar_valor(self, chave: str, valor: Any) -> Any | None:
@@ -850,8 +852,10 @@ def separar_midias(mensagens: list[str]) -> list[dict[str, Any]]:
     comeco = 0                                       # primeira parte da mensagem atual na saída
 
     def texto(trecho: str) -> None:
-        trecho = trecho.strip()
-        if not trecho or _SO_MARCACAO.match(trecho):
+        from app.cerebro.formatador import tem_conteudo, tirar_sobras_de_sistema
+
+        trecho = tirar_sobras_de_sistema(trecho.strip())
+        if not trecho or _SO_MARCACAO.match(trecho) or not tem_conteudo(trecho):
             return
         if len(saida) > comeco and saida[-1]["tipo"] == "texto":
             saida[-1]["texto"] += "\n" + trecho

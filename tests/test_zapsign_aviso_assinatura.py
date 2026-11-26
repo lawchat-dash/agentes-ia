@@ -50,7 +50,7 @@ async def test_conectar_uma_vez_reaproveitar_e_falha_nao_grava(ambiente, monkeyp
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Aviso ZapSign", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Aviso ZapSign", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     rota = "/api/integracoes/zapsign/aviso-assinatura"
 

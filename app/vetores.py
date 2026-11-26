@@ -31,6 +31,14 @@ class Vetorizado:
     custo_usd: float
 
 
+class ErroVetorizacao(Exception):
+    """Um lote falhou depois de outros já pagos: `tokens` e `custo_usd` são dos lotes que a OpenAI já cobrou."""
+
+    def __init__(self, mensagem: str, tokens: int, custo_usd: float) -> None:
+        super().__init__(mensagem)
+        self.tokens, self.custo_usd = tokens, custo_usd
+
+
 class Vetorizador(Protocol):
     modelo: str
     dimensoes: int
@@ -58,7 +66,12 @@ class VetorizadorOpenAI:
         vetores: list[list[float]] = []
         tokens = 0
         for inicio in range(0, len(textos), 96):                 # lotes: limite de entrada da API
-            resposta = await self._cliente.embeddings.create(model=self.modelo, input=textos[inicio:inicio + 96])
+            try:
+                resposta = await self._cliente.embeddings.create(model=self.modelo, input=textos[inicio:inicio + 96])
+            except Exception as erro:
+                if tokens:                                        # os lotes anteriores já foram cobrados
+                    raise ErroVetorizacao(str(erro), tokens, custo(tokens, self.modelo)) from erro
+                raise
             vetores.extend(item.embedding for item in resposta.data)
             tokens += getattr(resposta.usage, "total_tokens", 0) or 0
         return Vetorizado(vetores, tokens, custo(tokens, self.modelo))

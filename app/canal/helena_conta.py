@@ -71,6 +71,21 @@ class HelenaConta:
             "provedor": (c.get("identity") or {}).get("provider"),
         } for c in dados if isinstance(c, dict)]
 
+    async def id_da_conta(self) -> str | None:
+        """companyId da conta dona do token (vem nos canais e nos painéis do CRM). None se a Helena não mandar."""
+        for caminho, params in (("chat/v1/channel", {"ChannelType": "All"}), ("crm/v2/panel", {"PageSize": 1})):
+            try:
+                dados = await self._pedir("GET", caminho, params=params)
+            except ErroHelenaApi as erro:
+                if erro.motivo == "token_recusado":
+                    raise
+                continue
+            itens = dados.get("items") if isinstance(dados, dict) else dados
+            for item in itens if isinstance(itens, list) else []:
+                if isinstance(item, dict) and item.get("companyId"):
+                    return str(item["companyId"]).strip().lower()
+        return None
+
     # ---------------------------------------------------------------- webhook
     async def assinaturas(self) -> list[dict[str, Any]]:
         dados = await self._pedir("GET", "core/v1/webhook/subscription") or []
@@ -148,6 +163,15 @@ class HelenaConta:
     async def contato_da_sessao(self, id_sessao: str) -> str | None:
         dados = await self._pedir("GET", f"chat/v2/session/{id_sessao}") or {}
         return dados.get("contactId")
+
+    async def nome_do_contato(self, id_contato: str) -> str | None:
+        """O webhook de mensagem não traz o nome; o cadastro do contato traz (nome salvo ou o do WhatsApp)."""
+        dados = await self._pedir("GET", f"core/v1/contact/{id_contato}") or {}
+        for valor in (dados.get("name"), dados.get("nameWhatsapp"), dados.get("nickName")):
+            texto = str(valor or "").strip()
+            if texto and not texto.replace("+", "").replace(" ", "").replace("-", "").isdigit():
+                return texto[:120]
+        return None
 
     async def card_do_contato(self, id_painel: str, id_contato: str) -> str | None:
         dados = await self._pedir("GET", "crm/v2/panel/card", params={

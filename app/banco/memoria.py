@@ -90,6 +90,18 @@ class RepositorioMemoria:
         lead = self.leads.get(id_lead)
         return replace(lead) if lead else None
 
+    async def situacao_para_enviar(self, id_lead):
+        """Lead, escritório e agente atuais (como no Postgres): o envio confere antes de cada parte."""
+        lead = self.leads.get(id_lead)
+        if not lead:
+            return None
+        escritorio = self.escritorios.get(lead.id_escritorio)
+        agente = self.agentes.get(lead.id_canal)
+        return {"estado": lead.estado, "motivo_estado": lead.motivo_estado,
+                "ia_desligada": bool(escritorio and escritorio.ia_desligada),
+                "situacao_escritorio": escritorio.situacao if escritorio else "ativo",
+                "situacao_agente": agente.situacao if agente else None}
+
     async def lead_por_sessao(self, id_escritorio, id_sessao):
         lead = next((l for l in reversed(list(self.leads.values()))
                      if l.id_escritorio == id_escritorio and l.id_sessao_helena == id_sessao), None)
@@ -483,6 +495,19 @@ class RepositorioMemoria:
 
     async def config_zapsign(self, id_escritorio):
         return self.__dict__.setdefault("zapsign", {}).get(id_escritorio) or {}
+
+    async def reservar_acao_feita(self, *, id_escritorio, id_lead, tipo, chave_unica, dados) -> bool:
+        if any(a["chave_unica"] == chave_unica for a in self.acoes):
+            return False
+        self.acoes.append({"criada_em": datetime.now(timezone.utc), "tipo": tipo, "chave_unica": chave_unica,
+                           "dados": dados, "situacao": "feita", "id_escritorio": id_escritorio, "id_lead": id_lead,
+                           "id_turno": None})
+        return True
+
+    async def devolver_acao_para_fila(self, chave_unica) -> None:
+        for a in self.acoes:
+            if a["chave_unica"] == chave_unica and a.get("situacao") == "feita":
+                a["situacao"] = "pendente"
 
     async def enfileirar_acoes(self, *, id_escritorio, id_lead, id_turno, acoes) -> None:
         conhecidas = {a["chave_unica"] for a in self.acoes}

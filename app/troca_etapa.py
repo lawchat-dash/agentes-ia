@@ -167,7 +167,8 @@ async def receber_evento_de_card(pool: asyncpg.Pool, id_escritorio: str, corpo: 
     if not evento["id_card"] or not evento["id_etapa"]:
         return {"feito": "ignorado", "motivo": "card_sem_coluna"}
     conta = await pool.fetchval("select id_conta_helena::text from agentesia_escritorios where id = $1::uuid", id_escritorio)
-    if evento["id_conta"] and conta and evento["id_conta"].lower() != str(conta).lower():
+    # Isolamento: veio a conta no evento, tem de ser a do escritório (escritório sem conta cadastrada também recusa).
+    if evento["id_conta"] and evento["id_conta"].strip().lower() != str(conta or "").lower():
         return {"feito": "ignorado", "motivo": "conta_de_outro_escritorio"}
     quando = evento["quando"] or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
     recebido = await pool.fetchval(

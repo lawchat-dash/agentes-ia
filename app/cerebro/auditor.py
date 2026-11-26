@@ -79,6 +79,30 @@ PARTES: dict[str, tuple[str, str, str, str, str, str]] = {
         "o fluxo automático ainda é possível; dificuldade pontual no link (isso seria dificuldade_assinatura)",
         "Diga que a equipe vai preparar o contrato do jeito certo para o caso dele e entrar em contato.",
         "Siga com o fluxo normal de assinatura."),
+    "atendimento_presencial": (
+        "LEAD QUER ATENDIMENTO PRESENCIAL", "a equipe combina a ida do lead ao escritório",
+        "quer ir pessoalmente ao escritório; pede para ser atendido presencialmente; quer marcar um horário para ir lá",
+        "só perguntou onde fica o escritório ou o endereço; disse que não pode ir; nenhuma menção a ir pessoalmente",
+        'Não marque dia nem hora por conta própria. Tom: "Claro! Vou pedir para a nossa equipe combinar com você o melhor dia e horário para vir até o escritório, tudo bem?"',
+        "Responda à dúvida (se perguntou o endereço, use só o que está nos dados do escritório) e siga."),
+    "ligacao_telefonica": (
+        "LEAD PEDIU LIGAÇÃO", "a equipe liga para o lead",
+        'pede uma ligação de telefone ("me liga", "pode me ligar?", "prefiro falar por telefone"); aceitou claramente uma ligação oferecida',
+        "pediu chamada de vídeo (isso seria quer_videochamada); só passou o número de telefone; pediu áudio; nenhuma menção",
+        'Pergunte o melhor horário, sem garantir. Tom: "Claro! Vou pedir para a nossa equipe te ligar. Qual o melhor horário para você?"',
+        "Siga a conversa; não ofereça ligação."),
+    "parceria_comercial": (
+        "CONTATO COMERCIAL (NÃO É LEAD)", "encaminha o contato ao responsável do escritório",
+        "oferece serviço, parceria, indicação paga, anúncio, sistema ou venda ao escritório; não procura benefício para si nem para alguém da família",
+        "procura benefício para si; indica um parente ou conhecido que precisa do benefício; só perguntou como o escritório trabalha",
+        'Sem falar de benefício. Tom: "Obrigado pelo contato! Vou repassar a sua mensagem para o responsável do escritório, que retorna por aqui, combinado?"',
+        "Siga a conversa do benefício."),
+    "deficiencia_auditiva": (
+        "LEAD COM DEFICIÊNCIA AUDITIVA", "avisa a equipe e a conversa segue só por texto",
+        "diz que é surdo, tem deficiência auditiva ou não consegue ouvir áudios por causa da audição",
+        "está sem fone ou em lugar barulhento; não pode ouvir agora; só prefere texto; nenhuma menção à audição",
+        'Frases claras e curtas, só por texto, e siga a conversa. Tom: "Sem problema! Vamos conversar só por mensagem escrita, tudo bem?"',
+        "Siga a conversa."),
 }
 
 

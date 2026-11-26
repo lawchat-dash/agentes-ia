@@ -113,7 +113,7 @@ def _b64(dados: bytes) -> str:
 
 async def _escritorio(cliente, nome):
     return (await cliente.post("/api/admin/escritorios", json={
-        "nome": nome, "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": nome, "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
 
 
 @precisa_pg

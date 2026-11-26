@@ -172,6 +172,9 @@ def validar_dados(brutos: dict[str, Any], telefone_da_conversa: str | None = Non
         if campo in obrigatorios or d.get(campo):
             erros.append(CampoInvalido(campo, PEDIR.get(campo, campo)))
 
+    for campo in ("nome", "endereco", "bairro", "cidade", "complemento", "nomecompletomenor"):
+        if d.get(campo):
+            d[campo] = capitalizar(d[campo])
     if not d.get("nome") or len(d["nome"].split()) < 2 or re.search(r"\d", d["nome"]):
         erro("nome")
     if cpf_valido(d.get("cpf")):
@@ -233,6 +236,44 @@ def validar_dados(brutos: dict[str, Any], telefone_da_conversa: str | None = Non
     vistos: set[str] = set()
     unicos = [e for e in erros if not (e.campo in vistos or vistos.add(e.campo))]  # type: ignore[func-returns-value]
     return {k: v for k, v in d.items() if v}, unicos
+
+
+# Nome, endereço, bairro e cidade no contrato: "MARIA DA SILVA" / "maria da silva" -> "Maria da Silva".
+_PARTICULAS = {"de", "da", "do", "das", "dos", "e", "d'"}
+_ROMANO = re.compile(r"^[IVXLCDM]+$")
+
+
+def _capitalizar_palavra(palavra: str, primeira: bool) -> str:
+    if not palavra:
+        return palavra
+    if not primeira and palavra.lower() in _PARTICULAS:
+        return palavra.lower()
+    if re.search(r"\d", palavra) or (_ROMANO.match(palavra) and len(palavra) <= 4):
+        return palavra.upper() if _ROMANO.match(palavra) else palavra   # "XV", "10A", "BR-116" ficam como vieram
+    partes = re.split(r"([-'’])", palavra)                              # "Pereira-Lima", "D'Ávila"
+    return "".join(p[:1].upper() + p[1:].lower() if p not in "-'’" else p for p in partes)
+
+
+def capitalizar(valor: Any) -> str:
+    """Cada palavra com a inicial maiúscula, menos as partículas (de, da, do, das, dos, e) fora do começo. Algarismos
+    romanos e palavras com número ficam como estão."""
+    palavras = _texto(valor).split(" ")
+    return " ".join(_capitalizar_palavra(p, i == 0) for i, p in enumerate(palavras))
+
+
+# Variáveis de qualificação: o texto do contrato costuma ser "brasileira, solteira, do lar". Com "formato":
+# "minusculas" no item do mapeamento, o valor vai minúsculo (vale também para um @fixo como "Brasileira").
+FORMATOS = ("minusculas", "maiusculas", "capitalizado")
+
+
+def formatar_valor(valor: str, formato: str | None) -> str:
+    if formato == "minusculas":
+        return valor.lower()
+    if formato == "maiusculas":
+        return valor.upper()
+    if formato == "capitalizado":
+        return capitalizar(valor)
+    return valor
 
 
 def _sem_acento(valor: Any) -> str:
@@ -333,7 +374,9 @@ def montar_variaveis(dados: dict[str, str], mapeamento: list[dict[str, str]], ag
             valor = str(item.get("valor") or "")
         else:
             valor = dados.get(campo, "")
-        saida.append((variavel, valor))
+        # Formato pedido no mapeamento da variável ("minusculas" para "brasileira, solteira"); sem ele, como sempre.
+        formato = str(item.get("formato") or "").strip().lower() or None
+        saida.append((variavel, formatar_valor(valor, formato)))
     return saida
 
 

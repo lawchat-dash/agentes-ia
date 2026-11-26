@@ -45,6 +45,8 @@ NOMES_SINAIS = {
     "dificuldade_assinatura": "não consegue assinar", "foto_contrato": "manda foto do contrato",
     "muitas_objecoes": "tem muitas objeções", "endereco_sem_falar": "não quer passar o endereço",
     "contrato_manual": "precisa de contrato manual", "analise_humana": "pede análise humana do caso",
+    "atendimento_presencial": "quer atendimento presencial", "ligacao_telefonica": "pede uma ligação",
+    "parceria_comercial": "é contato comercial (não é lead)", "deficiencia_auditiva": "tem deficiência auditiva",
 }
 INTENCOES_FIXAS = {"pediu_humano", "pediu_para_parar", "engano"}
 
@@ -108,6 +110,10 @@ def gatilhos_do_turno(*, primeira_resposta: bool, etapa_antes: str, etapa_depois
         gatilhos.append(motivo_estado)
     if motivo_estado in ("trava_persistente", "pedido_repetido"):
         gatilhos.append("trava")
+    if str(motivo_estado or "").startswith("analise_manual") and "etapa:analise_manual" not in gatilhos:
+        # Caso que a IA passou para a equipe avaliar sem trocar de etapa (catálogo: desqualificação em análise manual,
+        # desqualificação esquecida, portão preso): o mesmo aviso da etapa Análise manual.
+        gatilhos.append("etapa:analise_manual")
     if sinais:
         gatilhos.append("sinal")
         gatilhos.extend(f"sinal:{s}" for s in sinais)

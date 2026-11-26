@@ -327,6 +327,14 @@ class ClienteHelena:
         # Nunca menos que a pausa padrão do 429 (a Helena conta 200 chamadas a cada 5 s), nunca mais que o teto.
         return max(0.0, min(max(pedida, self._pausa_429_s), self._pausa_maxima_s))
 
+    async def nota(self, *, token: str, id_sessao: str, texto: str) -> None:
+        """Nota interna no atendimento (só a equipe vê). Uma tentativa: quem chama decide o que fazer se falhar."""
+        resposta = await self._http.post(
+            f"{self._url}/chat/v1/session/{id_sessao}/note", json={"text": texto[:4000]},
+            headers={"Authorization": _autorizacao(token), "Accept": "application/json"})
+        if resposta.status_code >= 300:
+            raise ErroHelena(f"HTTP {resposta.status_code}")
+
     async def enviar(
         self, *, token: str, id_sessao: str, id_canal: str | None,
         texto: str | None = None, url_arquivo: str | None = None,

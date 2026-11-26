@@ -81,7 +81,7 @@ async def test_metricas_do_inicio(ambiente):
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Métricas Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Métricas Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
 
     # Sem escritório escolhido a rota pede um; escritório vazio responde com zeros.

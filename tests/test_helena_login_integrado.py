@@ -64,7 +64,7 @@ async def test_rota_abre_lista_e_conversa_e_recusa_o_que_nao_deve(ambiente, monk
     await _entrar(cliente, email_admin, "senha-admin-123")
     conta = str(uuid.uuid4())
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Atendimento", "id_conta_helena": conta, "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Atendimento", "id_conta_helena": conta, "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     rota = "/api/atendimento/entrar"
 
@@ -135,9 +135,9 @@ async def test_conta_lawchat_entra_com_o_email_do_atendimento(ambiente, monkeypa
     monkeypatch.setenv("AGENTESIA_HELENA_EMAIL_ATENDIMENTO", "atendimento@lawchat.test")
     await _entrar(cliente, email_admin, "senha-admin-123")
     lawchat = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "LawChat", "id_conta_helena": conta, "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "LawChat", "id_conta_helena": conta, "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     outra = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Cliente", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Cliente", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     r = await cliente.post("/api/atendimento/entrar", headers={"x-escritorio": lawchat["id"]}, json={})
     assert r.status_code == 200 and chamadas[-1]["email"] == "atendimento@lawchat.test"
     # Em conta de cliente, nunca: vale o próprio e-mail de quem está logado.

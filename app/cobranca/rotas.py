@@ -38,8 +38,10 @@ NOMES_TIPO = {"recarga": "Recarga", "bonus_plano": "Bônus do plano", "bonus_man
               "consumo": "Consumo da IA", "ajuste": "Ajuste", "expira_bonus": "Bônus expirado", "estorno": "Estorno"}
 NOMES_PAPEL = {"etapa": "Conversa", "extrator": "Leitura da mensagem", "auditor": "Revisão da resposta",
                "followup": "Follow-up", "transcrever_audio": "Áudio", "descrever_imagem": "Imagem", "ler_pdf": "Documento",
-               "conhecimento": "Base de conhecimento", "busca_conhecimento": "Busca na base", "contrato_resumo": "Resumo do contrato",
-               "resumo_conversa": "Memória da conversa", "origem_produto": "Origem do anúncio"}
+               "conhecimento": "Base de conhecimento", "conhecimento_consulta": "Busca na base",
+               "contrato_resumo": "Resumo do contrato", "resumo_conversa": "Memória da conversa",
+               "origem_produto": "Origem do anúncio", "followup_decisor": "Decisão do follow-up",
+               "resumo_documento": "Resumo de documento"}
 
 
 def _pool(pedido: Request) -> Any:

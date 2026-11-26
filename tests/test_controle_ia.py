@@ -168,12 +168,25 @@ def test_rotas_publicas_e_cartao_do_link():
     assert {"/api/controle-ia/publico/lead", "/api/controle-ia/publico/desativar",
             "/api/controle-ia/publico/reativar"} <= caminhos
     cartao = (RAIZ / "painel" / "src" / "componentes" / "LinkControleIA.tsx").read_text(encoding="utf-8")
-    assert ("/controle-ia/ponte?" in cartao and "id_da_conta={{id_da_conta}}" in cartao
+    assert ("/controle-ia/ponte?segredo=" in cartao and "id_da_conta={{id_da_conta}}" in cartao
             and "telefone_do_contato={{telefone_do_contato}}" in cartao and "id_do_usuario={{id_do_usuario}}" in cartao)
     assert "Helena" not in cartao
     assert "LinkControleIA" in (RAIZ / "painel" / "src" / "telas" / "Integracoes.tsx").read_text(encoding="utf-8")
     ponte = (RAIZ / "painel" / "src" / "componentes" / "PonteControleIA.tsx").read_text(encoding="utf-8")
     assert "/api/controle-ia/publico" in ponte and "Não achamos este contato na IA" in ponte
+    assert 'segredo: v("segredo")' in ponte and "p.conta && p.segredo" in ponte
+    integracoes = (RAIZ / "painel" / "src" / "telas" / "Integracoes.tsx").read_text(encoding="utf-8")
+    assert "segredo={dados.segredo_controle_ia" in integracoes
+
+
+def test_segredo_do_link_por_escritorio(monkeypatch):
+    monkeypatch.setenv("AGENTESIA_WEBHOOK_SEGREDO", "mestre")
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    from app.canal.webhook import segredo_do_escritorio
+    assert ci.segredo_do_link(a) and ci.segredo_do_link(a) != ci.segredo_do_link(b)
+    assert ci.segredo_do_link(a) != segredo_do_escritorio(a)            # não é o mesmo do webhook de mensagens
+    monkeypatch.delenv("AGENTESIA_WEBHOOK_SEGREDO")
+    assert ci.segredo_do_link(a) is None                                 # sem segredo geral: link nunca abre
 
 
 @pg
@@ -184,8 +197,11 @@ async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
     ci._pedidos.clear()
     await _entrar(cliente, email_admin, "senha-admin-123")
     marca = uuid.uuid4().hex[:6]
-    esc, _h, canal, agente, conta = await _semear(cliente, pool, f"Link IA {marca}")
-    _esc2, _h2, _c2, _a2, conta2 = await _semear(cliente, pool, f"Link IA outro {marca}")
+    esc, h, canal, agente, conta = await _semear(cliente, pool, f"Link IA {marca}")
+    esc2, _h2, _c2, _a2, conta2 = await _semear(cliente, pool, f"Link IA outro {marca}")
+    segredo, segredo2 = ci.segredo_do_link(esc), ci.segredo_do_link(esc2)
+    # O painel mostra o segredo do escritório em Integrações (é ele que vai no link).
+    assert (await cliente.get("/api/integracoes", headers=h)).json()["segredo_controle_ia"] == segredo
     fone = "55439" + str(uuid.uuid4().int)[:8]
     sessao, contato_ext = f"sess-l-{marca}", f"cont-l-{marca}"
     id_lead = await _lead(pool, esc, canal, agente, f"Ana Link {marca}", fone, sessao, contato_ext)
@@ -197,8 +213,16 @@ async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
     cliente.cookies.clear()                                    # o link funciona sem sessão do painel
 
     def q(**extra):
-        return {"id_da_conta": conta, "id_do_atendimento": sessao, "id_do_contato": "{{id_do_contato}}",
-                "telefone_do_contato": fone, **extra}
+        return {"id_da_conta": conta, "segredo": segredo, "id_do_atendimento": sessao,
+                "id_do_contato": "{{id_do_contato}}", "telefone_do_contato": fone, **extra}
+
+    # Sem segredo, com segredo errado ou com o segredo de OUTRO escritório: recusa (só o id da conta não basta).
+    for errado in ("", "{{segredo}}", "x" * 40, segredo2):
+        r = await cliente.get("/api/controle-ia/publico/lead", params=q(segredo=errado))
+        assert r.status_code == 401 and "segredo" in r.json()["detail"], (errado, r.text)
+    r = await cliente.post("/api/controle-ia/publico/desativar",
+                           json={**q(), "segredo": segredo2, "minutos": 0, "id_do_contato": ""})
+    assert r.status_code == 401 and await _notas(pool, id_lead) == 0
 
     # Conta certa: acha pelo atendimento, sem devolver o id do lead nem o telefone inteiro.
     r = await cliente.get("/api/controle-ia/publico/lead", params=q())
@@ -208,8 +232,8 @@ async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
     # Sem atendimento: pelo telefone.
     assert (await cliente.get("/api/controle-ia/publico/lead",
                               params=q(id_do_atendimento=""))).json()["por"] == "telefone"
-    # Conta de outro escritório: o lead não existe lá.
-    r = await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=conta2))
+    # Conta de outro escritório (com o segredo dele): o lead não existe lá.
+    r = await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=conta2, segredo=segredo2))
     assert r.status_code == 404 and "não tem lead" in r.json()["detail"]
     # Conta desconhecida, inválida ou ausente.
     r = await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=str(uuid.uuid4())))
@@ -218,14 +242,15 @@ async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
     r = await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta="{{id_da_conta}}"))
     assert r.status_code == 400 and "id_da_conta" in r.json()["detail"]
     # Sem dados da conversa.
-    assert (await cliente.get("/api/controle-ia/publico/lead", params={"id_da_conta": conta})).status_code == 400
+    assert (await cliente.get("/api/controle-ia/publico/lead",
+                              params={"id_da_conta": conta, "segredo": segredo})).status_code == 400
     # id_lead vindo do navegador é ignorado: sem os dados da conversa nada muda.
-    r = await cliente.post("/api/controle-ia/publico/desativar", json={"id_da_conta": conta, "id_lead": id_lead})
+    r = await cliente.post("/api/controle-ia/publico/desativar", json={"id_da_conta": conta, "segredo": segredo, "id_lead": id_lead})
     assert r.status_code == 400
     assert await _notas(pool, id_lead) == 0
 
     # Desativar pelo link (2 h) com o atendente da plataforma: nota e histórico dizem "pelo link da conversa".
-    corpo = {"id_da_conta": conta, "id_do_atendimento": sessao, "id_do_contato": contato_ext,
+    corpo = {"id_da_conta": conta, "segredo": segredo, "id_do_atendimento": sessao, "id_do_contato": contato_ext,
              "telefone_do_contato": fone, "id_do_usuario": usuario_plataforma}
     r = await cliente.post("/api/controle-ia/publico/desativar", json={**corpo, "minutos": 120})
     assert r.status_code == 200, r.text
@@ -242,7 +267,7 @@ async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
     r = await cliente.post("/api/controle-ia/publico/desativar", json={**corpo, "minutos": 120})
     assert r.json()["mudou"] is False and await _notas(pool, id_lead) == 1
     # Pela conta de outro escritório não mexe.
-    r = await cliente.post("/api/controle-ia/publico/reativar", json={**corpo, "id_da_conta": conta2})
+    r = await cliente.post("/api/controle-ia/publico/reativar", json={**corpo, "id_da_conta": conta2, "segredo": segredo2})
     assert r.status_code == 404 and await _notas(pool, id_lead) == 1
 
     # Reativar sem id_do_usuario preenchido: nota "pelo link da conversa", sem nome.
@@ -256,7 +281,8 @@ async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
     # Conversa encerrada: mensagem clara.
     fone2 = "55439" + str(uuid.uuid4().int)[:8]
     await _lead(pool, esc, canal, agente, f"Encerrado Link {marca}", fone2, estado="encerrado")
-    r = await cliente.post("/api/controle-ia/publico/desativar", json={"id_da_conta": conta, "telefone_do_contato": fone2})
+    r = await cliente.post("/api/controle-ia/publico/desativar", json={"id_da_conta": conta, "segredo": segredo,
+                                                                         "telefone_do_contato": fone2})
     assert r.status_code == 409 and "encerrada" in r.json()["detail"]
 
     # Limite de taxa por conta (a outra conta segue livre).
@@ -264,7 +290,8 @@ async def test_link_da_conversa_sem_login(ambiente, monkeypatch):  # noqa: F811
     monkeypatch.setattr(ci, "LIMITE_POR_CONTA", 3)
     codigos = [(await cliente.get("/api/controle-ia/publico/lead", params=q())).status_code for _ in range(4)]
     assert codigos == [200, 200, 200, 429]
-    assert (await cliente.get("/api/controle-ia/publico/lead", params=q(id_da_conta=conta2))).status_code == 404
+    assert (await cliente.get("/api/controle-ia/publico/lead",
+                              params=q(id_da_conta=conta2, segredo=segredo2))).status_code == 404
     # Limite por IP (contas inventadas não escapam).
     ci._pedidos.clear()
     monkeypatch.setattr(ci, "LIMITE_POR_IP", 2)

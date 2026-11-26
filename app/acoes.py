@@ -102,6 +102,11 @@ class Executor:
         dados = acao["dados"] if isinstance(acao["dados"], dict) else json.loads(acao["dados"])
         dados = {**dados, "_id_acao": acao["id"]}            # para ações que criam outras (aviso -> envios)
         try:
+            if acao["id_lead"] and not await self._pool.fetchval(
+                    "select true from agentesia_leads where id = $1::uuid and id_escritorio = $2::uuid",
+                    acao["id_lead"], acao["id_escritorio"]):
+                # Isolamento: ação com lead de OUTRO escritório (ou lead apagado) nunca envia nada.
+                raise ErroDeCadastro("o lead da ação não é deste escritório (ou não existe mais)")
             if acao["tipo"] == "alertar_lawchat":           # sai pela conta da LawChat, não pela do escritório
                 contexto = self._contexto_lawchat(str(acao["id_escritorio"]))
             elif acao["tipo"] in SEM_HELENA:                 # só banco e IA: não precisa do token da Helena
@@ -212,8 +217,11 @@ class Executor:
             lead = await self._pool.fetchrow(
                 """select l.id, l.id_sessao_helena, l.id_contato, c.id_contato_helena, c.nome, c.telefone_normalizado,
                           l.origem, l.criado_em
-                   from agentesia_leads l join agentesia_contatos c on c.id = l.id_contato where l.id = $1::uuid""", id_lead)
-            contexto["lead"] = dict(lead) if lead else None
+                   from agentesia_leads l join agentesia_contatos c on c.id = l.id_contato
+                   where l.id = $1::uuid and l.id_escritorio = $2::uuid""", id_lead, id_escritorio)
+            if not lead:
+                raise ErroDeCadastro("o lead da ação não é deste escritório (ou não existe mais)")
+            contexto["lead"] = dict(lead)
         return contexto
 
     async def _zapsign(self, id_escritorio: str) -> tuple[ZapSign | None, dict[str, Any]]:
@@ -229,15 +237,18 @@ class Executor:
         url = URL_SANDBOX if config.get("ambiente") == "sandbox" else URL_PRODUCAO
         return self._zapsign_por_token(linha["token"], url), config
 
-    async def _lead_completo(self, id_lead: str) -> dict[str, Any]:
+    async def _lead_completo(self, id_lead: str, id_escritorio: str | None = None) -> dict[str, Any]:
+        """Lead com contato, canal e agente. Com id_escritorio, só se o lead for dele (senão a ação falha sem enviar).
+        Sem ele, vale o _executar, que já recusa ação cujo lead não é do escritório da ação."""
         linha = await self._pool.fetchrow(
             """select l.*, ct.nome, ct.telefone_normalizado, ca.id_canal_helena, ag.config as config_agente, ag.produto, et.codigo as etapa
                from agentesia_leads l join agentesia_contatos ct on ct.id = l.id_contato
                join agentesia_canais ca on ca.id = l.id_canal
                left join agentesia_agentes ag on ag.id = l.id_agente
-               left join agentesia_agente_etapas et on et.id = l.id_etapa where l.id = $1::uuid""", id_lead)
+               left join agentesia_agente_etapas et on et.id = l.id_etapa
+               where l.id = $1::uuid and ($2::uuid is null or l.id_escritorio = $2::uuid)""", id_lead, id_escritorio)
         if not linha:
-            raise ErroDeCadastro("lead não encontrado")
+            raise ErroDeCadastro("lead não encontrado neste escritório")
         lead = dict(linha)
         if isinstance(lead.get("config_agente"), str):
             lead["config_agente"] = json.loads(lead["config_agente"] or "{}")
@@ -280,6 +291,27 @@ class Executor:
             await self._enfileirar(contexto, "nota", chave, {"texto": texto})
 
     async def _id_contato(self, contexto: dict[str, Any]) -> str:
+        id_contato = await self._id_contato_sem_nome(contexto)
+        await self._completar_nome(contexto, id_contato)
+        return id_contato
+
+    async def _completar_nome(self, contexto: dict[str, Any], id_contato: str) -> None:
+        """O webhook da plataforma não traz o nome do lead: busca no cadastro do contato e guarda (sem sobrescrever).
+        Sem isso o card, a nota e as telas mostravam 'Sem nome'. Falha aqui nunca derruba a ação."""
+        lead = contexto.get("lead") or {}
+        if lead.get("nome") or not lead.get("id_contato") or not hasattr(contexto.get("helena"), "nome_do_contato"):
+            return
+        try:
+            nome = await contexto["helena"].nome_do_contato(id_contato)
+        except Exception:
+            log.info("nome do contato indisponível", exc_info=True)
+            return
+        if nome:
+            await self._pool.execute("update agentesia_contatos set nome = coalesce(nullif(nome, ''), $2) where id = $1",
+                                     lead["id_contato"], nome)
+            lead["nome"] = nome
+
+    async def _id_contato_sem_nome(self, contexto: dict[str, Any]) -> str:
         lead = contexto.get("lead") or {}
         if lead.get("id_contato_helena"):
             return lead["id_contato_helena"]
@@ -974,14 +1006,15 @@ class Executor:
         from app.contrato import servico
 
         contrato = await servico.contrato_para_verificar(
-            self._pool, id_lead=(contexto.get("lead") or {}).get("id"), token_documento=dados.get("token_documento"))
+            self._pool, id_escritorio=contexto["id_escritorio"], id_lead=(contexto.get("lead") or {}).get("id"),
+            token_documento=dados.get("token_documento"))
         if not contrato:
             if dados.get("origem") == "verificacao" and (contexto.get("lead") or {}).get("id"):
                 return await self._ja_assinei_sem_documento(contexto)
             return {"resultado": "sem_contrato"}
         if not contexto.get("lead"):
             contexto["lead"] = {"id": str(contrato["id_lead"])}
-        lead = await self._lead_completo(str(contrato["id_lead"]))
+        lead = await self._lead_completo(str(contrato["id_lead"]), contexto["id_escritorio"])
         verificacao = dados.get("origem") == "verificacao"
         zapsign, config = await self._zapsign(contexto["id_escritorio"])
         if zapsign is None:
@@ -1073,13 +1106,14 @@ class Executor:
     async def _cancelar_contrato(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
         """Cancela na ZapSign uma versão já substituída (POST /refuse/), para o link velho não ser mais assinável.
         Relê antes: se o lead assinou essa versão, não cancela (a verificação decide e avisa a equipe)."""
-        contrato = await self._pool.fetchrow("select * from agentesia_contratos where id = $1::uuid", dados["id_contrato"])
+        contrato = await self._pool.fetchrow("select * from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid",
+                                             dados["id_contrato"], contexto["id_escritorio"])
         if not contrato or contrato["situacao"] != "substituido":
             return {"cancelado": False, "motivo": f"contrato {contrato['situacao'] if contrato else 'inexistente'}"}
         zapsign, _ = await self._zapsign(contexto["id_escritorio"])
         if zapsign is None:
             raise ErroDeCadastro("escritório sem chave da ZapSign")
-        lead = await self._lead_completo(str(contrato["id_lead"]))
+        lead = await self._lead_completo(str(contrato["id_lead"]), contexto["id_escritorio"])
         _, _, leitura = await self._ler_documento(zapsign, dict(contrato), lead)
         if leitura.situacao == "assinado":
             await self._enfileirar(contexto, "verificar_assinatura", f"zapsign:{contrato['id_documento_externo']}:antiga-assinada",
@@ -1106,7 +1140,8 @@ class Executor:
         from app import armazenamento
         from app.contrato import servico
 
-        contrato = await self._pool.fetchrow("select * from agentesia_contratos where id = $1::uuid", dados["id_contrato"])
+        contrato = await self._pool.fetchrow("select * from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid",
+                                             dados["id_contrato"], contexto["id_escritorio"])
         if not contrato or contrato["situacao"] != "assinado" or not contrato["id_documento_externo"]:
             return {"pdf": "sem_contrato_assinado"}
         if _pdf_guardado(contrato["arquivo_assinado"]):
@@ -1191,7 +1226,9 @@ class Executor:
             return
         try:
             lead = await self._lead_completo(contexto["lead"]["id"])
-            resumo = await self._pool.fetchval("select resumo from agentesia_contratos where id = $1::uuid", dados["id_contrato"])
+            resumo = await self._pool.fetchval(
+                "select resumo from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid",
+                dados["id_contrato"], contexto["id_escritorio"])
             if dados.get("chave_nota"):
                 caso = dados.get("caso") or cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
                 await self._nota_unica(contexto, lead, dados["chave_nota"], cresumo.nota(resumo, caso, dados.get("avisos_nota")))
@@ -1208,14 +1245,16 @@ class Executor:
         from app.contrato import resumo as cresumo
         from app.modelo import ErroModelo
 
-        contrato = await self._pool.fetchrow("select id, id_lead, resumo from agentesia_contratos where id = $1::uuid", dados["id_contrato"])
+        contrato = await self._pool.fetchrow(
+            "select id, id_lead, resumo from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid",
+            dados["id_contrato"], contexto["id_escritorio"])
         if not contrato or contrato["resumo"]:
             return {"resumo": "ja_existe"}
         if self._modelo is None:
             return {"resumo": "sem_modelo_configurado"}
         if await cobranca.bloqueado(self._pool, contexto["id_escritorio"]):
             return {"resumo": cobranca.MOTIVO}             # sem saldo: segue sem resumo (a nota e o aviso saem)
-        lead = await self._lead_completo(str(contrato["id_lead"]))
+        lead = await self._lead_completo(str(contrato["id_lead"]), contexto["id_escritorio"])
         _, config = await self._zapsign(contexto["id_escritorio"])
         caso = dados.get("caso") or cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
         ajustes = cresumo.configuracao(lead.get("config_agente"), config, caso)
@@ -1287,12 +1326,15 @@ class Executor:
             return {"resumo": "sem_modelo_configurado"}
         if not contexto.get("lead"):
             raise ErroDeCadastro("resumo da conversa sem lead")
+        async def gravar(chamadas: list[Any]) -> None:   # antes da ficha: o gasto fica gravado mesmo se a ficha falhar
+            await self._gravar_chamadas(contexto, chamadas)
+
         try:
-            resultado, chamadas = await memoria.resumir(RepositorioPostgres(self._pool), self._modelo, contexto["lead"]["id"])
+            resultado, _chamadas = await memoria.resumir(RepositorioPostgres(self._pool), self._modelo,
+                                                         contexto["lead"]["id"], gravar_chamadas=gravar)
         except ErroModelo as erro:
             await self._gravar_chamadas(contexto, getattr(erro, "chamadas", []))
             raise ErroHelenaApi("indisponivel", f"IA do resumo da conversa: {erro.motivo}") from erro
-        await self._gravar_chamadas(contexto, chamadas)
         return resultado
 
     async def _classificar_origem(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
@@ -1319,6 +1361,7 @@ class Executor:
                     papel="origem_produto", sistema=origens.PROMPT_PRODUTO, conteudo=origens.dados_para_classificar(origem),
                     esquema=origens.ESQUEMA_PRODUTO, modelo="gpt-4.1-mini", esforco="low")
             except ErroModelo as erro:
+                await self._gravar_chamadas(contexto, getattr(erro, "chamadas", []))   # a tentativa que falhou também foi paga
                 raise ErroHelenaApi("indisponivel", f"IA da origem: {erro.motivo}") from erro
             await self._gravar_chamadas(contexto, resultado.chamadas)
             produto = resultado.dados.get("produto") if resultado.dados.get("produto") in origens.PRODUTOS else "nao_sei"
@@ -1386,7 +1429,8 @@ class Executor:
         lembrar; abriu há menos de 1 h -> adia 1 h (uma vez); abriu e não concluiu -> texto de "travou?"."""
         from app.contrato import dados as cdados
 
-        contrato = await self._pool.fetchrow("select * from agentesia_contratos where id = $1::uuid", dados["id_contrato"])
+        contrato = await self._pool.fetchrow("select * from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid",
+                                             dados["id_contrato"], contexto["id_escritorio"])
         lead = await self._lead_completo(contexto["lead"]["id"])
         if not contrato or contrato["situacao"] != "gerado" or lead.get("etapa") != "assinatura" or lead.get("estado") != "ativo":
             return {"lembrete": "nao_precisa"}

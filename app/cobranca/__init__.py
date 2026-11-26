@@ -125,6 +125,24 @@ async def gravar_chamadas(conexao: Any, *, id_escritorio: str | None, chamadas: 
          for linha, c in zip(linhas, chamadas)])
 
 
+async def gravar_teste(conexao: Any, *, id_escritorio: str, chamadas: list[Any], origem: str = "laboratorio",
+                       id_agente: str | None = None, codigo_etapa: str | None = None) -> None:
+    """Chamadas de IA dos testes do painel (laboratório, prévia do follow-up): entram na carteira como qualquer outra,
+    com `origem` própria. Aceita Chamada ou dict (o turno do laboratório vem em dict). Modelo falso não grava; falha ao
+    gravar só registra no log (o teste já respondeu)."""
+    from types import SimpleNamespace
+
+    linhas = [SimpleNamespace(**c) if isinstance(c, dict) else c for c in chamadas or []]
+    linhas = [c for c in linhas if (getattr(c, "modelo", None) or "falso") != "falso"]
+    if not linhas:
+        return
+    try:
+        await gravar_chamadas(conexao, id_escritorio=id_escritorio, chamadas=linhas, id_agente=id_agente,
+                              codigo_etapa=codigo_etapa, origem=origem)
+    except Exception:
+        log.exception("falha ao gravar as chamadas do teste (%s)", origem)
+
+
 # ============================================================================ pode gastar?
 @dataclass(frozen=True)
 class Situacao:

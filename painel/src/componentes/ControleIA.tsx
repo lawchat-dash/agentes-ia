@@ -12,6 +12,7 @@ import "./controleIA.css";
  */
 
 export const MENSAGEM_CONVERSA = "lawchat-conversa-aberta";
+export const MENSAGEM_POPUP_ABERTO = "lawchat-popup-ia-aberto";   // batimento do popup do Controle da IA
 
 export interface Alvo { sessao?: string; contato?: string; telefone?: string; conta?: string }
 

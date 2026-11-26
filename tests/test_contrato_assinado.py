@@ -269,7 +269,7 @@ async def test_rotas_do_resumo_de_contrato_por_agente(ambiente):
     cliente._transport.app.include_router(api_resumo)
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Resumo Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Resumo Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     pool = banco._pool
     canal = await pool.fetchval(

@@ -219,3 +219,158 @@ async def test_lista_filtros_detalhe_e_bloqueio(ambiente):  # noqa: F811
         assert (await cliente.get(caminho)).status_code == 403, caminho
     await cliente.post("/api/sair")
     assert (await cliente.get("/api/admin/execucoes")).status_code == 401
+
+
+# ------------------------------------------------------------------ resultado (certo/errado e por quê)
+def test_detalhe_do_erro_guarda_tipo_modulo_linha_e_status():
+    from app.pipeline import detalhe_do_erro
+
+    class ErroHttp(Exception):
+        status_code = 503
+    try:
+        raise ErroHttp("Service Unavailable")
+    except ErroHttp as erro:
+        d = detalhe_do_erro(erro)
+    assert d["tipo"] == "ErroHttp" and d["status"] == 503 and d["mensagem"] == "Service Unavailable"
+    assert d["modulo"] == __name__
+    try:
+        raise TimeoutError()
+    except TimeoutError as erro:
+        assert detalhe_do_erro(erro)["status"] is None
+
+
+async def _turno(pool, base, situacao, motivo, *, minutos, duracao_s=1.0, evento=None, chamada_erro=None,
+                 envio_falhou=None, tempos=None):
+    resposta = json.dumps({"tempos": tempos}) if tempos else None
+    id_turno = str(await pool.fetchval(
+        """insert into agentesia_turnos (id_escritorio, id_lead, modo, etapa_antes, situacao, motivo, resposta,
+                                         iniciado_em, concluido_em)
+           values ($1::uuid, $2::uuid, 'producao', 'sdr', $3, $4, $5::jsonb, now() - make_interval(mins => $6),
+                   now() - make_interval(mins => $6) + make_interval(secs => $7)) returning id""",
+        base["escritorio"], base["lead"], situacao, motivo, resposta, minutos, float(duracao_s)))
+    if evento:
+        tipo, detalhe = evento
+        await pool.execute(
+            """insert into agentesia_eventos (id_escritorio, id_lead, id_turno, tipo, gravidade, responsavel, descricao, detalhe)
+               values ($1::uuid, $2::uuid, $3::uuid, $4, 'critico', 'lawchat', 'Erro no turno', $5::jsonb)""",
+            base["escritorio"], base["lead"], id_turno, tipo, json.dumps(detalhe))
+    if chamada_erro:
+        await pool.execute(
+            """insert into agentesia_chamadas_ia (id_escritorio, id_turno, papel, modelo, duracao_ms, sucesso, erro)
+               values ($1::uuid, $2::uuid, 'etapa', 'gpt-4.1', 30000, false, $3)""", base["escritorio"], id_turno, chamada_erro)
+    if envio_falhou:
+        await pool.execute(
+            """insert into agentesia_mensagens (id_escritorio, id_lead, id_turno, autor, tipo, texto, enviada_em,
+                                                situacao_envio, erro)
+               values ($1::uuid, $2::uuid, $3::uuid, 'ia', 'texto', 'Oi', now() - make_interval(mins => $4), 'falhou', $5)""",
+            base["escritorio"], base["lead"], id_turno, minutos, envio_falhou)
+    return id_turno
+
+
+@pg
+async def test_resultado_status_filtro_resumo_e_linha_do_tempo(ambiente):  # noqa: F811
+    cliente, _simulada, email_admin, banco = ambiente
+    cliente._transport.app.include_router(ex.api)
+    pool = banco._pool
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    marca = uuid.uuid4().hex[:6]
+    base = await _semear(cliente, pool, f"Resultados {marca}", f"Ana Resultado {marca}", "55" + str(uuid.uuid4().int)[:11])
+    for t in ("t1", "t2", "t3"):                            # os 3 da semeadura saem do período (3 dias atrás)
+        await pool.execute("update agentesia_turnos set iniciado_em = now() - interval '3 days', "
+                           "concluido_em = now() - interval '3 days' where id = $1::uuid", base[t])
+    T = {}
+    T["ok"] = await _turno(pool, base, "respondido", "", minutos=100, duracao_s=2, tempos={
+        "passos_ms": {"ia_total": 1500.0, "envio": 400.0, "pos_envio": 80.0}, "marcas_ms": {"primeira_parte_enviada": 1700.0}})
+    T["ok2"] = await _turno(pool, base, "respondido", "transferencia:closer", minutos=95, duracao_s=4)
+    T["timeout_ia"] = await _turno(pool, base, "erro", "turno:sem_conexao", minutos=90, duracao_s=90,
+                                   evento=("ia_nao_respondeu", {"detalhe": "a IA passou de 90 s"}))
+    T["timeout_openai"] = await _turno(pool, base, "erro", "etapa:sem_conexao:nova_tentativa", minutos=85, duracao_s=60,
+                                       chamada_erro="sem_conexao: Request timed out.")
+    T["5xx_ia"] = await _turno(pool, base, "erro", "etapa:provedor_fora_do_ar", minutos=80,
+                               chamada_erro="provedor_fora_do_ar: 503")
+    T["banco"] = await _turno(pool, base, "erro", "erro_interno:TooManyConnectionsError", minutos=75, evento=(
+        "erro_no_turno", {"tipo": "TooManyConnectionsError", "modulo": "asyncpg.exceptions",
+                          "mensagem": "sorry, too many clients", "onde": "banco/postgres.py:640 (fatos_do_sistema)",
+                          "status": None}))
+    T["timeout_banco"] = await _turno(pool, base, "erro", "erro_interno:TimeoutError", minutos=70, evento=(
+        "erro_no_turno", {"tipo": "TimeoutError", "modulo": "builtins", "mensagem": "", "onde": "banco/postgres.py:12 (lead)"}))
+    T["antigo_bug"] = await _turno(pool, base, "erro", "erro_interno:KeyError", minutos=65)
+    T["envio_5xx"] = await _turno(pool, base, "respondido", "", minutos=60, envio_falhou="HTTP 503")
+    T["interrompido"] = await _turno(pool, base, "erro", "turno_interrompido", minutos=55, evento=(
+        "turno_interrompido", {"enviadas": 0, "devolvidas": 2, "novas": 0}))
+    T["ignorado"] = await _turno(pool, base, "silencio", "ia_desligada_no_escritorio", minutos=50, duracao_s=0.1)
+    T["sem_credito"] = await _turno(pool, base, "silencio", "sem_saldo", minutos=45, duracao_s=0.1)
+    T["calada"] = await _turno(pool, base, "silencio", "lead_so_agradeceu", minutos=40)
+    T["refeito"] = await _turno(pool, base, "descartado", "chegou_mensagem_nova", minutos=35)
+    esperado = {"ok": "sucesso", "ok2": "sucesso", "timeout_ia": "timeout", "timeout_openai": "timeout",
+                "5xx_ia": "erro_5xx", "banco": "erro_banco", "timeout_banco": "timeout", "antigo_bug": "erro",
+                "envio_5xx": "erro_5xx", "interrompido": "interrompido", "ignorado": "ignorado",
+                "sem_credito": "ignorado", "calada": "sem_resposta", "refeito": "descartado"}
+    de = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+
+    resp = await cliente.get("/api/admin/execucoes", params={"conta": base["escritorio"], "de": de, "por_pagina": 100})
+    assert resp.status_code == 200, resp.text
+    por_id = {i["id"]: i for i in resp.json()["itens"]}
+    assert {nome: por_id[T[nome]]["resultado"]["status"] for nome in T} == esperado
+
+    def r(nome):
+        return por_id[T[nome]]["resultado"]
+    assert r("banco")["origem"] == "banco" and r("banco")["erro"]["onde"] == "banco/postgres.py:640 (fatos_do_sistema)"
+    assert r("banco")["erro"]["mensagem"] == "sorry, too many clients" and r("banco")["causa"] == "Conexões do banco esgotadas"
+    assert r("timeout_banco")["origem"] == "banco"
+    assert r("timeout_openai")["origem"] == "ia" and r("timeout_openai")["nova_tentativa"] is True
+    assert "Vai tentar de novo" in r("timeout_openai")["causa"]
+    assert r("5xx_ia")["origem"] == "ia" and r("envio_5xx")["origem"] == "plataforma"
+    assert r("interrompido")["retomado"] is True and r("interrompido")["origem"] == "servidor"
+    assert r("antigo_bug")["erro"]["tipo"] == "KeyError" and r("antigo_bug")["origem"] == "servidor"
+    assert r("sem_credito")["causa"] == "Sem crédito de IA" and r("ok")["erro"] is None
+    assert por_id[T["ok"]]["etapas_ms"] == {"contexto": None, "ia": 1500.0, "envio": 400.0, "acoes": 80.0, "gravacoes": None}
+
+    async def ids(**params):
+        resp = await cliente.get("/api/admin/execucoes", params={"conta": base["escritorio"], "de": de, "por_pagina": 100,
+                                                                 **params})
+        assert resp.status_code == 200, resp.text
+        return {i["id"] for i in resp.json()["itens"]}
+    assert await ids(status="timeout") == {T["timeout_ia"], T["timeout_openai"], T["timeout_banco"]}
+    assert await ids(status="erro_banco,erro_5xx") == {T["banco"], T["5xx_ia"], T["envio_5xx"]}
+    assert len(await ids(status="erros")) == 8
+    assert await ids(status="ignorado", busca=base["lead"]) == {T["ignorado"], T["sem_credito"]}
+    assert (await cliente.get("/api/admin/execucoes", params={"status": "nada"})).status_code == 400
+
+    # Resumo: contadores, taxa de erro (sem os ignorados), tempo médio, p95 e série por hora.
+    res = (await cliente.get("/api/admin/execucoes/resumo", params={"conta": base["escritorio"], "de": de})).json()
+    assert res["total"] == 14 and res["sucesso"] == 2 and res["erros"] == 8 and res["timeouts"] == 3
+    assert res["por_status"]["ignorado"] == 2 and res["por_status"]["descartado"] == 1
+    assert res["taxa_erro"] == round(8 / 12, 4)
+    assert res["p95_ms"] == 90000 and 10000 < res["tempo_medio_ms"] < 20000
+    assert res["fatia"] == "hora" and 6 <= len(res["serie"]) <= 7
+    assert sum(p["sucesso"] for p in res["serie"]) == 2 and sum(p["erros"] for p in res["serie"]) == 8
+    assert sum(p["outros"] for p in res["serie"]) == 4
+    so_erros = (await cliente.get("/api/admin/execucoes/resumo", params={
+        "conta": base["escritorio"], "de": de, "status": "erros"})).json()
+    assert so_erros["total"] == 8
+    semana = (await cliente.get("/api/admin/execucoes/resumo", params={
+        "conta": base["escritorio"], "de": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()})).json()
+    assert semana["fatia"] == "dia" and semana["total"] == 17
+    assert (await cliente.get("/api/admin/execucoes/resumo", params={
+        "de": "2026-01-02T00:00:00Z", "ate": "2026-01-01T00:00:00Z"})).status_code == 400
+
+    # Detalhe: resultado, tentativas, ações do turno e a linha do tempo em ordem.
+    await pool.execute(
+        """insert into agentesia_acoes (id_escritorio, id_lead, id_turno, tipo, dados, situacao, tentativas, erro,
+                                        criado_em, atualizado_em)
+           values ($1::uuid, $2::uuid, $3::uuid, 'mover_card', '{}'::jsonb, 'feita', 2, null,
+                   now() - interval '100 minutes' + interval '2 seconds', now() - interval '100 minutes' + interval '5 seconds')""",
+        base["escritorio"], base["lead"], T["ok"])
+    d = (await cliente.get(f"/api/admin/execucoes/{T['ok']}")).json()
+    assert d["resultado"]["status"] == "sucesso"
+    assert d["acoes_turno"][0]["tipo"] == "mover_card" and d["acoes_turno"][0]["duracao_ms"] == 3000
+    assert d["tentativas"]["acoes_repetidas"] == 1 and d["tentativas"]["turno"] == 1
+    tipos = [p["tipo"] for p in d["linha_do_tempo"]]
+    assert tipos[0] == "inicio" and tipos[-1] == "acao" and "fim" in tipos and "marca" in tipos and tipos.count("acao") == 2
+    assert [p["ms"] for p in d["linha_do_tempo"]] == sorted(p["ms"] for p in d["linha_do_tempo"])
+    seguinte = (await cliente.get(f"/api/admin/execucoes/{T['5xx_ia']}")).json()
+    assert seguinte["tentativas"]["turno"] == 2                # o turno antes dele pediu nova tentativa
+    assert seguinte["tentativas"]["chamadas_ia_falharam"] == 1
+    fim = seguinte["linha_do_tempo"][-1]
+    assert fim["tipo"] == "fim" and fim["estado"] == "bad" and "5xx" in fim["titulo"]

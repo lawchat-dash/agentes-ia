@@ -225,19 +225,22 @@ async def tratar_midia(*, tipo: str, url: str | None, mime: str | None, nome: st
     try:
         texto = await asyncio.to_thread(extrair_texto, dados, formato)
     except ErroArquivo as erro:
+        pagas: list[Chamada] = []             # leitura pela visão que voltou vazia ou falhou também foi paga
         if erro.codigo == "sem_texto" and formato == "pdf" and ler_pdf and len(dados) <= LIMITE_PDF_VISAO:
             # PDF escaneado (laudo, CAT, carta do INSS): o modelo com visão lê as páginas.
             try:
                 lido, chamada = await ler_pdf(dados)
-            except ErroModelo:
-                lido, chamada = "", None
+                pagas = [chamada]
+            except ErroModelo as falha:
+                lido, pagas = "", list(getattr(falha, "chamadas", []))
             if lido.strip():
                 return ResultadoMidia(f"[{autor.sujeito} enviou o documento{_rotulo(nome)} (escaneado). Resumo do conteúdo "
                                       f"(lido pelo sistema):]\n{lido.strip()[:2200]}{sufixo}", formato, resumido=True,
-                                      chamadas=[chamada] if chamada else [])
+                                      chamadas=pagas)
         motivo = "PDF escaneado ou sem texto" if erro.codigo == "sem_texto" else "arquivo protegido ou com defeito"
         return ResultadoMidia(f"[{autor.sujeito} enviou o documento{_rotulo(nome)}, mas não foi possível ler ({motivo}). "
-                              f"Peça para ele contar o que diz ou mandar foto legível.]{sufixo}", formato, erro=erro.codigo)
+                              f"Peça para ele contar o que diz ou mandar foto legível.]{sufixo}", formato, erro=erro.codigo,
+                              chamadas=pagas)
     if len(texto) < CORTE_RESUMO:
         return ResultadoMidia(f"[{autor.sujeito} enviou o documento{_rotulo(nome)}. Conteúdo:]\n{texto}{sufixo}", formato)
     try:
@@ -245,8 +248,9 @@ async def tratar_midia(*, tipo: str, url: str | None, mime: str | None, nome: st
         return ResultadoMidia(f"[{autor.sujeito} enviou o documento{_rotulo(nome)}. Resumo do conteúdo (feito pelo sistema):]\n{resumo}{sufixo}",
                               formato, resumido=True, chamadas=chamadas)
     except ErroModelo as erro:
+        # As tentativas do resumo que falharam (saída inválida, cortada) também foram pagas: vão junto para gravar.
         return ResultadoMidia(f"[{autor.sujeito} enviou o documento{_rotulo(nome)}. Começo do conteúdo:]\n{texto[:CORTE_RESUMO]}…{sufixo}",
-                              formato, erro=erro.motivo)
+                              formato, erro=erro.motivo, chamadas=list(getattr(erro, "chamadas", [])))
 
 
 async def _descrever(autor: _Quem, url: str, mime: str | None, legenda: str | None, descrever_imagem: DescreverImagem,

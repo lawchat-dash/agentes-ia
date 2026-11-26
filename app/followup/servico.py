@@ -179,6 +179,11 @@ class Disparador:
                 await self.varrer_parados()
             except Exception:
                 log.exception("falha na varredura de leads parados")
+            try:                                       # follow-up ausente e avisos (app/vigia.py), de 10 em 10 min
+                from app import vigia
+                await vigia.rodar_se_for_hora(self._pool)
+            except Exception:
+                log.exception("falha na vigia (follow-up ausente / avisos)")
             try:
                 await asyncio.wait_for(self._parar.wait(), intervalo_s)
             except asyncio.TimeoutError:
@@ -309,7 +314,8 @@ class Disparador:
                 papel="followup_decisor", sistema=sistema, esquema=agente_fu.ESQUEMA_DECISAO,
                 conteudo="Conversa até aqui (mais antiga primeiro):\n" + (agente_fu.conversa_em_texto(historico) or "(vazia)"),
                 modelo=self._nome_modelo(lead, config), esforco="low")
-        except ErroModelo:
+        except ErroModelo as erro:
+            await self._gravar_chamadas(lead, getattr(erro, "chamadas", []))     # a tentativa que falhou também foi paga
             return agente_fu.Decisao()
         await self._gravar_chamadas(lead, resultado.chamadas)
         return agente_fu.ler_decisao(resultado.dados)
@@ -359,12 +365,23 @@ class Disparador:
                where id = $1 and situacao = 'reservado'
                  and not exists (select 1 from agentesia_mensagens m where m.id_lead = $2 and m.autor in ('lead', 'humano')
                                  and m.enviada_em > $3)
+                 and exists (select 1 from agentesia_leads l join agentesia_escritorios e on e.id = l.id_escritorio
+                             left join agentesia_agentes a on a.id = l.id_agente
+                             where l.id = $2 and l.estado = 'ativo' and not e.ia_desligada and e.situacao = 'ativo'
+                               and coalesce(a.situacao, 'ativo') = 'ativo')
                returning id""", f["id"], f["id_lead"], f["base"], RESERVA_MIN)
         if ok:
             return True
+        # IA desligada (lead, agente ou escritório) enquanto a IA escrevia também cancela: o follow-up não sai.
         await self._pool.execute(
-            """update agentesia_followups set situacao = 'cancelado', motivo = 'respondeu_durante_o_envio'
-               where id = $1 and situacao = 'reservado'""", f["id"])
+            """update agentesia_followups set situacao = 'cancelado',
+                      motivo = case when exists (select 1 from agentesia_leads l
+                                                 join agentesia_escritorios e on e.id = l.id_escritorio
+                                                 left join agentesia_agentes a on a.id = l.id_agente
+                                                 where l.id = $2 and l.estado = 'ativo' and not e.ia_desligada
+                                                   and e.situacao = 'ativo' and coalesce(a.situacao, 'ativo') = 'ativo')
+                                    then 'respondeu_durante_o_envio' else 'ia_desligada_durante_o_envio' end
+               where id = $1 and situacao = 'reservado'""", f["id"], f["id_lead"])
         return False
 
     async def _por_que_nao(self, f: dict[str, Any], lead: dict[str, Any], config: regras.Config) -> str | None:
@@ -433,7 +450,8 @@ class Disparador:
                                                  modelo=self._nome_modelo(lead, config), esforco="low")
             await self._gravar_chamadas(lead, resultado.chamadas)
             textos = agente_fu.limpar_mensagens(resultado.dados.get("mensagens"))
-        except ErroModelo:
+        except ErroModelo as erro:
+            await self._gravar_chamadas(lead, getattr(erro, "chamadas", []))     # a tentativa que falhou também foi paga
             textos = []
         return textos or reserva
 

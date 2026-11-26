@@ -143,7 +143,7 @@ async def test_jornada_completa_do_admin_e_do_cliente(ambiente):
     await _entrar(cliente, email_admin, "senha-admin-123")
     email_gestor = f"gestor-{uuid.uuid4().hex[:6]}@escritorio.com"
     criado = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Silva Advocacia", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456",
+        "nome": "Silva Advocacia", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:6] + "3456",
         "email_gestor": email_gestor, "nome_gestor": "Dra. Silva"})).json()
     id_escritorio = criado["escritorio"]["id"]
     assert criado["helena"]["situacao"] == "ok" and criado["helena"]["final_segredo"] == "3456"
@@ -180,13 +180,13 @@ async def test_jornada_completa_do_admin_e_do_cliente(ambiente):
     # Token errado: avisa e não quebra.
     ruim = await cliente.put("/api/integracoes/helena", json={"token": "token-ruim-123"})
     assert ruim.status_code == 502 and "recusou o token" in ruim.json()["detail"]
-    assert (await cliente.put("/api/integracoes/helena", json={"token": "token-bom-123456"})).status_code == 200
+    assert (await cliente.put("/api/integracoes/helena", json={"token": "token-bom-" + uuid.uuid4().hex[:8]})).status_code == 200
     await cliente.post("/api/integracoes/helena/conectar")
 
     # 4. Cria o agente no número livre; o mesmo número não aceita outro agente.
     canal = integracoes["canais"][0]
     agente = (await cliente.post("/api/agentes", json={"nome": "Júlia", "id_canal": canal["id"]})).json()
-    assert agente["situacao"] == "pausado" and agente["modo"] == "teste" and agente["modelo"] == "gpt-4.1"
+    assert agente["situacao"] == "pausado" and agente["modo"] == "teste" and agente["modelo"] == "gpt-4.1-mini"
     assert [e["codigo"] for e in agente["etapas"]][:3] == ["sdr", "periodo_graca", "closer"]
     assert (await cliente.post("/api/agentes", json={"nome": "Outra", "id_canal": canal["id"]})).status_code == 409
 
@@ -303,7 +303,7 @@ async def test_entrada_pela_helena(ambiente, monkeypatch):
     await _entrar(cliente, email_admin, "senha-admin-123")
     conta = str(uuid.uuid4())
     criado = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Escritório Helena", "id_conta_helena": conta, "token_helena": "token-bom-123456"})).json()
+        "nome": "Escritório Helena", "id_conta_helena": conta, "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()
     await cliente.post("/api/sair")
 
     async def abrir(**params):
@@ -492,7 +492,7 @@ async def test_avisos_a_equipe_pelo_painel(ambiente):
     cliente, _simulada, email_admin, _banco = ambiente
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Avisos Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Avisos Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     canal = (await cliente.get("/api/integracoes", headers=h)).json()["canais"][0]
     await cliente.post("/api/agentes", headers=h, json={"nome": "Júlia", "id_canal": canal["id"], "produto": "auxilio_acidente"})
@@ -539,7 +539,7 @@ async def test_followup_configurado_pelo_painel(ambiente):
     cliente, _simulada, email_admin, _banco = ambiente
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Follow Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Follow Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     canal = next(c for c in (await cliente.get("/api/integracoes", headers=h)).json()["canais"] if c["tipo"] != "oficial")
     agente = (await cliente.post("/api/agentes", headers=h, json={"nome": "Júlia", "id_canal": canal["id"]})).json()
@@ -563,7 +563,7 @@ async def test_documentos_limite_de_consumo_e_botao_da_ia(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Base Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Base Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     integracoes = (await cliente.get("/api/integracoes", headers=h)).json()
     assert integracoes["url_botao_ia"].startswith(f"https://ia.exemplo.com/webhook/helena/{escritorio['id']}/ia?segredo=")
@@ -602,7 +602,7 @@ async def test_funil_do_inicio(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Funil Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Funil Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     canal = next(c for c in (await cliente.get("/api/integracoes", headers=h)).json()["canais"] if c["tipo"] != "oficial")
     agente = (await cliente.post("/api/agentes", headers=h, json={"nome": "Júlia", "id_canal": canal["id"]})).json()
@@ -647,7 +647,7 @@ async def test_catalogo_rascunho_ativacao_midia_e_conhecimento(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Catálogo Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Catálogo Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
 
     # Admin: produto no padrão (5 agentes), conteúdo, documento padrão e publicação.
@@ -758,7 +758,7 @@ async def test_importar_catalogo_pelo_admin(ambiente):
     assert ruim.status_code == 400 and "JSON inválido" in ruim.json()["detail"]
     # Gestor de escritório não importa catálogo.
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Importa Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456",
+        "nome": "Importa Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8],
         "email_gestor": f"gestor-{uuid.uuid4().hex[:6]}@x.com", "nome_gestor": "Gestor"})).json()
     gestor = escritorio["escritorio"]
     await cliente.post("/api/sair")

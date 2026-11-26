@@ -28,25 +28,38 @@ PRECOS_USD_POR_MILHAO: dict[str, tuple[float, float, float]] = {
     "claude-opus-5-5": (4.00, 20.00, 0.20),
     "claude-sonnet-5-5": (2.00, 10.00, 0.10),
     "claude-haiku-5-5": (0.10, 0.50, 0.01),
-    # OpenAI: valores de referência; conferir na página de preços da OpenAI.
+    # OpenAI: conferido em 26/11/2026 em developers.openai.com/api/docs/pricing (Standard, contexto curto).
+    # gpt-4.1-nano não aparece mais na página: fica o último valor conhecido.
     "gpt-4.1": (2.00, 8.00, 0.50),
     "gpt-4.1-mini": (0.40, 1.60, 0.10),
     "gpt-4.1-nano": (0.10, 0.40, 0.025),
     "gpt-4o": (2.50, 10.00, 1.25),
     "gpt-4o-mini": (0.15, 0.60, 0.075),
-    # Família GPT-6: entrada e saída da tabela de preços do Weaver (Fluxos N8N/11 - Contar Token/precos_modelos.sql);
-    # o preço do cache não está lá: usamos 1/4 da entrada (CONFERIR na página da OpenAI). Antes o gpt-6-luna (auditor
-    # padrão) contava custo zero.
-    "gpt-6-luna": (0.10, 0.50, 0.025),
-    "gpt-6.1-sol": (2.00, 10.00, 0.50),
-    "gpt-6.2-sol": (2.00, 10.00, 0.50),
-    "gpt-6-astra": (10.00, 50.00, 2.50),
-    "gpt-6.2-astra": (8.00, 40.00, 2.00),
-    # Transcrição de áudio, por token de áudio (valor de referência: CONFERIR na página da OpenAI).
+    # Família GPT-6: entrada, saída e cache conferidos na página oficial em 26/11/2026 (antes o cache era estimado em
+    # 1/4 da entrada, acima do preço real).
+    "gpt-6-luna": (0.10, 0.50, 0.01),
+    "gpt-6.1-sol": (2.00, 10.00, 0.10),
+    "gpt-6.2-sol": (2.00, 10.00, 0.10),
+    "gpt-6-astra": (10.00, 50.00, 1.00),
+    "gpt-6.2-astra": (8.00, 40.00, 0.40),
+    # Transcrição: (entrada de TEXTO, saída, -). A entrada de ÁUDIO tem preço próprio em PRECO_AUDIO_USD_POR_MILHAO.
     "gpt-4o-mini-transcribe": (1.25, 5.00, 0.0),
+    "gpt-4o-transcribe": (2.50, 10.00, 0.0),
     # Embedding da base de conhecimento (só entrada).
     "text-embedding-3-small": (0.02, 0.0, 0.0),
     "text-embedding-3-large": (0.13, 0.0, 0.0),
+}
+# Tokens de ÁUDIO de entrada da transcrição (a OpenAI separa em usage.input_token_details.audio_tokens).
+# Página do modelo em 26/11/2026 (developers.openai.com/api/docs/models/gpt-4o-mini-transcribe): "Audio input" US$ 1,25
+# e US$ 2,50 (gpt-4o-transcribe). A tabela antiga da OpenAI dava US$ 3,00 / 6,00: se voltar, muda só aqui.
+PRECO_AUDIO_USD_POR_MILHAO: dict[str, float] = {
+    "gpt-4o-mini-transcribe": 1.25,
+    "gpt-4o-transcribe": 2.50,
+}
+# Sem tokens no uso: preço por minuto de áudio (estimativa oficial da OpenAI para cada modelo de transcrição).
+USD_POR_MINUTO_TRANSCRICAO: dict[str, float] = {
+    "gpt-4o-mini-transcribe": 0.003,
+    "gpt-4o-transcribe": 0.006,
 }
 # Escrita no cache da Anthropic (cache_creation_input_tokens): 1,25 x o preço da entrada.
 FATOR_CACHE_ESCRITA = 1.25
@@ -133,6 +146,26 @@ def calcular_custo(modelo: str, entrada: int, saida: int, cache: int, cache_escr
         return 0.0
     return round((entrada * preco[0] + saida * preco[1] + cache * preco[2]
                   + cache_escrita * preco[0] * FATOR_CACHE_ESCRITA) / 1_000_000, 6)
+
+
+def _modelo_base(modelo: str, tabela: dict[str, Any]) -> str | None:
+    if modelo in tabela:
+        return modelo
+    return next((nome for nome in tabela if re.fullmatch(re.escape(nome) + r"-\d{4}-\d{2}-\d{2}", modelo)), None)
+
+
+def calcular_custo_transcricao(modelo: str, audio: int, texto: int, saida: int) -> float:
+    """Transcrição por tokens: áudio de entrada, texto de entrada (o prompt) e texto de saída, cada um pelo seu preço."""
+    base = _modelo_base(modelo, PRECO_AUDIO_USD_POR_MILHAO)
+    preco_audio = PRECO_AUDIO_USD_POR_MILHAO.get(base or "", 0.0)
+    if not preco_audio:
+        return calcular_custo(modelo, audio + texto, saida, 0)       # modelo sem preço de áudio: tudo como texto
+    return round(audio * preco_audio / 1_000_000 + calcular_custo(modelo, texto, saida, 0), 6)
+
+
+def custo_por_minuto_transcricao(modelo: str, segundos: float) -> float:
+    base = _modelo_base(modelo, USD_POR_MINUTO_TRANSCRICAO)
+    return round(max(0.0, float(segundos)) / 60 * USD_POR_MINUTO_TRANSCRICAO.get(base or "", 0.0), 6)
 
 
 class Modelo(Protocol):

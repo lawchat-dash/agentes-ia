@@ -407,7 +407,7 @@ async def test_biblioteca_formatos_limites_url_publica_e_apagar_em_uso(ambiente,
     cliente, _simulada, email_admin, banco = ambiente
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Mídia Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Mídia Ltda", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
 
     async def subir(nome, dados, mime=None):

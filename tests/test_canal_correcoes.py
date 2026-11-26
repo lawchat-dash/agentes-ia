@@ -28,30 +28,27 @@ def _notas(repo):
     return [a["dados"]["texto"] for a in repo.acoes if a["tipo"] == "nota"]
 
 
-# ============================================================================ [0] segredo do webhook global
-def test_segredo_global_e_derivado_e_nao_abre_os_escritorios(monkeypatch):
+# ============================================================================ [0] sem rota global do webhook
+def test_segredo_do_escritorio_nao_e_o_mestre(monkeypatch):
     monkeypatch.setenv("AGENTESIA_WEBHOOK_SEGREDO", "mestre")
     id_esc = str(uuid.uuid4())
-    global_ = canal_webhook.segredo_global()
-    assert global_ and global_ != "mestre" and len(global_) == 40
-    assert global_ != canal_webhook.segredo_do_escritorio(id_esc)
+    assert canal_webhook.segredo_do_escritorio(id_esc) not in (None, "mestre")
     assert "mestre" not in (canal_webhook.url_do_escritorio(id_esc) or "")
+    assert not hasattr(canal_webhook, "segredo_global") and not hasattr(canal_webhook, "rota_global_ligada")
     monkeypatch.delenv("AGENTESIA_WEBHOOK_SEGREDO")
-    assert canal_webhook.segredo_global() is None and canal_webhook.segredo_do_escritorio(id_esc) is None
+    assert canal_webhook.segredo_do_escritorio(id_esc) is None
 
 
-def test_rota_global_desligada_por_padrao_e_nunca_aceita_o_mestre(monkeypatch):
+def test_rota_global_removida(monkeypatch):
     from fastapi.testclient import TestClient
 
     from app.main import app
 
     cliente = TestClient(app)
     monkeypatch.setenv("AGENTESIA_WEBHOOK_SEGREDO", "mestre")
-    monkeypatch.delenv("AGENTESIA_WEBHOOK_GLOBAL", raising=False)
-    assert cliente.post("/webhook/helena?segredo=mestre", json={}).status_code == 404
-    monkeypatch.setenv("AGENTESIA_WEBHOOK_GLOBAL", "1")
-    assert cliente.post("/webhook/helena?segredo=mestre", json={}).status_code == 401      # o mestre não vale mais
-    assert cliente.post("/webhook/helena", json={}, headers={"x-agentesia-segredo": "mestre"}).status_code == 401
+    monkeypatch.setenv("AGENTESIA_WEBHOOK_GLOBAL", "1")                    # a variável antiga não religa nada
+    assert cliente.post("/webhook/helena?segredo=mestre", json={}).status_code in (404, 405)
+    assert cliente.post("/webhook/helena", json={}, headers={"x-agentesia-segredo": "mestre"}).status_code in (404, 405)
 
 
 def test_log_de_acesso_nao_mostra_o_segredo():

@@ -104,7 +104,9 @@ class HelenaGravando:
         if caminho.startswith("/crm/v3/panel/card/"):
             return httpx.Response(200, json={"id": self.card})
         if caminho.endswith("/tags"):
-            if self.falhar_tags:
+            # Só o POST da etiqueta no contato falha: a lista de etiquetas da conta (GET, às vezes já em cache de
+            # outro teste) não pode "gastar" a falha, senão o resultado depende da ordem dos testes.
+            if self.falhar_tags and pedido.method == "POST" and "/contact/" in caminho:
                 self.falhar_tags -= 1
                 return httpx.Response(500, text="erro")
             return httpx.Response(200, json={})

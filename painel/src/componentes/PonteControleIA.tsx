@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Loader2, Power, RefreshCw, SearchX, X } from "lucide-react";
-import { MENSAGEM_CONVERSA, useLeadIA, type Alvo, type LeadIA } from "./ControleIA";
+import { MENSAGEM_CONVERSA, MENSAGEM_POPUP_ABERTO, useLeadIA, type Alvo, type LeadIA } from "./ControleIA";
 import "./controleIA.css";
 
 /**
  * Página do link "Controle da IA" cadastrado na plataforma de atendimento (cartão em Integrações):
- *   /controle-ia/ponte?id_da_conta=...&id_do_atendimento=...&id_do_contato=...&telefone_do_contato=...&id_do_usuario=...
+ *   /controle-ia/ponte?segredo=...&id_da_conta=...&id_do_atendimento=...&id_do_contato=...&telefone_do_contato=...&id_do_usuario=...
  *
- * A plataforma abre o link como popup preenchendo as variáveis da conversa. Com id_da_conta, funciona SEM login: as
- * rotas /api/controle-ia/publico acham o escritório pela conta e o lead pelos dados da conversa (nunca por id de lead).
- * Sem id_da_conta, usa a sessão do painel (rotas normais); sem sessão, explica como cadastrar o link.
+ * A plataforma abre o link como popup preenchendo as variáveis da conversa. Com id_da_conta e o segredo do escritório,
+ * funciona SEM login: as rotas /api/controle-ia/publico acham o escritório pela conta, conferem o segredo e acham o lead
+ * pelos dados da conversa (nunca por id de lead). Sem os dois (link antigo, sem segredo), usa a sessão do painel
+ * (rotas normais); sem sessão, explica como cadastrar o link.
  * Aberta dentro do próprio painel (iframe), ainda avisa o topo qual conversa está aberta (MENSAGEM_CONVERSA).
  */
-interface Parametros extends Alvo { usuario?: string }
+interface Parametros extends Alvo { usuario?: string; segredo?: string }
 interface RespostaAcao { ok: boolean; mudou: boolean; mensagem: string; lead: LeadIA }
 
 function lerParametros(): Parametros {
@@ -21,7 +22,7 @@ function lerParametros(): Parametros {
     const valor = (q.get(nome) || "").trim().slice(0, 80);
     return valor && !valor.includes("{{") ? valor : undefined;      // variável que a plataforma não preencheu
   };
-  return { sessao: v("id_do_atendimento"), contato: v("id_do_contato"), telefone: v("telefone_do_contato"), conta: v("id_da_conta"), usuario: v("id_do_usuario") };
+  return { sessao: v("id_do_atendimento"), contato: v("id_do_contato"), telefone: v("telefone_do_contato"), conta: v("id_da_conta"), usuario: v("id_do_usuario"), segredo: v("segredo") };
 }
 
 /** Pedido às rotas públicas, sem cache nem cookie (o link funciona sem login). */
@@ -52,7 +53,7 @@ function useLeadPublico(p: Parametros) {
   const [aviso, setAviso] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
   const vez = useRef(0);
   const dadosDaConversa = useMemo(() => ({
-    id_da_conta: p.conta ?? "", id_do_atendimento: p.sessao ?? "", id_do_contato: p.contato ?? "", telefone_do_contato: p.telefone ?? "",
+    id_da_conta: p.conta ?? "", segredo: p.segredo ?? "", id_do_atendimento: p.sessao ?? "", id_do_contato: p.contato ?? "", telefone_do_contato: p.telefone ?? "",
   }), [p]);
 
   const carregar = useCallback(async (silencioso = false) => {
@@ -105,10 +106,21 @@ export default function PonteControleIA() {
     try { window.top?.postMessage({ tipo: MENSAGEM_CONVERSA, ...alvo }, window.location.origin); } catch { /* topo de outro domínio */ }
   }, [p, temConversa]);
 
+  // Aberto dentro da Central (plataforma dentro do painel): a plataforma escurece a lista atrás do popup, mas a tampa
+  // branca do painel (que cobre o aviso de notificações) ficava clara por cima. Batimento a cada 1,5 s: enquanto ele
+  // chega, o painel esconde a tampa; parou de chegar (popup fechado), ela volta.
+  useEffect(() => {
+    if (window.top === window.self) return;
+    const avisar = () => { try { window.top?.postMessage({ tipo: MENSAGEM_POPUP_ABERTO }, window.location.origin); } catch { /* outro domínio */ } };
+    avisar();
+    const t = window.setInterval(avisar, 1500);
+    return () => window.clearInterval(t);
+  }, []);
+
   return (
     <div className="cia-ponte">
       <div className="cpc-cartao">
-        {p.conta ? <ControlePeloLink p={p} temConversa={temConversa} /> : <ControlePelaSessao p={p} temConversa={temConversa} />}
+        {p.conta && p.segredo ? <ControlePeloLink p={p} temConversa={temConversa} /> : <ControlePelaSessao p={p} temConversa={temConversa} />}
       </div>
       <footer className="cpc-rodape">LawChat © {new Date().getFullYear()}</footer>
     </div>
@@ -268,7 +280,7 @@ function ControlePelaSessao({ p, temConversa }: { p: Parametros; temConversa: bo
           <div className="cia-explica">
             <Bot size={28} aria-hidden />
             <b>Falta cadastrar o link</b>
-            <p>Copie o link no painel da LawChat (Integrações › Link do Controle da IA) e cadastre na plataforma de atendimento como botão da conversa. Ele já vem com a conta e os dados da conversa.</p>
+            <p>Copie o link no painel da LawChat (Integrações › Link do Controle da IA) e cadastre na plataforma de atendimento como botão da conversa. Ele já vem com o segredo do escritório, a conta e os dados da conversa. Link antigo, sem "segredo=", não funciona mais: troque pelo novo.</p>
           </div>
         ) : (
           <PainelControle ctl={ctl} />

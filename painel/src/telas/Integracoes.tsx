@@ -8,7 +8,7 @@ import { LinkControleIA } from "../componentes/LinkControleIA";
 import { SeloSaude, TestarConexao, TipoNumero, useSaudeNumeros, type SaudeCanal } from "../componentes/SaudeNumero";
 
 interface Integracao { situacao: string; final_segredo: string | null; config: Record<string, any>; erro: string | null; testado_em: string | null; tem_segredo: boolean; }
-interface Dados { integracoes: Record<string, Integracao>; canais: Canal[]; url_webhook_configurada: boolean; url_webhook_zapsign: string | null; url_botao_ia: string | null; }
+interface Dados { integracoes: Record<string, Integracao>; canais: Canal[]; url_webhook_configurada: boolean; url_webhook_zapsign: string | null; url_botao_ia: string | null; segredo_controle_ia?: string | null; }
 interface PainelCrm { id: string; titulo: string; tipo: string; etapas: { id: string; titulo: string }[] }
 
 export function TelaIntegracoes() {
@@ -24,7 +24,7 @@ export function TelaIntegracoes() {
         <IntegracaoHelena integracao={helena} canais={dados.canais} saude={saude.dados?.canais ?? []} webhookPossivel={dados.url_webhook_configurada}
           aoMudar={() => { recarregar(); saude.recarregar(); }} />
         {helena?.situacao === "ok" && <IntegracaoCrm integracao={dados.integracoes.crm} aoMudar={recarregar} />}
-        <LinkControleIA />
+        <LinkControleIA segredo={dados.segredo_controle_ia ?? null} />
         {helena?.situacao === "ok" && <DesligarIa url={dados.url_botao_ia} />}
         <IntegracaoZapSign integracao={dados.integracoes.zapsign} urlWebhook={dados.url_webhook_zapsign} aoMudar={recarregar} />
       </div>

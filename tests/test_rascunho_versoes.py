@@ -63,8 +63,8 @@ async def test_laboratorio_roda_o_motor_com_o_rascunho_sem_numero_e_sem_gastar(a
     app = _app(cliente)
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    _esc1, h1, _zapi, _oficial = await _escritorio(cliente, pool, "Lab Rascunho 1", "token-bom-111111")
-    _esc2, h2, _z2, _o2 = await _escritorio(cliente, pool, "Lab Rascunho 2", "token-bom-222222")
+    _esc1, h1, _zapi, _oficial = await _escritorio(cliente, pool, "Lab Rascunho 1", "token-bom-" + uuid.uuid4().hex[:8])
+    _esc2, h2, _z2, _o2 = await _escritorio(cliente, pool, "Lab Rascunho 2", "token-bom-" + uuid.uuid4().hex[:8])
     id_produto, agentes = await _produto(cliente, h1, "Rascunho")      # nunca ativado: sem agente e sem número
     vezes = {"n": 0}
 
@@ -129,7 +129,7 @@ async def test_laboratorio_com_ia_de_verdade_gasta_creditos_e_respeita_o_saldo(a
     app = _app(cliente)
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Lab Pago", "token-bom-333333")
+    esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Lab Pago", "token-bom-" + uuid.uuid4().hex[:8])
     id_produto, agentes = await _produto(cliente, h, "Pago")
     ativado = await cliente.post(f"/api/produtos-ativados/{id_produto}/ativar", headers=h, json=_payload(agentes, zapi))
     assert ativado.status_code == 200, ativado.text
@@ -163,8 +163,8 @@ async def test_versoes_gravar_listar_diferenca_restaurar_e_permissoes(ambiente):
     pool = banco._pool
     versoes.esquecer_cache()
     await _entrar(cliente, email_admin, "senha-admin-123")
-    esc1, h1, zapi, _oficial = await _escritorio(cliente, pool, "Versões 1", "token-bom-444444")
-    esc2, h2, zapi2, _o2 = await _escritorio(cliente, pool, "Versões 2", "token-bom-555555")
+    esc1, h1, zapi, _oficial = await _escritorio(cliente, pool, "Versões 1", "token-bom-" + uuid.uuid4().hex[:8])
+    esc2, h2, zapi2, _o2 = await _escritorio(cliente, pool, "Versões 2", "token-bom-" + uuid.uuid4().hex[:8])
     id_produto, agentes = await _produto(cliente, h1, "Versões")
 
     # Ativar grava a versão 1.
@@ -263,7 +263,7 @@ async def test_sem_a_008_nada_quebra(ambiente, monkeypatch):
     _app(cliente)
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Sem 008", "token-bom-666666")
+    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Sem 008", "token-bom-" + uuid.uuid4().hex[:8])
     id_produto, agentes = await _produto(cliente, h, "Sem")
 
     async def sem(_conexao):

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { RefreshCw, ExternalLink } from "lucide-react";
 import { Alerta } from "./ui";
+import { MENSAGEM_POPUP_ABERTO } from "./ControleIA";
 import { TelaEntrando, linkDaHelena } from "../telas/Atendimento";
 
 /**
@@ -86,6 +87,19 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
   const recarga = useSyncExternalStore(assinar, lerRecarga);
   const fila = useSyncExternalStore(assinar, lerPreabrir);
   const [quadros, setQuadros] = useState<Record<string, Quadro>>({});
+  // Popup do Controle da IA aberto na Central: a plataforma escurece a lista e a tampa branca ficaria clara por cima.
+  const [popupIA, setPopupIA] = useState(false);
+  useEffect(() => {
+    let fim = 0;
+    const ouvir = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.data?.tipo !== MENSAGEM_POPUP_ABERTO) return;
+      setPopupIA(true);
+      window.clearTimeout(fim);
+      fim = window.setTimeout(() => setPopupIA(false), 4000);     // sem batimento = popup fechado
+    };
+    window.addEventListener("message", ouvir);
+    return () => { window.removeEventListener("message", ouvir); window.clearTimeout(fim); };
+  }, []);
   // Zoom ou tamanho da janela mudando: a LawChat se redesenha e, por um instante, mostraria o que fica cortado.
   // Enquanto ajusta, a tela fica coberta; aparece de novo 0,45 s depois do último ajuste.
   const [ajustando, setAjustando] = useState(false);
@@ -183,7 +197,7 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
             )}
             {/* Central: a faixa verde "Ative as notificações na web" fica no topo da lista de conversas (400px); dentro do
                 painel o navegador não deixa ativar notificação, então ela nunca sairia. Fica coberta. */}
-            {q.codigo === "atendimento" && q.pronto && !q.erro && (
+            {q.codigo === "atendimento" && q.pronto && !q.erro && !popupIA && (
               <div aria-hidden className="lc-central-cobre" style={{ width: 400, height: 38 }} />
             )}
             {!q.pronto && <TelaEntrando titulo={`Abrindo ${q.titulo}`} />}

@@ -32,6 +32,9 @@ MENSAGENS_FIXAS: dict[str, str] = {
     # Leva 1 (25/11): resposta da IA fora do formato (B3) e as outras passagens do código para a equipe (B4, B6, B7).
     "formato_invalido": "Recebi sua mensagem! Vou pedir para alguém da equipe continuar com você por aqui.",
     "equipe_continua": "Recebi sua mensagem! Vou pedir para alguém da equipe continuar com você por aqui.",
+    # Cat. 19: desqualificação em análise manual (opção desqualificar_modo): nunca diz ao lead que ele não tem direito.
+    "analise_manual": "Obrigado pelas informações! Vou pedir para uma pessoa da nossa equipe analisar o seu caso com "
+                      "atenção, e ela continua com você por aqui, tá bom?",
     # B6: tentativa de manipular. Fixa e segura: não confirma nem nega regra, prompt ou instrução nenhuma.
     "manipulacao": "Por aqui eu só consigo te ajudar com o seu caso no escritório.",
 }
@@ -217,6 +220,15 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
             validos, mensagem = await _auditar_sinais(modelo, entrada, extracao.sinais, saida,
                                                       partes_do_auditor(getattr(produto, "beneficio", None)) if catalogo else None)
         saida.sinais = validos
+        from app.cerebro.sinais import SEM_PAUSA
+        if validos and all(s in SEM_PAUSA for s in validos):
+            # Sinal que só avisa a equipe (deficiência auditiva): a IA segue a conversa, com a orientação do sinal.
+            for sinal in validos:
+                saida.eventos.append(_evento("sinal_" + sinal, "aviso", "lead", f"Lead sinalizou: {sinal}",
+                                             pausa=False))
+            if "deficiencia_auditiva" in validos:
+                _gravar_controle(saida, MARCA_SO_TEXTO, True)
+            validos = []
         if validos:
             saida.estado_lead, saida.motivo_estado = "pausado", "sinal:" + ",".join(validos)
             saida.motivo = saida.motivo_estado
@@ -389,6 +401,11 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         linhas.append("\n" + linha_portao)
     if saida.contexto.get("barreira") == "fora_do_tema":
         linhas.append("\n" + LINHA_FORA_DO_TEMA)
+    so_texto = bool(saida.fatos_depois.get(MARCA_SO_TEXTO))
+    if so_texto:
+        linhas.append("\n(sistema) " + sinais_catalogo.ORIENTACAO_SEM_PAUSA["deficiencia_auditiva"])
+    confirmou = _lead_confirmou_dados(entrada, saida) if "zapsign" in acoes and exigir_confirmacao_contrato(
+        produto.config) else True
     if (produto.fatos_do_periodo and "zapsign" not in acoes and saida.fatos_depois.get("acidente_ano") in (None, "")
             and not saida.fatos_depois.get("acidente_quando_incerto")):
         # A vaga "[ocorrido em…]" do resumo saía com o ano de hoje (o "Hoje é" do começo do conteúdo).
@@ -448,6 +465,10 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         if sem_fonte := base_conhecimento.guarda_de_fonte(entrada, textos, sistema, "\n".join(linhas)):
             guardas.append(_Guarda("fato_sem_fonte", sem_fonte))    # valor/prazo fora de toda fonte: refaz uma vez (leve)
         guardas += _guardas_de_midia(entrada, mensagens, permitidas, ja_enviadas)
+        if resposta.get("ferramenta") == "zapsign" and "zapsign" in acoes and not confirmou:
+            guardas.append(_Guarda("contrato_sem_confirmacao", ORIENTACAO_SEM_CONFIRMACAO))
+        if esquecida := _desqualificacao_esquecida(entrada, produto, saida, etapa, destino, destinos):
+            guardas.append(_Guarda("desqualificacao_esquecida", esquecida))
         novas_marcas += [g.marca for g in guardas if g.marca and g.marca not in novas_marcas]
         saida.reprovacoes.append([{"codigo": "catalogo", "orientacao": e} for e in erros]
                                  + [{"codigo": g.codigo, "orientacao": g.orientacao} for g in guardas])
@@ -494,7 +515,8 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             "equipe. Travas: " + codigos, travas=[g.codigo for g in duras]))
         return saida
     for guarda in escolhida.guardas:
-        if guarda.codigo in ("midia_desconhecida", "portao_de_fatos") or (
+        if guarda.codigo in ("midia_desconhecida", "portao_de_fatos", "contrato_sem_confirmacao",
+                             "desqualificacao_esquecida") or (
                 guarda.codigo == "midia_repetida" and catalogo.sem_midias_repetidas(escolhida.mensagens, ja_enviadas)):
             continue                                    # tratadas abaixo: a parte sai da resposta, com evento próprio
         # Trava leve que a 2ª tentativa não resolveu: segue com a resposta (nunca pausa por isso) e fica registrado.
@@ -512,6 +534,13 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                                           ferramentas["calculadora"])
     if _portao_prendeu(entrada, saida, pedido_ao_portao, destino, etapa):
         return saida
+    if destino != "desqualificado" and any(g.codigo == "desqualificacao_esquecida" for g in escolhida.guardas):
+        # Cat. 20: o lead disse algo que desqualifica o caso, a IA recebeu a correção e insistiu em não desqualificar.
+        # Sem travar: a resposta segue, a equipe fica sabendo e o mesmo fato não pede a correção de novo.
+        _desqualificacao_insistida(produto, saida, etapa)
+    if destino == "desqualificado" and desqualificar_modo(getattr(produto, "config", {})) == "analise_manual":
+        # Cat. 19: o escritório prefere que uma pessoa analise antes de negar. Nada de mensagem de negativa ao lead.
+        return _desqualificado_em_analise(entrada, saida, etapa)
     if destino and escolhida.pela_frase:
         saida.eventos.append(_evento("troca_pela_frase", "info", "lawchat",
                                      f"A IA escreveu a frase de passagem para {destino} sem marcar transferir_para; "
@@ -536,6 +565,13 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                                      etapa=etapa))
     mensagens = _sem_pergunta_ja_respondida(entrada, saida, mensagens, destino, etapa)
     mensagens, demais = catalogo.limitar_audios(mensagens)
+    if so_texto and (audios := [m for m in mensagens if m["tipo"] == "midia" and catalogo.e_audio(m.get("url"))]):
+        # Lead com deficiência auditiva: o áudio do roteiro não vai (o texto segue).
+        mensagens = [m for m in mensagens if m not in audios] or [
+            {"tipo": "texto", "texto": "Me conta: como posso te ajudar com o seu caso?"}]
+        saida.eventos.append(_evento("audio_para_lead_surdo", "info", "lawchat",
+                                     "A IA ia mandar áudio a um lead com deficiência auditiva; o áudio não foi enviado.",
+                                     urls=[m.get("url") for m in audios][:5], etapa=etapa))
     if demais:
         saida.eventos.append(_evento("audios_demais", "aviso", "lawchat",
                                      f"A IA ia mandar mais de {catalogo.AUDIOS_POR_RESPOSTA} áudios de uma vez; "
@@ -554,6 +590,12 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     saida.etapa_depois = destino or etapa
     saida.motivo = f"transferencia:{destino}" if destino else "catalogo"
     ferramenta = resposta.get("ferramenta") or ""
+    if ferramenta == "zapsign" and "zapsign" in acoes and not confirmou:
+        # Cat. 23: a IA recebeu a CORRIJA (mostrar o resumo e perguntar) e mesmo assim acionou o contrato. Uma tentativa
+        # só, sem travar o atendimento: o contrato segue como antes e a equipe fica sabendo pelo evento.
+        saida.eventos.append(_evento("contrato_sem_confirmacao", "aviso", "lawchat",
+                                     "A IA gerou o contrato sem o lead confirmar o resumo dos dados, mesmo depois da "
+                                     "correção; vale conferir os dados do contrato.", etapa=etapa))
     repetida = _correcao_repetida(entrada, saida) if ferramenta == "zapsign" and ferramenta in acoes else None
     if ferramenta == "zapsign" and ferramenta in acoes and not repetida:
         saida.motivo = "dados_confirmados"            # o pipeline confere os dados e gera o contrato pela fila
@@ -656,7 +698,8 @@ def _destinos_permitidos(entrada: Entrada, produto: Any, saida: Saida, etapa: st
     ordem = list(produto.papeis)                       # carregar() já ordena pelo funil
     destinos: list[str] = []
     ignorados: list[tuple[str, str]] = []
-    volta_ao_sdr = etapa == "desqualificado" and not entrada.fatos.get(MARCA_VOLTOU_AO_SDR)
+    volta_ao_sdr = (etapa == "desqualificado" and permitir_volta_sdr(getattr(produto, "config", {}))
+                    and not entrada.fatos.get(MARCA_VOLTOU_AO_SDR))
     for destino in brutos:
         if destino not in produto.papeis or destino == etapa:
             continue
@@ -908,6 +951,9 @@ MARCA_DESTINOS_IGNORADOS = "_destinos_ignorados"        # ["assinatura>contratos
 MARCA_VOLTOU_AO_SDR = "_voltou_ao_sdr"                  # o Desqualificado já devolveu o lead ao SDR uma vez
 MARCA_VARIAVEIS_SEM_VALOR = "_variaveis_sem_valor"      # ["LINK AVALIACAO GOOGLE", ...]: evento já registrado
 MARCA_FORA_DO_TEMA = "_fora_do_tema_seguidas"           # quantas mensagens seguidas fora do tema (B6)
+MARCA_SO_TEXTO = "_so_texto"                           # lead com deficiência auditiva: nada de áudio na conversa
+MARCA_DADOS_CONFIRMADOS = "_dados_confirmados"          # hash dos dados do contrato que o lead confirmou (resumo + "sim")
+MARCA_DESQ_ESQUECIDA = "_desqualificacao_esquecida"     # a correção "o lead se desqualificou" já foi mandada uma vez
 MARCA_PORTAO = "_portao_barrou"                         # {"destino", "faltam"}: troca segurada no turno anterior (B4)
 # Nome curto de cada campo do contrato na linha "DADOS DO CONTRATO QUE FALTAM (sistema)".
 ROTULO_DO_CAMPO = {"nome": "nome completo", "cpf": "CPF", "endereco": "rua", "numero": "número", "bairro": "bairro",
@@ -1587,3 +1633,152 @@ def _falha(saida: Saida, onde: str, erro: ErroModelo) -> Saida:
         f"Falha no {onde}: {erro.motivo}. O lead ficou sem resposta.", detalhe=erro.detalhe,
     ))
     return saida
+
+
+# ---------------------------------------------------------------------------- auditoria dos tickets (cat. 19, 20, 23)
+MODOS_DE_DESQUALIFICAR = ("desqualificar", "analise_manual")
+
+
+def _opcao_do_agente(config: dict[str, Any] | None, chave: str) -> Any:
+    """Opção do agente: no topo da config (sobrevive à sincronização do produto, que troca o bloco "catalogo" inteiro)
+    ou, como reserva, em config.catalogo."""
+    config = config or {}
+    if chave in config:
+        return config.get(chave)
+    return (config.get("catalogo") or {}).get(chave)
+
+
+def desqualificar_modo(config: dict[str, Any] | None) -> str:
+    """"desqualificar" (padrão: o papel Desqualificado encerra com a negativa) ou "analise_manual" (a IA não nega: passa
+    para a equipe analisar, desliga neste lead e avisa)."""
+    modo = str(_opcao_do_agente(config, "desqualificar_modo") or "").strip().lower()
+    return modo if modo in MODOS_DE_DESQUALIFICAR else "desqualificar"
+
+
+def permitir_volta_sdr(config: dict[str, Any] | None) -> bool:
+    """O Desqualificado pode devolver o lead ao SDR (uma vez) quando uma informação muda. Padrão: pode."""
+    return _opcao_do_agente(config, "permitir_volta_sdr") is not False
+
+
+def _desqualificado_em_analise(entrada: Entrada, saida: Saida, etapa: str) -> Saida:
+    saida.etapa_depois = etapa
+    saida.estado_lead, saida.motivo_estado = "pausado", "analise_manual:desqualificacao"
+    saida.motivo = saida.motivo_estado
+    saida.mensagens = _fixa(entrada, "analise_manual")
+    motivo = saida.contexto.get("motivo_desqualificacao")
+    saida.eventos.append(_evento("analise_manual", "aviso", "lawchat",
+                                 "A IA ia desqualificar o lead; pela opção do escritório o caso foi para a equipe "
+                                 "analisar, sem negativa ao lead.", causa="desqualificacao", etapa=etapa,
+                                 motivo_desqualificacao=motivo))
+    return saida
+
+
+def _desqualificacao_esquecida(entrada: Entrada, produto: Any, saida: Saida, etapa: str, destino: str,
+                               destinos: list[str]) -> str | None:
+    """Cat. 20. Orientação (CORRIJA) quando os fatos já desqualificam o caso e a IA não escolheu desqualificar. Uma vez
+    passado à equipe por esse motivo, o mesmo fato não volta a disparar (a equipe já decidiu)."""
+    from app.cerebro import catalogo
+
+    if etapa == "desqualificado" or destino == "desqualificado" or "desqualificado" not in destinos \
+            or not corrigir_desqualificacao_esquecida(getattr(produto, "config", {})):
+        return None
+    motivo = catalogo.motivo_de_desqualificar(getattr(produto, "config", {}), saida.fatos_depois)
+    if not motivo or entrada.fatos.get(MARCA_DESQ_ESQUECIDA) == motivo[0]:
+        return None
+    return (f"Pelo que o lead disse ({motivo[0]} = {motivo[1]}), o caso se encaixa na desqualificação do roteiro. "
+            "Marque transferir_para = \"desqualificado\" e siga a regra de desqualificação. Se o lead corrigiu essa "
+            "informação na conversa, siga o roteiro e confirme com ele o dado certo.")
+
+
+def _desqualificacao_insistida(produto: Any, saida: Saida, etapa: str) -> None:
+    from app.cerebro import catalogo
+
+    motivo = catalogo.motivo_de_desqualificar(getattr(produto, "config", {}), saida.fatos_depois) or ("?", None)
+    _gravar_controle(saida, MARCA_DESQ_ESQUECIDA, motivo[0])
+    saida.eventos.append(_evento("desqualificacao_esquecida", "aviso", "lawchat",
+                                 f"O lead disse algo que desqualifica o caso ({motivo[0]} = {motivo[1]}), mas a IA não "
+                                 "desqualificou nem depois da correção. A conversa seguiu; vale a equipe conferir.",
+                                 fato=motivo[0], valor=motivo[1], etapa=etapa))
+
+
+def exigir_confirmacao_contrato(config: dict[str, Any] | None) -> bool:
+    """Pedir ao modelo o resumo confirmado antes do zapsign (uma CORRIJA). Padrão: sim; "confirmar_dados_contrato":
+    false desliga."""
+    return _opcao_do_agente(config, "confirmar_dados_contrato") is not False
+
+
+def corrigir_desqualificacao_esquecida(config: dict[str, Any] | None) -> bool:
+    """Lembrar a IA de desqualificar quando os fatos já desqualificam (uma CORRIJA). Padrão: desligado (a IA pode estar
+    confirmando o dado com o lead, ex.: "sou aposentado" -> "você tem advogado?"); "corrigir_desqualificacao_esquecida":
+    true liga."""
+    return _opcao_do_agente(config, "corrigir_desqualificacao_esquecida") is True
+
+
+ORIENTACAO_SEM_CONFIRMACAO = ("O lead ainda não confirmou os dados do contrato. Deixe ferramenta vazia nesta resposta: "
+                              "mostre o resumo dos dados (nome completo, CPF, endereço com número, bairro, cidade, "
+                              "estado e CEP) e pergunte se está tudo certo para gerar o contrato.")
+# Resposta curta que confirma ("sim", "isso mesmo", "tá certo, pode gerar"). Negação ou correção no texto: não confirma.
+_PALAVRAS_DO_SIM = {"sim", "s", "isso", "mesmo", "exato", "exatamente", "correto", "corretos", "certo", "certos",
+                    "certinho", "ta", "to", "esta", "estao", "tudo", "confirmo", "confirmado", "confirmados", "pode",
+                    "gerar", "mandar", "seguir", "fazer", "ok", "okay", "perfeito", "beleza", "blz", "positivo", "obrigado",
+                    "obrigada", "e", "ai", "os", "dados", "todos", "sao", "esses", "estes", "favor", "por", "agora",
+                    "entao", "ja", "pronto", "manda", "gera", "bora", "vamos", "ss", "sss", "simm", "obg", "tudinho",
+                    "contrato", "o", "certinho"}
+_SIM_FORTE = {"sim", "s", "isso", "exato", "exatamente", "correto", "corretos", "certo", "certos", "certinho", "confirmo",
+              "confirmado", "confirmados", "pode", "ok", "okay", "perfeito", "positivo", "ss", "sss", "simm", "gera",
+              "manda"}
+
+
+def _e_um_sim(normal: str) -> bool:
+    """Resposta curta que confirma ("sim", "isso mesmo", "tá tudo certo, pode gerar"), sobre o texto normalizado."""
+    palavras = normal.split()
+    return bool(palavras) and len(palavras) <= 10 and set(palavras) <= _PALAVRAS_DO_SIM and bool(set(palavras) & _SIM_FORTE)
+
+
+_NAO_CONFIRMA = re.compile(r"\b(?:nao|errad\w*|corrig\w*|mud\w*|troc\w*|falta\w*)\b")
+
+
+def _dados_validos(entrada: Entrada, saida: Saida) -> dict[str, str]:
+    from app.contrato import dados as cdados
+
+    dados, _ = cdados.validar_dados(cdados.dados_dos_fatos(saida.fatos_depois), entrada.fatos_sistema.get("telefone"),
+                                    entrada.obrigatorios_contrato or cdados.OBRIGATORIOS_PADRAO)
+    return dados
+
+
+def _parece_resumo(textos: list[str], dados: dict[str, str]) -> bool:
+    """O bloco da IA mostra os dados do contrato: dois ou mais valores dos dados (nome, CPF, rua, cidade, CEP)."""
+    from app.cerebro.extrator import normalizar
+
+    tudo = normalizar(" ".join(textos))
+    digitos = _so_digitos(" ".join(textos))
+    achados = 0
+    for campo in ("nome", "endereco", "cidade", "bairro"):
+        if dados.get(campo) and normalizar(dados[campo]) in tudo:
+            achados += 1
+    for campo in ("cpf", "cep"):
+        if dados.get(campo) and _so_digitos(dados[campo]) in digitos:
+            achados += 1
+    return achados >= 2
+
+
+def _lead_confirmou_dados(entrada: Entrada, saida: Saida) -> bool:
+    """Cat. 23. O lead confirmou o resumo dos dados do contrato: pela intenção do extrator, por um "sim" respondendo à
+    última mensagem de resumo da IA, ou já confirmou estes mesmos dados antes (marca com o hash). Depois de uma
+    correção pedida pelo sistema (o contrato já tinha sido pedido com os dados confirmados), vale o dado corrigido."""
+    from app.cerebro.extrator import normalizar
+    from app.contrato import dados as cdados
+
+    dados = _dados_validos(entrada, saida)
+    assinatura = cdados.hash_dados(dados)
+    pedido_de_correcao = normalizar("Para finalizar seu contrato, preciso confirmar")
+    resposta = normalizar(" ".join(entrada.novas))
+    confirmou = bool(
+        saida.intencoes.get("confirmou_dados")
+        or entrada.fatos.get(MARCA_DADOS_CONFIRMADOS) == assinatura
+        or any(pedido_de_correcao in normalizar(m.get("texto") or "") for m in entrada.historico if m.get("autor") != "lead")
+        or (_e_um_sim(resposta) and not _NAO_CONFIRMA.search(resposta)
+            and _parece_resumo(_ultima_resposta_da_ia(entrada.historico), dados)))
+    if confirmou and dados and entrada.fatos.get(MARCA_DADOS_CONFIRMADOS) != assinatura:
+        _gravar_controle(saida, MARCA_DADOS_CONFIRMADOS, assinatura)
+    return confirmou

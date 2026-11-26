@@ -202,6 +202,13 @@ async def receber_evento_de_etiqueta(pool: asyncpg.Pool, id_escritorio: str, cor
     if tipo not in ("CONTACT_TAG_UPDATE", "CONTACT_UPDATE"):
         return None
     conteudo = corpo.get("content") or {}
+    # Isolamento: veio a conta (companyId) no evento, tem de ser a do escritório desta URL; senão não mexe em nada.
+    conta_evento = str(conteudo.get("companyId") or corpo.get("companyId") or "").strip().lower()
+    if conta_evento:
+        conta = await pool.fetchval("select id_conta_helena::text from agentesia_escritorios where id = $1::uuid",
+                                    id_escritorio)
+        if conta_evento != str(conta or "").lower():
+            return {"feito": "ignorado", "motivo": "conta_de_outro_escritorio"}
     telefone = conteudo.get("phonenumber") or conteudo.get("phoneNumber")
     # Só decide com a lista de etiquetas do contato. Sem ela (evento que traz só a tag alterada, ou CONTACT_UPDATE de
     # outro campo) "sem etiqueta" religaria o lead que a equipe tirou da IA. Lista vazia explícita vale: tiraram todas.

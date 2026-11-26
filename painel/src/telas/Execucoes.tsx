@@ -11,13 +11,27 @@ import { useSessao } from "../sessao";
 // --------------------------------------------------------------------------- tipos
 interface Custo { brl: number; usd: number; tokens_entrada: number; tokens_saida: number; chamadas: number }
 interface Tool { transferir_para: string | null; ferramenta: string | null; ferramenta_barrada: string | null; chamou: boolean }
+interface Resultado {
+  status: string; rotulo: string; erro_grupo: boolean; origem: string | null; origem_rotulo: string | null; causa: string;
+  erro: { tipo: string | null; mensagem: string | null; onde: string | null; status: number | null } | null;
+  nova_tentativa: boolean; retomado: boolean;
+}
+interface EtapasMs { contexto: number | null; ia: number | null; envio: number | null; acoes: number | null; gravacoes: number | null }
 interface Item {
   id: string; iniciado_em: string; concluido_em: string | null; duracao_ms: number | null;
   id_escritorio: string; conta: string; id_agente: string | null; agente: string | null; id_lead: string;
   lead: { nome: string | null; telefone: string | null }; modo: string;
   etapa_antes: string | null; etapa_depois: string | null; trocou_etapa: boolean; nome_antes: string | null; nome_depois: string | null;
-  situacao: string; grupo: string; rotulo: string; motivo: string | null; tool: Tool; custo: Custo;
+  situacao: string; grupo: string; rotulo: string; motivo: string | null; tool: Tool; custo: Custo & { chamadas_falhas?: number };
+  resultado: Resultado; etapas_ms: EtapasMs;
 }
+interface Resumo {
+  de: string; ate: string; fatia: "hora" | "dia"; total: number; por_status: Record<string, number>; sucesso: number;
+  erros: number; timeouts: number; taxa_erro: number; tempo_medio_ms: number | null; p95_ms: number | null;
+  serie: { inicio: string; sucesso: number; erros: number; outros: number }[];
+}
+interface PontoTempo { em: string; ms: number; tipo: string; titulo: string; texto: string | null; estado: string; duracao_ms: number | null }
+interface AcaoTurno { tipo: string; situacao: string; tentativas: number; erro: string | null; criado_em: string; atualizado_em: string; duracao_ms: number | null }
 interface Lista { itens: Item[]; pagina: number; por_pagina: number; tem_mais: boolean }
 interface Filtros { contas: { id: string; nome: string }[]; agentes: { id: string; nome: string; id_escritorio: string }[] }
 interface Mensagem { id: string; autor: string; tipo: string; texto: string | null; texto_extraido: string | null; url_midia: string | null; enviada_em: string; situacao_envio: string; erro: string | null }
@@ -35,6 +49,8 @@ interface Detalhe extends Item {
   eventos: Evento[]; travas: Evento[];
   tempos: { passos_ms?: Record<string, number>; marcas_ms?: Record<string, number>; total_ms?: number; idas_ao_banco?: number } | null;
   chamadas: Chamada[]; navegacao: { anterior: string | null; seguinte: string | null };
+  acoes_turno: AcaoTurno[]; linha_do_tempo: PontoTempo[];
+  tentativas: { turno: number; chamadas_ia: number; chamadas_ia_falharam: number; acoes_repetidas: number };
 }
 
 // --------------------------------------------------------------------------- formatos
@@ -42,15 +58,42 @@ const reais = (v: number) => "R$ " + v.toLocaleString("pt-BR", { minimumFraction
 const duracao = (ms: number | null | undefined) => ms == null ? "—" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s`;
 const dataHora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const json = (v: unknown) => typeof v === "string" ? v : JSON.stringify(v, null, 2);
-const CLASSE_GRUPO: Record<string, string> = { respondido: "ok", sem_resposta: "warn", erro: "bad", processando: "info" };
+const CLASSE_STATUS: Record<string, string> = {
+  sucesso: "ok", sem_resposta: "", ignorado: "", descartado: "info", processando: "info",
+  erro: "bad", timeout: "bad", erro_5xx: "bad", erro_banco: "bad", interrompido: "warn",
+};
+const STATUS: { valor: string; rotulo: string }[] = [
+  { valor: "erros", rotulo: "Todos os erros" }, { valor: "sucesso", rotulo: "Sucesso" },
+  { valor: "erro", rotulo: "Erro" }, { valor: "timeout", rotulo: "Timeout" }, { valor: "erro_5xx", rotulo: "Erro 5xx" },
+  { valor: "erro_banco", rotulo: "Erro de banco" }, { valor: "interrompido", rotulo: "Interrompido" },
+  { valor: "sem_resposta", rotulo: "Sem resposta (IA decidiu)" }, { valor: "ignorado", rotulo: "Ignorado (IA não rodou)" },
+  { valor: "descartado", rotulo: "Refeito" }, { valor: "processando", rotulo: "Processando" },
+];
+const PERIODOS: { valor: string; rotulo: string; horas: number }[] = [
+  { valor: "1h", rotulo: "Última hora", horas: 1 }, { valor: "24h", rotulo: "Últimas 24 h", horas: 24 },
+  { valor: "7d", rotulo: "Últimos 7 dias", horas: 24 * 7 }, { valor: "30d", rotulo: "Últimos 30 dias", horas: 24 * 30 },
+];
+const pct = (v: number) => (v * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
 
-function ChipSituacao({ item }: { item: Pick<Item, "grupo" | "rotulo" | "motivo"> }) {
+function ChipResultado({ r, completo }: { r: Resultado; completo?: boolean }) {
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", gap: 2 }}>
-      <span className={`chip ${CLASSE_GRUPO[item.grupo] ?? ""}`}><span className="d" />{item.rotulo}</span>
-      {item.grupo !== "respondido" && item.motivo && <span className="s mono" style={{ fontSize: 11 }}>{item.motivo}</span>}
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+        <span className={`chip ${CLASSE_STATUS[r.status] ?? ""}`}><span className="d" />{r.rotulo}</span>
+        {r.nova_tentativa && <span className="chip warn" title="A IA vai tentar de novo sozinha">nova tentativa</span>}
+        {r.retomado && r.status === "interrompido" && <span className="chip info">retomado</span>}
+      </span>
+      {r.status !== "sucesso" && <span className="s" style={{ fontSize: 11.5, maxWidth: completo ? undefined : 260 }} title={r.causa}>
+        {r.origem_rotulo && <b>{r.origem_rotulo}: </b>}{r.causa}</span>}
+      {!completo && r.erro?.onde && <span className="s mono muted" style={{ fontSize: 10.5 }}>{r.erro.onde}</span>}
     </span>
   );
+}
+
+function DuracaoEtapas({ item }: { item: Item }) {
+  const e = item.etapas_ms;
+  const partes = [e.ia != null && `IA ${duracao(e.ia)}`, e.envio != null && `envio ${duracao(e.envio)}`, e.acoes != null && `ações ${duracao(e.acoes)}`].filter(Boolean);
+  return <><div>{duracao(item.duracao_ms)}</div>{partes.length > 0 && <div className="s muted" style={{ fontSize: 11 }}>{partes.join(" · ")}</div>}</>;
 }
 
 function ChipTool({ tool }: { tool: Tool }) {
@@ -81,16 +124,17 @@ export function TelaExecucoes() {
   const [agente, setAgente] = useState(busca0.get("agente") ?? "");
   const [texto, setTexto] = useState(busca0.get("busca") ?? "");
   const [busca, setBusca] = useState(texto);
-  const [situacao, setSituacao] = useState(busca0.get("situacao") ?? "");
+  const [status, setStatus] = useState(busca0.get("status") ?? (busca0.get("erro") === "1" ? "erros" : ""));
   const [troca, setTroca] = useState(busca0.get("troca") === "1");
-  const [soErro, setSoErro] = useState(busca0.get("erro") === "1");
   const [de, setDe] = useState(busca0.get("de") ?? "");
   const [ate, setAte] = useState(busca0.get("ate") ?? "");
+  const [periodo, setPeriodo] = useState(busca0.get("periodo") ?? (busca0.get("de") || busca0.get("ate") ? "datas" : "24h"));
+  const [minuto, setMinuto] = useState(() => Math.floor(Date.now() / 60_000));
   const [pagina, setPagina] = useState(1);
   const [aoVivo, setAoVivo] = useState(true);
 
   useEffect(() => { const t = window.setTimeout(() => setBusca(texto.trim()), 400); return () => window.clearTimeout(t); }, [texto]);
-  useEffect(() => { setPagina(1); }, [conta, agente, busca, situacao, troca, soErro, de, ate]);
+  useEffect(() => { setPagina(1); }, [conta, agente, busca, status, troca, de, ate, periodo]);
 
   // Filtros na URL (voltar do detalhe ou recarregar a página mantém a lista como estava).
   const consulta = useMemo(() => {
@@ -98,40 +142,48 @@ export function TelaExecucoes() {
     if (conta) p.set("conta", conta);
     if (agente) p.set("agente", agente);
     if (busca) p.set("busca", busca);
-    if (situacao) p.set("situacao", situacao);
+    if (status) p.set("status", status);
     if (troca) p.set("troca", "1");
-    if (soErro) p.set("erro", "1");
-    if (de) p.set("de", de);
-    if (ate) p.set("ate", ate);
+    if (periodo !== "24h") p.set("periodo", periodo);
+    if (periodo === "datas" && de) p.set("de", de);
+    if (periodo === "datas" && ate) p.set("ate", ate);
     return p;
-  }, [conta, agente, busca, situacao, troca, soErro, de, ate]);
+  }, [conta, agente, busca, status, troca, de, ate, periodo]);
   useEffect(() => {
     const alvo = consulta.toString();
     if (alvo !== local.search.replace(/^\?/, "")) navegar({ pathname: local.pathname, search: alvo }, { replace: true });
   }, [consulta]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const caminho = useMemo(() => {
+  // Os mesmos filtros valem para a lista e para os contadores. Período relativo: recalculado a cada minuto.
+  const filtrosApi = useMemo(() => {
     const p = new URLSearchParams();
     if (conta) p.set("conta", conta);
     if (agente) p.set("agente", agente);
     if (busca) p.set("busca", busca);
-    if (situacao) p.set("situacao", situacao);
+    if (status) p.set("status", status);
     if (troca) p.set("troca", "true");
-    if (soErro) p.set("erro", "true");
-    if (de) p.set("de", new Date(`${de}T00:00:00`).toISOString());
-    if (ate) { const fim = new Date(`${ate}T00:00:00`); fim.setDate(fim.getDate() + 1); p.set("ate", fim.toISOString()); }
-    p.set("pagina", String(pagina));
-    p.set("por_pagina", "50");
-    return `/admin/execucoes?${p.toString()}`;
-  }, [conta, agente, busca, situacao, troca, soErro, de, ate, pagina]);
+    const relativo = PERIODOS.find((x) => x.valor === periodo);
+    if (relativo) p.set("de", new Date(minuto * 60_000 - relativo.horas * 3_600_000).toISOString());
+    else {
+      if (de) p.set("de", new Date(`${de}T00:00:00`).toISOString());
+      if (ate) { const fim = new Date(`${ate}T00:00:00`); fim.setDate(fim.getDate() + 1); p.set("ate", fim.toISOString()); }
+    }
+    return p.toString();
+  }, [conta, agente, busca, status, troca, de, ate, periodo, minuto]);
+  const caminho = `/admin/execucoes?${filtrosApi}&pagina=${pagina}&por_pagina=50`;
 
   const { dados, erro, carregando, recarregar } = useCarregar<Lista>(caminho, [], { guardar: true });
+  const { dados: resumo, recarregar: recarregarResumo } = useCarregar<Resumo>(`/admin/execucoes/resumo?${filtrosApi}`, [], { guardar: true });
   const { dados: filtros } = useCarregar<Filtros>("/admin/execucoes/filtros");
   const agentes = (filtros?.agentes ?? []).filter((a) => !conta || a.id_escritorio === conta);
 
   // Ao vivo: atualiza a cada 10 s (só com a aba visível).
-  const recarregarRef = useRef(recarregar);
-  recarregarRef.current = recarregar;
+  const recarregarRef = useRef(() => { recarregar(); recarregarResumo(); });
+  recarregarRef.current = () => {
+    const agora = Math.floor(Date.now() / 60_000);
+    if (agora !== minuto) setMinuto(agora);            // período relativo anda sozinho (o caminho muda e recarrega)
+    else { recarregar(); recarregarResumo(); }
+  };
   useEffect(() => {
     if (!aoVivo) return;
     const t = window.setInterval(() => { if (document.visibilityState === "visible") recarregarRef.current(); }, 10_000);
@@ -140,17 +192,17 @@ export function TelaExecucoes() {
 
   const abrir = (idTurno: string) => navegar({ pathname: `/admin/execucoes/${idTurno}`, search: local.search });
   const fechar = () => navegar({ pathname: "/admin/execucoes", search: local.search });
-  const limparFiltros = () => { setConta(""); setAgente(""); setTexto(""); setSituacao(""); setTroca(false); setSoErro(false); setDe(""); setAte(""); };
-  const temFiltro = Boolean(conta || agente || busca || situacao || troca || soErro || de || ate);
+  const limparFiltros = () => { setConta(""); setAgente(""); setTexto(""); setStatus(""); setTroca(false); setDe(""); setAte(""); setPeriodo("24h"); };
+  const temFiltro = Boolean(conta || agente || busca || status || troca || periodo !== "24h");
 
   return (
     <>
       <Cabecalho eyebrow="Superadmin" titulo="Execuções"
-        texto="Cada turno da IA: o que o lead mandou, o prompt que rodou, o que a IA decidiu e o que saiu. Clique numa linha para abrir."
+        texto="Cada turno da IA: se deu certo ou errado e por quê, quanto tempo levou, o prompt que rodou e o que saiu. Clique numa linha para abrir."
         acoes={<div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <Interruptor ligado={aoVivo} aoMudar={setAoVivo} rotulo="Atualizar a cada 10 s" />
           <span className="sec" style={{ fontSize: 13 }}>Ao vivo (10 s)</span>
-          <button className="btn sm" onClick={() => recarregar()} disabled={carregando}><RefreshCw className={carregando ? "animate-spin" : ""} />Atualizar</button>
+          <button className="btn sm" onClick={() => { recarregar(); recarregarResumo(); }} disabled={carregando}><RefreshCw className={carregando ? "animate-spin" : ""} />Atualizar</button>
         </div>} />
 
       <div className="panel" style={{ padding: 14, marginBottom: 14 }}>
@@ -165,35 +217,40 @@ export function TelaExecucoes() {
               <option value="">Todos os agentes</option>
               {agentes.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
             </select></div>
-          <div className="field"><label htmlFor="ex-busca">Lead (nome ou número)</label>
+          <div className="field"><label htmlFor="ex-busca">Lead (telefone, nome ou id)</label>
             <div style={{ position: "relative" }}>
               <Search style={{ position: "absolute", left: 10, top: 11, width: 15, height: 15, color: "var(--ink-3)" }} />
               <input id="ex-busca" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Maria, 31 98888…" style={{ paddingLeft: 32 }} />
             </div></div>
-          <div className="field"><label htmlFor="ex-situacao">Situação</label>
-            <select id="ex-situacao" value={situacao} onChange={(e) => setSituacao(e.target.value)}>
-              <option value="">Qualquer situação</option>
-              <option value="respondido">Respondido</option>
-              <option value="sem_resposta">Sem resposta</option>
-              <option value="erro">Erro</option>
-              <option value="processando">Processando</option>
+          <div className="field"><label htmlFor="ex-status">Status</label>
+            <select id="ex-status" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">Qualquer status</option>
+              {STATUS.map((x) => <option key={x.valor} value={x.valor}>{x.rotulo}</option>)}
             </select></div>
-          <div className="field"><label htmlFor="ex-de">De</label><input id="ex-de" type="date" value={de} onChange={(e) => setDe(e.target.value)} /></div>
-          <div className="field"><label htmlFor="ex-ate">Até</label><input id="ex-ate" type="date" value={ate} onChange={(e) => setAte(e.target.value)} /></div>
+          <div className="field"><label htmlFor="ex-periodo">Período</label>
+            <select id="ex-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
+              {PERIODOS.map((x) => <option key={x.valor} value={x.valor}>{x.rotulo}</option>)}
+              <option value="datas">Escolher datas</option>
+            </select></div>
+          {periodo === "datas" && <>
+            <div className="field"><label htmlFor="ex-de">De</label><input id="ex-de" type="date" value={de} onChange={(e) => setDe(e.target.value)} /></div>
+            <div className="field"><label htmlFor="ex-ate">Até</label><input id="ex-ate" type="date" value={ate} onChange={(e) => setAte(e.target.value)} /></div>
+          </>}
         </div>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
           <label className="check"><input type="checkbox" checked={troca} onChange={(e) => setTroca(e.target.checked)} /><span>Só com troca de etapa</span></label>
-          <label className="check"><input type="checkbox" checked={soErro} onChange={(e) => setSoErro(e.target.checked)} /><span>Só com erro</span></label>
           {temFiltro && <button className="btn ghost sm" onClick={limparFiltros}>Limpar filtros</button>}
         </div>
       </div>
+
+      {resumo && <PainelResumo r={resumo} status={status} aoFiltrar={setStatus} />}
 
       {!dados ? <Carregando erro={erro} /> : dados.itens.length === 0 ? (
         <div className="panel"><Vazio icone={<Activity />}>{temFiltro ? "Nenhuma execução com esses filtros." : "Nenhuma execução ainda."}</Vazio></div>
       ) : (
         <>
           <div className="lst"><table>
-            <thead><tr><th>Quando</th><th>Conta</th><th>Agente</th><th>Lead</th><th>Etapa</th><th>Situação</th><th>Tool</th><th>Duração</th><th>Custo</th></tr></thead>
+            <thead><tr><th>Quando</th><th>Conta</th><th>Agente</th><th>Lead</th><th>Etapa</th><th>Resultado</th><th>Tool</th><th>Duração</th><th>Custo</th></tr></thead>
             <tbody>{dados.itens.map((i) => (
               <tr key={i.id} {...linhaClicavel(() => abrir(i.id), { rotulo: `Abrir execução de ${i.lead.nome ?? "lead"}`, selecionada: i.id === id })}
                 style={i.id === id ? { background: "var(--acento-suave)" } : undefined}>
@@ -202,9 +259,9 @@ export function TelaExecucoes() {
                 <td>{i.agente ?? <span className="muted">—</span>}</td>
                 <td><div className="t">{i.lead.nome || "Sem nome"}</div><div className="s num">{i.lead.telefone ?? "número oculto"}</div></td>
                 <td><Etapas item={i} /></td>
-                <td><ChipSituacao item={i} /></td>
+                <td><ChipResultado r={i.resultado} /></td>
                 <td><ChipTool tool={i.tool} /></td>
-                <td className="num">{duracao(i.duracao_ms)}</td>
+                <td className="num"><DuracaoEtapas item={i} /></td>
                 <td className="num" title={`${i.custo.chamadas} chamada(s) · ${i.custo.tokens_entrada} + ${i.custo.tokens_saida} tokens`}>{i.custo.chamadas ? reais(i.custo.brl) : "—"}</td>
               </tr>
             ))}</tbody>
@@ -219,6 +276,69 @@ export function TelaExecucoes() {
 
       {id && <PainelDetalhe id={id} aoFechar={fechar} aoAbrir={abrir} />}
     </>
+  );
+}
+
+// --------------------------------------------------------------------------- contadores e gráfico
+function PainelResumo({ r, status, aoFiltrar }: { r: Resumo; status: string; aoFiltrar: (s: string) => void }) {
+  // Cartão com filtro: clicar filtra a lista por aquele status (clicar de novo tira o filtro).
+  const kpi = (rotulo: string, valor: ReactNode, classe = "", filtro?: string, nota?: string) => {
+    const miolo = <><span>{rotulo}</span><b>{valor}</b>{nota && <small>{nota}</small>}</>;
+    if (filtro === undefined) return <div className={`kpi ${classe}`} key={rotulo}>{miolo}</div>;
+    return (
+      <button type="button" className={`kpi ${classe}`} key={rotulo} onClick={() => aoFiltrar(status === filtro ? "" : filtro)}
+        aria-pressed={filtro !== "" && status === filtro} title="Filtrar a lista"
+        style={{ textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit",
+          outline: filtro !== "" && status === filtro ? "2px solid var(--acento)" : undefined }}>{miolo}</button>
+    );
+  };
+  const maior = Math.max(1, ...r.serie.map((p) => p.sucesso + p.erros + p.outros));
+  const rotuloFatia = (iso: string) => r.fatia === "dia"
+    ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+    : new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const cada = Math.max(1, Math.ceil(r.serie.length / 12));
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", marginBottom: 12 }}>
+        {kpi("Total", r.total.toLocaleString("pt-BR"), "", "", `${r.por_status.ignorado ?? 0} ignorados`)}
+        {kpi("Sucesso", r.sucesso.toLocaleString("pt-BR"), "ok", "sucesso")}
+        {kpi("Erros", r.erros.toLocaleString("pt-BR"), r.erros ? "bad" : "", "erros",
+          [r.por_status.erro_5xx && `${r.por_status.erro_5xx} 5xx`, r.por_status.erro_banco && `${r.por_status.erro_banco} banco`,
+            r.por_status.interrompido && `${r.por_status.interrompido} interromp.`].filter(Boolean).join(" · ") || undefined)}
+        {kpi("Timeouts", r.timeouts.toLocaleString("pt-BR"), r.timeouts ? "warn" : "", "timeout")}
+        {kpi("Taxa de erro", pct(r.taxa_erro), r.taxa_erro >= 0.05 ? "bad" : r.taxa_erro > 0 ? "warn" : "ok", undefined, "sem os ignorados")}
+        {kpi("Tempo médio", duracao(r.tempo_medio_ms))}
+        {kpi("p95", duracao(r.p95_ms), "", undefined, "95% terminam até aqui")}
+      </div>
+      <div className="panel" style={{ padding: "12px 14px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+          <span className="lbl">Execuções por {r.fatia}</span>
+          <span style={{ display: "inline-flex", gap: 12, fontSize: 12 }} className="sec">
+            <span><i style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "var(--ok)", marginRight: 4 }} />sucesso</span>
+            <span><i style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "var(--bad)", marginRight: 4 }} />erro</span>
+            <span><i style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "var(--surface-3)", marginRight: 4 }} />sem resposta / ignorado</span>
+          </span>
+        </div>
+        {r.total === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>Nenhuma execução no período.</p> : (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 90 }} role="img" aria-label={`Execuções por ${r.fatia}`}>
+            {r.serie.map((p) => {
+              const total = p.sucesso + p.erros + p.outros;
+              return (
+                <div key={p.inicio} title={`${rotuloFatia(p.inicio)}: ${total} (${p.sucesso} sucesso, ${p.erros} erro, ${p.outros} outros)`}
+                  style={{ flex: 1, minWidth: 2, height: `${(total / maior) * 100}%`, display: "flex", flexDirection: "column-reverse", borderRadius: 2, overflow: "hidden" }}>
+                  <span style={{ flex: p.sucesso, background: "var(--ok)" }} />
+                  <span style={{ flex: p.outros, background: "var(--surface-3)" }} />
+                  <span style={{ flex: p.erros, background: "var(--bad)" }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {r.total > 0 && <div style={{ display: "flex", gap: 2, marginTop: 4 }}>
+          {r.serie.map((p, n) => <span key={p.inicio} className="s muted num" style={{ flex: 1, minWidth: 2, fontSize: 10, overflow: "visible", whiteSpace: "nowrap" }}>{n % cada === 0 ? rotuloFatia(p.inicio) : ""}</span>)}
+        </div>}
+      </div>
+    </div>
   );
 }
 
@@ -304,11 +424,13 @@ function ConteudoDetalhe({ d }: { d: Detalhe }) {
   return (
     <>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
-        <ChipSituacao item={d} />
         <span className="sec">Etapa: <Etapas item={d} /></span>
         <ChipTool tool={d.tool} />
         {d.modo !== "producao" && <span className="chip info">{d.modo}</span>}
       </div>
+
+      <BlocoResultado d={d} />
+      <BlocoLinhaDoTempo d={d} />
 
       <Bloco titulo="1. Mensagens do lead que entraram">
         {d.entrada.length === 0 ? <p className="muted" style={{ margin: 0 }}>Nenhuma mensagem do lead ligada a este turno.</p>
@@ -393,6 +515,20 @@ function ConteudoDetalhe({ d }: { d: Detalhe }) {
             )}
           </div>
           <div>
+            <div className="lbl" style={{ marginBottom: 6 }}>Ações do turno (fila)</div>
+            {d.acoes_turno.length === 0 ? <span className="muted">nenhuma</span> : (
+              <div className="lst"><table>
+                <thead><tr><th>Ação</th><th>Situação</th><th>Tentativas</th><th>Duração</th><th>Erro</th></tr></thead>
+                <tbody>{d.acoes_turno.map((a, n) => (
+                  <tr key={n}><td className="mono s">{a.tipo}</td>
+                    <td><span className={`chip ${a.situacao === "feita" ? "ok" : a.situacao === "falhou" ? "bad" : a.situacao === "cancelada" ? "" : "warn"}`}>{a.situacao}</span></td>
+                    <td className="num s">{a.tentativas}</td><td className="num s">{duracao(a.duracao_ms)}</td>
+                    <td className="s" style={{ color: a.erro ? "var(--bad)" : undefined }}>{a.erro ?? "—"}</td></tr>
+                ))}</tbody>
+              </table></div>
+            )}
+          </div>
+          <div>
             <div className="lbl" style={{ marginBottom: 6 }}>Chamadas de IA {d.custo.chamadas > 0 && <span className="muted">· {reais(d.custo.brl)} · US$ {d.custo.usd.toFixed(4)}</span>}</div>
             {d.chamadas.length === 0 ? <span className="muted">nenhuma</span> : (
               <div className="lst"><table>
@@ -409,6 +545,87 @@ function ConteudoDetalhe({ d }: { d: Detalhe }) {
         </div>
       </Bloco>
     </>
+  );
+}
+
+function BlocoResultado({ d }: { d: Detalhe }) {
+  const r = d.resultado;
+  const e = d.etapas_ms;
+  const etapas = ([["Contexto", e.contexto], ["IA", e.ia], ["Envio", e.envio], ["Ações", e.acoes], ["Gravações", e.gravacoes]] as [string, number | null][])
+    .filter(([, v]) => v != null) as [string, number][];
+  const maior = Math.max(1, d.duracao_ms ?? 0, ...etapas.map(([, v]) => v));
+  const [copiado, setCopiado] = useState(false);
+  const copiar = async () => {
+    if (!r.erro) return;
+    const texto = [r.rotulo, r.causa, r.erro.tipo, r.erro.mensagem, r.erro.onde, `turno ${d.id}`].filter(Boolean).join("\n");
+    try { await navigator.clipboard.writeText(texto); setCopiado(true); window.setTimeout(() => setCopiado(false), 1500); } catch { /* sem permissão */ }
+  };
+  const borda = r.erro_grupo ? "var(--bad)" : r.status === "sucesso" ? "var(--ok)" : "var(--line)";
+  return (
+    <section className="panel" style={{ marginBottom: 14, borderLeft: `4px solid ${borda}` }}>
+      <div className="panel-h"><h3>Resultado</h3>{r.erro && <div className="more"><button className="btn sm" onClick={copiar}><Copy />{copiado ? "Copiado" : "Copiar erro"}</button></div>}</div>
+      <div className="panel-b" style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <ChipResultado r={r} completo />
+        </div>
+        {r.erro && (
+          <div style={{ display: "grid", gap: 6, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
+            {r.erro.tipo && <Linha rotulo="Tipo"><span className="mono">{r.erro.tipo}</span>{r.erro.status ? <span className="chip bad" style={{ marginLeft: 6 }}>HTTP {r.erro.status}</span> : null}</Linha>}
+            {r.erro.mensagem && <Linha rotulo="Mensagem"><span className="mono s" style={{ wordBreak: "break-word" }}>{r.erro.mensagem}</span></Linha>}
+            <Linha rotulo="Local">{r.erro.onde ? <span className="mono s">{r.erro.onde}</span> : <span className="muted">não gravado (turno antigo ou erro fora do código)</span>}</Linha>
+          </div>
+        )}
+        <Linha rotulo="Tentativas">
+          <span className="s">{d.tentativas.turno}ª tentativa deste turno · {d.tentativas.chamadas_ia} chamada(s) de IA
+            {d.tentativas.chamadas_ia_falharam ? `, ${d.tentativas.chamadas_ia_falharam} com falha` : ""}
+            {d.tentativas.acoes_repetidas ? ` · ${d.tentativas.acoes_repetidas} repetição(ões) de ação` : ""}</span>
+        </Linha>
+        <Linha rotulo="Duração">
+          <div style={{ display: "grid", gap: 4 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 70px", gap: 8, alignItems: "center", fontSize: 12.5 }}>
+              <b>Total</b><span style={{ height: 8, borderRadius: 4, background: "var(--surface-3)" }}><span style={{ display: "block", height: 8, borderRadius: 4, width: `${((d.duracao_ms ?? 0) / maior) * 100}%`, background: "var(--ink-3)" }} /></span>
+              <span className="num" style={{ textAlign: "right" }}>{duracao(d.duracao_ms)}</span>
+            </div>
+            {etapas.map(([nome, ms]) => (
+              <div key={nome} style={{ display: "grid", gridTemplateColumns: "90px 1fr 70px", gap: 8, alignItems: "center", fontSize: 12.5 }}>
+                <span>{nome}</span>
+                <span style={{ height: 8, borderRadius: 4, background: "var(--surface-3)" }}><span style={{ display: "block", height: 8, borderRadius: 4, width: `${(ms / maior) * 100}%`, background: "var(--acento)" }} /></span>
+                <span className="num" style={{ textAlign: "right" }}>{duracao(ms)}</span>
+              </div>
+            ))}
+            {etapas.length === 0 && <span className="s muted">sem medição por etapa neste turno</span>}
+          </div>
+        </Linha>
+      </div>
+    </section>
+  );
+}
+
+const COR_ESTADO: Record<string, string> = { ok: "var(--ok)", bad: "var(--bad)", warn: "var(--warn)", info: "var(--info)" };
+
+function BlocoLinhaDoTempo({ d }: { d: Detalhe }) {
+  const pontos = d.linha_do_tempo;
+  const deslocamento = (ms: number) => ms < 0 ? `${duracao(-ms)} antes` : `+${duracao(ms)}`;
+  return (
+    <Bloco titulo="Linha do tempo">
+      {pontos.length === 0 ? <span className="muted">nada registrado</span> : (
+        <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 0 }}>
+          {pontos.map((p, n) => (
+            <li key={n} style={{ display: "grid", gridTemplateColumns: "84px 16px 1fr", gap: 8, alignItems: "start" }}>
+              <span className="s num muted" style={{ textAlign: "right", paddingTop: 1 }} title={dataHora(p.em)}>{p.tipo === "inicio" ? new Date(p.em).toLocaleTimeString("pt-BR") : deslocamento(p.ms)}</span>
+              <span style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch" }}>
+                <span style={{ width: 10, height: 10, borderRadius: "50%", marginTop: 4, background: COR_ESTADO[p.estado] ?? "var(--ink-3)", flexShrink: 0 }} />
+                {n < pontos.length - 1 && <span style={{ flex: 1, width: 2, background: "var(--line)", minHeight: 12 }} />}
+              </span>
+              <div style={{ paddingBottom: 10, minWidth: 0 }}>
+                <b style={{ fontSize: 13 }}>{p.titulo}</b>{p.duracao_ms != null && <span className="s muted num"> · {duracao(p.duracao_ms)}</span>}
+                {p.texto && <div className="sec" style={{ fontSize: 12.5, wordBreak: "break-word", color: p.estado === "bad" ? "var(--bad)" : undefined }}>{p.texto}</div>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Bloco>
   );
 }
 

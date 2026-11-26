@@ -40,7 +40,8 @@ def test_app_ia_tem_so_webhooks_saude_e_midia():
     from app.entrada_ia import app
 
     rotas = servidor.rotas_montadas(app)
-    assert {"/webhook/helena", "/webhook/helena/{id_escritorio}", "/webhook/helena/{id_escritorio}/ia",
+    assert "/webhook/helena" not in rotas                       # rota global legada removida (isolamento)
+    assert {"/webhook/helena/{id_escritorio}", "/webhook/helena/{id_escritorio}/ia",
             "/webhook/zapsign/{id_escritorio}", "/saude", "/midia"} <= rotas
     assert not [r for r in rotas if r.startswith(("/api/", "/entrar/", "/lab", "/assets"))]
     assert "/{caminho:path}" not in rotas                     # sem o painel compilado

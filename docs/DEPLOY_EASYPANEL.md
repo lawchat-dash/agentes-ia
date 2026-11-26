@@ -133,13 +133,23 @@ mídia pelo painel responde com o aviso do que falta (o resto do sistema funcion
 | `AGENTESIA_ALERTA_LAWCHAT_DE` | recomendada | Número que envia os avisos de erro grave. |
 | `AGENTESIA_ALERTA_LAWCHAT_PARA` | recomendada | Números que recebem os avisos (separados por vírgula). Sem as três, a central fica desligada. |
 | `AGENTESIA_BANCO_CONEXOES` | não (padrão 10) | Tamanho do pool de conexões com o banco. |
-| `AGENTESIA_BANCO_TIMEOUT_S` / `AGENTESIA_BANCO_COMANDO_S` | não (10 / 15) | Espera máxima por conexão e por consulta. |
+| `AGENTESIA_BANCO_TIMEOUT_S` / `AGENTESIA_BANCO_COMANDO_S` | não (10 / 15) | Prazo para abrir uma conexão nova e para uma consulta. |
+| `AGENTESIA_BANCO_ESPERA_S` | não (5) | Espera máxima por uma conexão LIVRE do pool; passou, o turno fecha como erro de banco "BancoOcupado". |
+| `AGENTESIA_BANCO_CONEXOES_MIN` / `AGENTESIA_BANCO_OCIOSA_S` | não (4 / 600) | Conexões sempre abertas e quanto tempo uma conexão parada fica aberta. |
+| `AGENTESIA_TURNOS_SIMULTANEOS` | não (5) | Turnos da IA ao mesmo tempo por container (os outros esperam a vez). |
+| `AGENTESIA_TURNO_CONSULTAS_PARALELAS` | não (3) | Idas ao banco em paralelo dentro de um turno. |
+| `AGENTESIA_CACHE_CONFIG_S` | não (30; 0 desliga) | Cache em memória do escritório da conta, canal, agente e token da plataforma. Mudança feita no painel vale na IA em até esse tempo. |
+| `AGENTESIA_SAUDE_BANCO_S` | não (180) | O `/saude` diz "banco ok" se houve consulta bem-sucedida nesse tempo (não vai ao banco). Diagnóstico com o banco: `/saude/banco`. |
+| `AGENTESIA_VIGIA_INTERVALO_MIN` | não (10) | Intervalo das varreduras de follow-up ausente e dos avisos (0 desliga todas). |
+| `AGENTESIA_FOLLOWUP_AUSENTE_H` / `_JANELA_H` / `_LIMITE` | não (2 / 24 / 10) | Lead cuja última fala é da IA há mais de 2 h (e menos de 24 h) sem follow-up agendado: agenda pelas regras do agente, até 10 por rodada. `_H=0` desliga. |
+| `AGENTESIA_AVISO_FOLLOWUP_DESLIGADO_DIAS` | não (7; 0 desliga) | Aviso à equipe LawChat de agente em produção com follow-up desligado (1 por agente nesse período). |
+| `AGENTESIA_SEM_WEBHOOK_H` / `AGENTESIA_SEM_WEBHOOK_HORARIO` | não (4 / `9-18`) | Aviso à equipe LawChat quando um escritório ativo fica 4 h sem mensagem dentro do horário comercial (seg-sex), 1 por dia. `_H=0` desliga. |
+| `AGENTESIA_REPROCESSAR_JANELA_H` | não (48) | "Responder agora" (POST /api/conversas/{id}/reprocessar) olha as mensagens do lead sem resposta nesse período. |
 | `AGENTESIA_IA_TIMEOUT_S` / `AGENTESIA_TETO_TURNO_S` | não (60 / 180) | Tempo máximo de cada chamada à IA e do turno inteiro. |
 | `AGENTESIA_DESLIGAR_TETO_S` | não (30) | No desligamento (deploy novo), quanto esperar os turnos em andamento. |
 | `AGENTESIA_ESPERA_MINIMA` / `_MAXIMA` / `_PADRAO` | não (15 / 90 / 40) | Espera antes de responder, em segundos. |
 | `AGENTESIA_SEGUNDOS_POR_LETRA` / `AGENTESIA_MAX_REPROCESSOS` | não (0.5 / 2) | Ritmo de "digitação" e quantas vezes um turno com erro é refeito. |
 | `AGENTESIA_SEGREDO_SESSAO` | não | Não é usado aqui; se faltar, só aparece um aviso no log na subida. |
-| `AGENTESIA_WEBHOOK_GLOBAL` | **deixe vazia** | Liga a rota global legada `/webhook/helena`. |
 | `AGENTESIA_MIDIA_ARMAZENAMENTO` | sim (`supabase`) | Mídia no bucket; sem ela vale `local` e o app monta o `/midia` do disco. |
 | `AGENTESIA_PASTA_MIDIA` | não mexa | Só no modo local. Já vem `/dados/midia` na imagem (a pasta montada). |
 

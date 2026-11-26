@@ -60,8 +60,8 @@ async def test_lixeira_solta_o_numero_e_restaurar_pede_ativacao(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    esc1, h1, zapi, oficial = await _escritorio(cliente, pool, "Lixeira 1", "token-bom-123456")
-    esc2, h2, zapi2, _oficial2 = await _escritorio(cliente, pool, "Lixeira 2", "token-bom-654321")
+    esc1, h1, zapi, oficial = await _escritorio(cliente, pool, "Lixeira 1", "token-bom-" + uuid.uuid4().hex[:8])
+    esc2, h2, zapi2, _oficial2 = await _escritorio(cliente, pool, "Lixeira 2", "token-bom-" + uuid.uuid4().hex[:8])
 
     # Escritório 2: um produto ativo no número dele (não pode ser afetado pelo escritório 1).
     id_c, agentes_c = await _produto(cliente, h2, "Outro escritório")
@@ -178,7 +178,7 @@ async def test_restaurar_e_ativar_pausado_e_rascunho_sem_agente(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Lixeira 3", "token-bom-777777")
+    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Lixeira 3", "token-bom-" + uuid.uuid4().hex[:8])
 
     # Rascunho nunca ativado: lixeira e restaurar não mexem em número nenhum (não há agente).
     id_r, _agentes_r = await _produto(cliente, h, "Rascunho")

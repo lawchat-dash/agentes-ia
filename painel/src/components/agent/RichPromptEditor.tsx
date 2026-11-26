@@ -20,7 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 // Limite SUAVE (recomendado) — só p/ o contador/barra. NÃO bloqueia mais a digitação/colagem
 // (o CharacterCount entra sem `limit`), então prompts grandes podem ser colados sem truncar.
-const MAX = 100000;
+const MAX_PADRAO = 100000;
 
 /* ----------------------------------------------------------------------------
  * Preserva LINHAS EM BRANCO no round-trip markdown. O markdown-it (parser) colapsa
@@ -245,6 +245,10 @@ interface Props {
   onGerenciarFrases?: () => void;
   /** Toolbar enxuta (só negrito/itálico + mídia + @) — p/ respostas curtas (FAQ/objeção). */
   compact?: boolean;
+  /** Limite recomendado do contador (default 100.000). Ex.: 4.000 no prompt de follow-up. */
+  max?: number;
+  /** Esconde o botão de marcador de mídia (onde mídia não vale, como o follow-up). */
+  semMidia?: boolean;
 }
 
 type MediaLite = { id: string; name: string; url: string; type: "audio" | "video" | "image" };
@@ -255,7 +259,7 @@ const MEDIA_ICON = { audio: Music, video: Video, image: ImageIcon } as const;
  * e devolve markdown em onChange — o bot continua lendo o prompt como markdown.
  */
 export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
-  ({ value, onChange, handoffOptions = [], toolOptions = [], accent, onAbrirMidia, midiaLiberada, audios = [], media, buildAudioToken, highlights = [], minHeight = "min-h-[280px]", compact = false, transferencia = false, onGerenciarFrases }, ref) => {
+  ({ value, onChange, handoffOptions = [], toolOptions = [], accent, onAbrirMidia, midiaLiberada, audios = [], media, buildAudioToken, highlights = [], minHeight = "min-h-[280px]", compact = false, transferencia = false, onGerenciarFrases, max: MAX = MAX_PADRAO, semMidia = false }, ref) => {
     // Lista unificada de mídia: usa `media` (todos os tipos); cai p/ `audios` (legado) se preciso.
     const mediaList: MediaLite[] = (media && media.length)
       ? media
@@ -670,10 +674,10 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
           {/* Mídia: no modo compacto (FAQ/objeção) abre a Biblioteca p/ ESCOLHER a mídia
               (insere a URL direto — o bot envia). No prompt, insere o marcador [[midia:nome]].
               Compacto SEM mídia (produto texto) = sem botão de mídia. */}
-          {((compact && onAbrirMidia) || !compact) && <div className="mx-1 h-5 w-px bg-[#e5e8ee]" />}
+          {((compact && onAbrirMidia) || (!compact && !semMidia)) && <div className="mx-1 h-5 w-px bg-[#e5e8ee]" />}
           {compact && onAbrirMidia ? (
             <Btn title="Inserir mídia (áudio/vídeo) da Biblioteca" onClick={onAbrirMidia}><Music className="size-3.5 text-[#0891b2]" /></Btn>
-          ) : !compact ? (
+          ) : !compact && !semMidia ? (
             <Btn title="Inserir marcador de mídia [[midia:nome]]" onClick={inserirMarcadorAudio}><Music className="size-3.5 text-[#0891b2]" /></Btn>
           ) : null}
           {(handoffOptions.length > 0 || toolOptions.length > 0 || temTransfer) && (

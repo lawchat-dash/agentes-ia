@@ -234,7 +234,9 @@ async def test_zapsign_cedo_gera_ferramenta_cedo_e_reprova():
     # equipe) é do app/contrato e não deste teste.
     conversa = await conversar("01", lambda r: r["contratos"].__setitem__(
         1, passo("Combinado! Vou gerar o seu contrato.", ferramenta="zapsign")))
-    assert {"ferramenta_cedo", "ferramenta_contagem"} <= conversa.codigos(), [f.como_dict() for f in conversa.falhas]
+    # A contagem de zapsign já não é garantida: sem o resumo confirmado, o motor manda uma CORRIJA (cat. 23) e a
+    # correção consome a resposta roteirizada seguinte.
+    assert "ferramenta_cedo" in conversa.codigos(), [f.como_dict() for f in conversa.falhas]
     assert not conversa.aprovada
 
 

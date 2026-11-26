@@ -10,6 +10,9 @@ naosabeler = nao_sabe_ler, clienteantigo = cliente_antigo, outrobeneficio = outr
 dificuldadenaassinatura = dificuldade_assinatura, muitasobjeções = muitas_objecoes, analisehumana = analise_humana,
 fotodocontrato = foto_contrato, enderecosemfalar = endereco_sem_falar, contratomanual = contrato_manual.
 Os três últimos só valem nos papéis do contrato (os que têm a ação zapsign: contratos e assinatura), ver `do_papel`.
+Sem par no n8n (auditoria dos tickets, cat. 18): atendimento_presencial (quer ir ao escritório), ligacao_telefonica
+(pede uma ligação), parceria_comercial (proposta comercial: não é lead de benefício) e deficiencia_auditiva (não ouve
+áudio). Este último avisa a equipe sem tirar a IA: a conversa segue só por texto (SEM_PAUSA).
 desqualificado e periododegraca não são aviso de sinal: são troca de etapa (gatilho etapa:<papel>).
 
 A dificuldade na assinatura também nasce no fluxo do contrato (app/acoes.py, _dificuldade_na_assinatura): o lead diz
@@ -23,9 +26,16 @@ from typing import Any
 
 # Marcados pelo extrator (gatilho literal nas palavras do lead).
 DO_EXTRATOR = ("quer_videochamada", "quer_audio", "nao_sabe_ler", "cliente_antigo", "outro_beneficio",
-               "dificuldade_assinatura", "muitas_objecoes", "foto_contrato", "endereco_sem_falar", "contrato_manual")
+               "dificuldade_assinatura", "muitas_objecoes", "foto_contrato", "endereco_sem_falar", "contrato_manual",
+               "atendimento_presencial", "ligacao_telefonica", "parceria_comercial", "deficiencia_auditiva")
 # Só fazem sentido onde há contrato em andamento (papéis com a ação zapsign): fora dali o turno descarta.
 SO_NO_CONTRATO = ("foto_contrato", "endereco_sem_falar", "contrato_manual")
+# Avisam a equipe sem tirar a IA da conversa: ela segue, com a orientação abaixo (e sem áudio, no caso da surdez).
+SEM_PAUSA = ("deficiencia_auditiva",)
+ORIENTACAO_SEM_PAUSA = {
+    "deficiencia_auditiva": ("O lead tem deficiência auditiva: converse só por texto, com frases claras; nunca mande "
+                             "áudio nem peça para ele ouvir algo."),
+}
 # Marcados pelo agente do papel (dependem do roteiro).
 DO_AGENTE = ("analise_humana",)
 SINAIS = DO_EXTRATOR + DO_AGENTE
@@ -74,7 +84,18 @@ def guia_do_extrator(beneficio: str | None = None) -> str:
         "- contrato_manual (só na fase do contrato): pede contrato físico ou impresso; quem assina é representante, curador, "
         "procurador ou responsável por menor; não consegue assinatura digital de jeito nenhum (sem celular, sem e-mail, "
         "sem documento com foto). NÃO é: dificuldade pontual com o link (isso é dificuldade_assinatura).",
-        "Não marcam nada: endereço ou \"onde fica o escritório\", atendimento presencial, preço, prazo, \"como funciona\", "
+        "- atendimento_presencial: quer ir pessoalmente ao escritório ou ser atendido presencialmente (\"posso ir aí?\", "
+        "\"prefiro ir pessoalmente\", \"quero marcar para ir no escritório\"). NÃO é: só perguntar onde fica o escritório "
+        "ou o endereço dele.",
+        "- ligacao_telefonica: pede uma ligação de telefone (\"me liga\", \"pode me ligar?\", \"prefiro por telefone\"). "
+        "NÃO é: chamada de vídeo (isso é quer_videochamada), pedido de áudio, passar o número para o contrato.",
+        "- parceria_comercial: não procura benefício para si; oferece serviço, parceria, indicação paga, anúncio ou "
+        "venda ao escritório (\"sou de uma agência\", \"quero ser parceiro\", \"tenho uma proposta para o escritório\"). "
+        "NÃO é: indicar um parente que precisa do benefício.",
+        "- deficiencia_auditiva: diz que é surdo, tem deficiência auditiva ou não consegue ouvir áudio (\"sou surda\", "
+        "\"não escuto áudio\", \"tenho problema de audição\"). NÃO é: estar sem fone, em lugar barulhento, não poder "
+        "ouvir agora.",
+        "Não marcam nada: endereço ou \"onde fica o escritório\", preço, prazo, \"como funciona\", "
         "saudações e confirmações (\"ok\", \"blz\", \"sim\").",
     ])
 

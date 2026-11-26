@@ -253,6 +253,7 @@ from app.gestao.rotas_relatorios import api as api_relatorios; app.include_route
 from app.gestao.rotas_controle_ia import api as api_controle_ia; app.include_router(api_controle_ia)  # noqa: E402,E702  bolinha da IA na Central
 from app.gestao.rotas_avisos import api as api_avisos; app.include_router(api_avisos)  # noqa: E402,E702  Avisos no WhatsApp (conta e catálogo)
 from app.gestao.rotas_resumo_contrato import api as api_resumo_contrato; app.include_router(api_resumo_contrato)  # noqa: E402,E702  Ferramentas > Resumo de contrato
+from app.gestao.rotas_reprocessar import api as api_reprocessar; app.include_router(api_reprocessar)  # noqa: E402,E702  Conversas > Responder agora
 if os.environ.get("AGENTESIA_PAINEL_CRM_LIGADO", "").strip() == "1":
     # Painel padrão do CRM pela API interna da Helena (impersonate): desligado por padrão. Se um dia o recebimento de
     # webhooks virar um app separado, este router NÃO entra nele.
@@ -285,8 +286,11 @@ app.include_router(entrada_helena)
 
 @app.get("/saude")
 async def saude() -> Any:
-    """Saúde de verdade: banco respondendo, tarefas de fundo vivas e o atraso das filas. 503 quando o banco não responde
-    ou uma tarefa de fundo morreu (o monitor do provedor reinicia o servidor)."""
+    """Saúde para o HEALTHCHECK, SEM ir ao banco: processo vivo, tarefas de fundo vivas e o "banco ok" guardado da
+    última consulta bem-sucedida (qualquer conexão do pool; os laços de fundo consultam a cada 30-60 s). Antes o
+    "select 1" disputava o pool com os turnos: com o pool cheio passava do prazo do HEALTHCHECK e o provedor reiniciava
+    o container no meio dos atendimentos. 503 só quando uma tarefa de fundo morreu. Diagnóstico com o banco:
+    GET /saude/banco."""
     from fastapi.responses import JSONResponse
 
     atendimento = app.state.atendimento
@@ -295,10 +299,31 @@ async def saude() -> Any:
     if atendimento is None:
         return corpo
     from app import central_avisos
+    from app.banco import postgres
     tarefas = getattr(app.state, "tarefas", {}) or {}
     corpo["tarefas"] = {nome: not t.done() for nome, t in tarefas.items()}
     corpo["central"] = central_avisos.configurada() is not None
+    idade = postgres.segundos_desde_a_ultima_consulta_ok()
+    corpo["banco"] = idade is not None and idade < float(os.environ.get("AGENTESIA_SAUDE_BANCO_S", "180"))
+    corpo["banco_ultima_consulta_ok_s"] = None if idade is None else int(idade)
+    if not all(corpo["tarefas"].values()):
+        corpo["ok"] = False
+    return corpo if corpo["ok"] else JSONResponse(corpo, status_code=503)
+
+
+@app.get("/saude/banco")
+async def saude_do_banco() -> Any:
+    """Diagnóstico com o banco (não é o HEALTHCHECK): "select 1", atraso da fila de ações e leads sem resposta, com
+    prazo de 2 s cada. 503 quando o banco não responde."""
+    from fastapi.responses import JSONResponse
+
+    atendimento = app.state.atendimento
+    corpo: dict[str, Any] = {"ok": True, "atendimento": atendimento is not None}
+    if atendimento is None:
+        return corpo
     pool = atendimento.repo._pool
+    if hasattr(pool, "get_size"):
+        corpo["pool"] = {"tamanho": pool.get_size(), "livres": pool.get_idle_size(), "maximo": pool.get_max_size()}
     try:
         corpo["banco"] = await asyncio.wait_for(pool.fetchval("select 1"), 2) == 1
         corpo["fila_acoes_atraso_s"] = int(await asyncio.wait_for(pool.fetchval(
@@ -309,36 +334,10 @@ async def saude() -> Any:
                and (processando_ate is null or processando_ate < now())"""), 2) or 0)
     except Exception as erro:                                 # banco fora ou pendurado
         corpo.update(ok=False, banco=False, erro=type(erro).__name__)
-    if not all(corpo["tarefas"].values()):
-        corpo["ok"] = False
     return corpo if corpo["ok"] else JSONResponse(corpo, status_code=503)
 
 
 # ----------------------------------------------------------------------------- webhook
-@app.post("/webhook/helena")
-async def webhook_helena(pedido: Request) -> dict[str, Any]:
-    """Entrada global (legada). Desligada por padrão: use a URL de cada escritório (/webhook/helena/{id}).
-
-    Só atende com AGENTESIA_WEBHOOK_GLOBAL=1, e com um segredo DERIVADO (canal.webhook.segredo_global), nunca o
-    AGENTESIA_WEBHOOK_SEGREDO: com o mestre na URL qualquer um calcularia o segredo de todos os escritórios."""
-    from app.canal.webhook import rota_global_ligada, segredo_global
-    if not rota_global_ligada():
-        raise HTTPException(status_code=404, detail="use a URL de webhook do escritório")
-    esperado = segredo_global() or ""
-    recebido = pedido.query_params.get("segredo") or pedido.headers.get("x-agentesia-segredo", "")
-    if not esperado or not hmac.compare_digest(esperado.encode(), recebido.encode()):
-        raise HTTPException(status_code=401, detail="segredo do webhook ausente ou errado")
-    if app.state.atendimento is None:
-        raise HTTPException(status_code=503, detail="banco não configurado")
-    corpo = await pedido.json()
-    if not isinstance(corpo, dict):
-        raise HTTPException(status_code=400, detail="corpo inválido")
-    resultado = await app.state.atendimento.receber(corpo)
-    if resultado.get("feito") == "erro":
-        raise HTTPException(status_code=503, detail=resultado.get("motivo") or "erro")
-    return {"ok": True, **resultado}
-
-
 @app.post("/webhook/helena/{id_escritorio}")
 async def webhook_helena_do_escritorio(id_escritorio: str, pedido: Request) -> dict[str, Any]:
     """Webhook de um escritório só. O segredo é derivado do id: vazar a URL de um escritório não abre os outros,

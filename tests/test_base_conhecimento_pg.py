@@ -101,7 +101,7 @@ async def test_rotas_do_painel_papeis_faq_e_perguntas_sem_resposta(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     await _entrar(cliente, email_admin, "senha-admin-123")
     escritorio = (await cliente.post("/api/admin/escritorios", json={
-        "nome": "Base Rotas", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-123456"})).json()["escritorio"]
+        "nome": "Base Rotas", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
     canal = next(c for c in (await cliente.get("/api/integracoes", headers=h)).json()["canais"] if c["tipo"] != "oficial")
     agente = (await cliente.post("/api/agentes", headers=h, json={"nome": "Ana", "id_canal": canal["id"]})).json()

@@ -8,10 +8,12 @@
   GET  /api/controle-ia/buscar?q=                         plano B: até 10 leads do escritório por nome ou telefone
 
 Link da conversa (link FIXO cadastrado na plataforma de atendimento, aberto como popup na conversa, SEM login):
-  GET  /api/controle-ia/publico/lead?id_da_conta=&id_do_atendimento=&id_do_contato=&telefone_do_contato=
-  POST /api/controle-ia/publico/desativar|reativar {id_da_conta, id_do_atendimento, id_do_contato,
+  GET  /api/controle-ia/publico/lead?id_da_conta=&segredo=&id_do_atendimento=&id_do_contato=&telefone_do_contato=
+  POST /api/controle-ia/publico/desativar|reativar {id_da_conta, segredo, id_do_atendimento, id_do_contato,
                                                     telefone_do_contato, id_do_usuario?, minutos?}
-O escritório é achado pela conta da plataforma (id_da_conta = agentesia_escritorios.id_conta_helena). A ação vale só
+O escritório é achado pela conta da plataforma (id_da_conta = agentesia_escritorios.id_conta_helena) e o link só vale
+com o segredo DO escritório (canal.webhook.segredo_do_escritorio(id, "controle"), conferido com hmac.compare_digest):
+saber o id da conta não basta. O segredo vai no link mostrado em Integrações (GET /api/integracoes). A ação vale só
 no lead achado pelos dados da conversa dentro desse escritório (sessão → contato → telefone), nunca por um id de lead
 vindo do navegador. Nota e histórico dizem "pelo link da conversa" (+ o nome do atendente, se o id_do_usuario da
 plataforma for de um usuário do painel; o id vai no histórico). Limite em memória: 30 pedidos/min por conta e 60 por IP.
@@ -25,6 +27,7 @@ Telefone sempre mascarado na resposta.
 
 from __future__ import annotations
 
+import hmac
 import re
 import time
 from collections import deque
@@ -35,6 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.canal.helena import normalizar_telefone, so_digitos
+from app.canal.webhook import segredo_do_escritorio
 from app.gestao.rotas import NOMES_ETAPAS, TODOS, Contexto, _repo
 from app.gestao.rotas_execucoes import mascarar_telefone
 
@@ -264,6 +268,8 @@ JANELA_S = 60.0
 _pedidos: dict[str, deque[float]] = {}
 SEM_CONTA = ("O link veio sem a conta da plataforma (id_da_conta). Cadastre o link exatamente como mostrado no painel "
              "(Integrações › Link do Controle da IA).")
+SEGREDO_ERRADO = ("Este link do Controle da IA está sem o segredo do escritório ou com um segredo errado. Copie o link de "
+                  "novo no painel (Integrações › Link do Controle da IA) e cadastre outra vez na plataforma.")
 CONTA_DESCONHECIDA = ("Esta conta da plataforma não está ligada a nenhum escritório da IA. Peça à equipe LawChat para "
                       "conferir a conta cadastrada no escritório.")
 
@@ -289,8 +295,14 @@ def _limpo(valor: str | None, tamanho: int = 80) -> str:
     return "" if not valor or "{{" in valor or "}}" in valor else valor[:tamanho]
 
 
-async def _escritorio_da_conta(pedido: Request, conta: str) -> str:
-    """Escritório pela conta da plataforma (id_da_conta = agentesia_escritorios.id_conta_helena), com limite de taxa."""
+def segredo_do_link(id_escritorio: str) -> str | None:
+    """Segredo do link do Controle da IA do escritório (derivado do segredo geral do servidor, como o do webhook)."""
+    return segredo_do_escritorio(id_escritorio, "controle")
+
+
+async def _escritorio_da_conta(pedido: Request, conta: str, segredo: str = "") -> str:
+    """Escritório pela conta da plataforma (id_da_conta = agentesia_escritorios.id_conta_helena), com limite de taxa,
+    e só com o segredo do link daquele escritório."""
     ip = pedido.client.host if pedido.client else "?"
     if not _dentro_do_limite(f"ip:{ip}", LIMITE_POR_IP):
         raise HTTPException(429, "Muitos pedidos seguidos. Espere um minuto e tente de novo.")
@@ -306,11 +318,16 @@ async def _escritorio_da_conta(pedido: Request, conta: str) -> str:
         "select id from agentesia_escritorios where id_conta_helena = $1::uuid order by criado_em limit 1", conta)
     if not achado:
         raise HTTPException(404, CONTA_DESCONHECIDA)
+    esperado = segredo_do_link(str(achado)) or ""
+    recebido = _limpo(segredo, 100)
+    if not esperado or not recebido or not hmac.compare_digest(esperado.encode(), recebido.encode()):
+        raise HTTPException(401, SEGREDO_ERRADO)
     return str(achado)
 
 
-async def _lead_do_link(pedido: Request, conta: str, sessao: str, contato: str, telefone: str) -> tuple[str, Any, str]:
-    id_escritorio = await _escritorio_da_conta(pedido, conta)
+async def _lead_do_link(pedido: Request, conta: str, segredo: str, sessao: str, contato: str,
+                        telefone: str) -> tuple[str, Any, str]:
+    id_escritorio = await _escritorio_da_conta(pedido, conta, segredo)
     sessao, contato, telefone = _limpo(sessao), _limpo(contato), _limpo(telefone, 30)
     if not (sessao or contato or telefone):
         raise HTTPException(400, "O link veio sem os dados da conversa. Abra pelo botão dentro de uma conversa.")
@@ -327,6 +344,7 @@ def _publico(resumo: dict[str, Any]) -> dict[str, Any]:
 
 class AcaoPublica(BaseModel):
     id_da_conta: str | None = None
+    segredo: str | None = None
     id_do_atendimento: str | None = None
     id_do_contato: str | None = None
     telefone_do_contato: str | None = None
@@ -335,15 +353,18 @@ class AcaoPublica(BaseModel):
 
 
 @api.get("/publico/lead")
-async def lead_pelo_link(pedido: Request, id_da_conta: str = "", id_do_atendimento: str = "", id_do_contato: str = "",
-                         telefone_do_contato: str = "") -> dict[str, Any]:
-    """Popup do link da conversa: status da IA do lead (sem login; a conta da plataforma acha o escritório)."""
-    _id, linha, por = await _lead_do_link(pedido, id_da_conta, id_do_atendimento, id_do_contato, telefone_do_contato)
+async def lead_pelo_link(pedido: Request, id_da_conta: str = "", segredo: str = "", id_do_atendimento: str = "",
+                         id_do_contato: str = "", telefone_do_contato: str = "") -> dict[str, Any]:
+    """Popup do link da conversa: status da IA do lead (sem login; a conta da plataforma acha o escritório e o
+    segredo do link prova que o link é daquele escritório)."""
+    _id, linha, por = await _lead_do_link(pedido, id_da_conta, segredo, id_do_atendimento, id_do_contato,
+                                          telefone_do_contato)
     return _publico(_resumo(linha, por))
 
 
 async def _mudar_pelo_link(pedido: Request, dados: AcaoPublica, ligar: bool) -> dict[str, Any]:
-    id_escritorio, linha, por = await _lead_do_link(pedido, dados.id_da_conta or "", dados.id_do_atendimento or "",
+    id_escritorio, linha, por = await _lead_do_link(pedido, dados.id_da_conta or "", dados.segredo or "",
+                                                    dados.id_do_atendimento or "",
                                                     dados.id_do_contato or "", dados.telefone_do_contato or "")
     if linha["estado"] == "encerrado":
         raise HTTPException(409, "Esta conversa está encerrada: a IA não atende mais. Para voltar, use a tela Conversas.")

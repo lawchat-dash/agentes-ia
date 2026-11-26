@@ -304,7 +304,13 @@ async def indexar_pendentes(pool: Any, vetorizador: vetores.Vetorizador, limite:
                    where id_agente = $1 and modelo = $2 and dimensoes = $3 and hash = any($4::text[])""",
                 doc["id_agente"], modelo, dimensoes, [t["hash"] for t in trechos])}
             novos = [t for t in trechos if t["hash"] not in conhecidos]
-            resultado = await vetorizador.vetorizar([t["conteudo"] for t in novos]) if novos else vetores.Vetorizado([], 0, 0.0)
+            try:
+                resultado = await vetorizador.vetorizar([t["conteudo"] for t in novos]) if novos else vetores.Vetorizado([], 0, 0.0)
+            except vetores.ErroVetorizacao as falha:          # lotes anteriores já pagos: grava antes de marcar o erro
+                await _gravar_indexacao(pool, doc, modelo, falha.tokens, falha.custo_usd, erro=str(falha)[:200])
+                raise
+            # Grava o consumo já (fora da transação): se o documento sumir no meio ou o banco falhar, o gasto fica.
+            await _gravar_indexacao(pool, doc, modelo, resultado.tokens or 0, resultado.custo_usd)
             for t, v in zip(novos, resultado.vetores):
                 conhecidos[t["hash"]] = v
             async with pool.acquire() as conexao, conexao.transaction():
@@ -323,18 +329,25 @@ async def indexar_pendentes(pool: Any, vetorizador: vetores.Vetorizador, limite:
                 await conexao.execute(
                     "update agentesia_documentos set situacao = 'pronto', tokens = $2, erro = null where id = $1",
                     doc["id"], resultado.tokens or sum(len(t["conteudo"]) // 4 for t in trechos))
-                if resultado.custo_usd:
-                    from app.modelo import Chamada
-                    await cobranca.gravar_chamadas(
-                        conexao, id_escritorio=str(doc["id_escritorio"]), id_agente=str(doc["id_agente"]),
-                        chamadas=[Chamada(papel="conhecimento", modelo=modelo, tokens_entrada=resultado.tokens or 0,
-                                          custo_usd=resultado.custo_usd)])
             feitos += 1
         except Exception as erro:
             log.warning("falha ao indexar o documento %s: %s", doc["id"], erro)
             await pool.execute("update agentesia_documentos set situacao = 'erro', erro = $2 where id = $1",
                                doc["id"], str(erro)[:500])
     return feitos
+
+
+async def _gravar_indexacao(pool: Any, doc: Any, modelo: str, tokens: int, custo_usd: float,
+                            erro: str | None = None) -> None:
+    """Consumo da indexação (papel 'conhecimento'). Com `erro`: só o que os lotes já pagos custaram."""
+    if not custo_usd:
+        return
+    from app import cobranca
+    from app.modelo import Chamada
+    await cobranca.gravar_chamadas(
+        pool, id_escritorio=str(doc["id_escritorio"]), id_agente=str(doc["id_agente"]),
+        chamadas=[Chamada(papel="conhecimento", modelo=modelo, tokens_entrada=tokens, custo_usd=custo_usd,
+                          sucesso=erro is None, erro=erro)])
 
 
 async def trechos_do_agente(pool: Any, id_agente: str, id_escritorio: str | None = None) -> list[dict[str, Any]]:

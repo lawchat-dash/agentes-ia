@@ -192,14 +192,18 @@ async def mover_lead_para_etapa(pool: asyncpg.Pool, id_lead: str, codigo: str, *
     return resultado.endswith("1")
 
 
-async def contrato_para_verificar(pool: asyncpg.Pool, *, id_lead: str | None, token_documento: str | None) -> dict[str, Any] | None:
+async def contrato_para_verificar(pool: asyncpg.Pool, *, id_escritorio: str, id_lead: str | None,
+                                  token_documento: str | None) -> dict[str, Any] | None:
+    """Contrato a reler, sempre DENTRO do escritório da ação (o token da ZapSign não é único entre escritórios)."""
     if token_documento:
         linha = await pool.fetchrow(
-            "select * from agentesia_contratos where provedor = 'zapsign' and id_documento_externo = $1", token_documento)
+            """select * from agentesia_contratos where id_escritorio = $1::uuid and provedor = 'zapsign'
+                 and id_documento_externo = $2""", id_escritorio, token_documento)
     else:
         linha = await pool.fetchrow(
-            """select * from agentesia_contratos where id_lead = $1::uuid and situacao in ('gerado', 'assinado', 'substituido', 'cancelado')
-               order by (situacao = 'assinado') desc, versao desc limit 1""", id_lead)
+            """select * from agentesia_contratos where id_escritorio = $1::uuid and id_lead = $2::uuid
+                 and situacao in ('gerado', 'assinado', 'substituido', 'cancelado')
+               order by (situacao = 'assinado') desc, versao desc limit 1""", id_escritorio, id_lead)
     return dict(linha) if linha else None
 
 
@@ -303,20 +307,27 @@ async def vincular_documento(pool: asyncpg.Pool, *, id_escritorio: str, id_lead:
     """Liga um documento da ZapSign que não estava no cadastro ao contrato do lead: a versão sem token (a geração
     caiu antes de gravar) recebe o token; senão vira uma versão nova 'gerado' (a vigente passa a 'substituido').
     token_assinante: quem assinou (já sabido que não é o escritório) vira o signatário do lead. None se o lead já tem
-    contrato assinado (nada a fazer). Devolve o id do contrato."""
+    contrato assinado (nada a fazer). Devolve o id do contrato.
+    Isolamento: o lead tem de ser do escritório; documento cujo token já está em OUTRO escritório é ignorado (None)."""
     async with pool.acquire() as conexao, conexao.transaction():
-        await conexao.execute("select 1 from agentesia_leads where id = $1::uuid for update", id_lead)
-        ja = await conexao.fetchval(
-            "select id from agentesia_contratos where provedor = 'zapsign' and id_documento_externo = $1", token_documento)
+        do_escritorio = await conexao.fetchval(
+            "select 1 from agentesia_leads where id = $1::uuid and id_escritorio = $2::uuid for update", id_lead, id_escritorio)
+        if not do_escritorio:
+            return None
+        ja = await conexao.fetchrow(
+            "select id, id_escritorio from agentesia_contratos where provedor = 'zapsign' and id_documento_externo = $1",
+            token_documento)
         if ja:
-            return str(ja)
+            return str(ja["id"]) if str(ja["id_escritorio"]) == str(id_escritorio) else None
         linhas = [dict(r) for r in await conexao.fetch(
-            "select * from agentesia_contratos where id_lead = $1::uuid order by versao desc", id_lead)]
+            "select * from agentesia_contratos where id_lead = $1::uuid and id_escritorio = $2::uuid order by versao desc",
+            id_lead, id_escritorio)]
         if any(x["situacao"] == "assinado" for x in linhas):
             return None
         sem_token = next((x for x in linhas if x["situacao"] in ("reservado", "erro") and not x["id_documento_externo"]), None)
         await conexao.execute(
-            "update agentesia_contratos set situacao = 'substituido' where id_lead = $1::uuid and situacao = 'gerado'", id_lead)
+            """update agentesia_contratos set situacao = 'substituido'
+               where id_lead = $1::uuid and id_escritorio = $2::uuid and situacao = 'gerado'""", id_lead, id_escritorio)
         if sem_token:
             await conexao.execute(
                 """update agentesia_contratos set situacao = 'gerado', id_documento_externo = $2, gerado_em = coalesce(gerado_em, now()),
@@ -371,7 +382,9 @@ async def receber_webhook(pool: asyncpg.Pool, id_escritorio: str, corpo: dict[st
         id_contrato = await vincular_documento(pool, id_escritorio=id_escritorio, id_lead=id_lead, token_documento=token_doc,
                                                como=achado_por or "", token_assinante=assinante or None) if id_lead else None
         if id_contrato:
-            contrato = await pool.fetchrow("select id, id_lead from agentesia_contratos where id = $1::uuid", id_contrato)
+            contrato = await pool.fetchrow(
+                "select id, id_lead from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid",
+                id_contrato, id_escritorio)
             externo = ""                                  # já conferido na busca
     if not contrato:
         # Documento de outro sistema (ex.: contrato antigo do Weaver na mesma conta ZapSign) e nenhum lead nosso bate: não mexe.

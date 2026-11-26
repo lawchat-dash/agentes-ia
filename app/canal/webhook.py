@@ -3,9 +3,8 @@
 URL: {AGENTESIA_URL_PUBLICA}/webhook/helena/{id_escritorio}?segredo={HMAC(AGENTESIA_WEBHOOK_SEGREDO, id)}
 Nada a guardar: o segredo sai do segredo geral do servidor e do id do escritório.
 
-O segredo geral (mestre) NUNCA aparece numa URL: dele saem os segredos de todos os escritórios. A rota global
-/webhook/helena (legada) fica desligada por padrão e, quando ligada (AGENTESIA_WEBHOOK_GLOBAL=1), usa um segredo
-derivado próprio (`segredo_global`), que não abre a URL de nenhum escritório.
+O segredo geral (mestre) NUNCA aparece numa URL: dele saem os segredos de todos os escritórios. Não existe rota
+global: cada escritório só entra pela própria URL (a rota legada /webhook/helena foi removida).
 """
 
 from __future__ import annotations
@@ -32,16 +31,6 @@ def segredo_do_escritorio(id_escritorio: str, origem: str = "helena") -> str | N
     if not _UUID.fullmatch(id_escritorio or ""):
         return None
     return _derivar(f"{origem}:{id_escritorio.lower()}")
-
-
-def segredo_global() -> str | None:
-    """Segredo da rota global /webhook/helena: derivado do mestre, nunca o mestre."""
-    return _derivar("global")
-
-
-def rota_global_ligada() -> bool:
-    """A rota global não amarra a conta a um escritório: só atende quando ligada de propósito."""
-    return os.environ.get("AGENTESIA_WEBHOOK_GLOBAL", "").strip().lower() in ("1", "true", "sim")
 
 
 def url_do_escritorio(id_escritorio: str, origem: str = "helena") -> str | None:

@@ -460,7 +460,9 @@ def test_modelo_sem_preco_avisa_no_log_e_transcricao_tem_custo(caplog):
 
 
 # ============================================================================ [25] saúde
-async def test_saude_devolve_503_quando_o_banco_nao_responde():
+async def test_saude_do_banco_devolve_503_quando_o_banco_nao_responde():
+    """O /saude (HEALTHCHECK) não vai mais ao banco (ver tests/test_capacidade_e_lacunas.py); o diagnóstico com o
+    banco é o /saude/banco."""
     from types import SimpleNamespace
 
     from app import main
@@ -482,11 +484,13 @@ async def test_saude_devolve_503_quando_o_banco_nao_responde():
         transporte = httpx.ASGITransport(app=main.app)
         async with httpx.AsyncClient(transport=transporte, base_url="http://teste") as cliente:
             main.app.state.atendimento = SimpleNamespace(repo=SimpleNamespace(_pool=PoolOk()))
-            ok = await cliente.get("/saude")
-            assert ok.status_code == 200 and ok.json()["banco"] is True and ok.json()["tarefas"] == {"executor": True}
+            ok = await cliente.get("/saude/banco")
+            assert ok.status_code == 200 and ok.json()["banco"] is True
+            assert (await cliente.get("/saude")).json()["tarefas"] == {"executor": True}
             main.app.state.atendimento = SimpleNamespace(repo=SimpleNamespace(_pool=PoolFora()))
-            fora = await cliente.get("/saude")
+            fora = await cliente.get("/saude/banco")
             assert fora.status_code == 503 and fora.json()["banco"] is False
+            assert (await cliente.get("/saude")).status_code == 200      # o HEALTHCHECK segue vivo com o banco fora
     finally:
         tarefa.cancel()
         main.app.state._state.clear()
