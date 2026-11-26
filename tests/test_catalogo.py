@@ -126,3 +126,14 @@ def test_chip_curto_do_painel_passa_o_lead_e_o_antigo_continua_valendo():
     assert catalogo.ferramentas_do_prompt("Dados: @Coleta de Dados. Graça: @Período de Graça.")[0] == ["contratos", "periododegraca"]
     assert catalogo.ferramentas_do_prompt("Antigo: @Agente Closer")[0] == ["closer"]
     assert catalogo.ferramentas_do_prompt("Fale com @fulano e @Closers")[0] == []
+
+
+def test_chips_dos_prompts_de_bpc():
+    # "@Agente Contrato" (singular) passa para Contratos; "Acione `voltarsdr`" devolve ao SDR. Notificação e
+    # encerramento não abrem destino.
+    from app.cerebro import catalogo as cat
+    assert cat.ferramentas_do_prompt("Quando o lead responder sim: 👉 **Acione @Agente Contrato.**")[0] == ["contratos"]
+    assert cat.arrobas_sem_destino("Acione @Agente Contrato.") == []
+    assert cat.ferramentas_do_prompt("Acione `voltarsdr` quando o lead corrigir o dado")[0] == ["sdr"]
+    assert cat.ferramentas_do_prompt("acione a notificação `outrobeneficio` e acione a tool `encerramento`") == ([], [])
+    assert cat.ferramentas_do_prompt("Acione `periododegraca`")[0] == []

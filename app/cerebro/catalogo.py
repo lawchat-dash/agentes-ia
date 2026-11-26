@@ -24,12 +24,14 @@ from app.contrato import dados as cdados
 NOMES = {"sdr": "SDR", "periododegraca": "Período de Graça", "closer": "Closer", "contratos": "Contratos",
          "assinatura": "Assinatura", "desqualificado": "Desqualificado", "contrato_assinado": "Contrato assinado"}
 # Ferramentas citadas no prompt ("acionar tool `x`") → transferência ou ação.
-TOOLS_DE_PAPEL = {"sdr": "sdr", "closer": "closer", "coletadedados": "contratos", "contratos": "contratos", "acompanhamentoassinatura": "assinatura",
+TOOLS_DE_PAPEL = {"sdr": "sdr", "closer": "closer", "coletadedados": "contratos", "contrato": "contratos", "acompanhamentoassinatura": "assinatura",
                   "assinatura": "assinatura", "desqualificado": "desqualificado", "periododegraca": "periododegraca",
                   # "@Comercial" é o nome em português do Closer no menu "@" do painel.
                   "comercial": "closer",
                   # "Tool `qualificado`" do Período de Graça enxuto do dono: é a passagem para o Closer (não some calada).
-                  "qualificado": "closer"}
+                  "qualificado": "closer",
+                  # "Acione `voltarsdr`" do Desqualificado (BPC): o lead corrigiu um dado e volta ao SDR.
+                  "voltarsdr": "sdr"}
 TOOLS_DE_ACAO = {"buscarcep": "buscar_cep", "zapsign": "zapsign", "desenvolverdocumento": "zapsign"}
 INTENCOES = INTENCOES_BASE + ("diz_que_assinou", "pediu_link", "confirmou_dados")
 _URL_MIDIA = re.compile(r"^https?://\S+\.(?:ogg|oga|opus|mp3|wav|m4a|aac|flac|mp4|webm|mov|jpe?g|png|webp)(?:\?\S*)?$", re.I)
@@ -365,7 +367,7 @@ def _normal(texto: str) -> str:
     return re.sub(r"[^a-z0-9]", "", sem_acento.lower())
 
 
-_NOMES_DE_PAPEL = r"(SDR|Comercial|Closer|Coleta de Dados|Contratos|Acompanhamento Assinatura|Assinatura|Desqualificado|Per[ií]odo de Gra[çc]a)"
+_NOMES_DE_PAPEL = r"(SDR|Comercial|Closer|Coleta de Dados|Contratos?|Acompanhamento Assinatura|Assinatura|Desqualificado|Per[ií]odo de Gra[çc]a)"
 # Chip de troca do painel: "@Agente Closer" (passa o lead) e "@Transferência: Closer" (a frase de entrada do Closer). O
 # painel expande os dois antes de gravar ("acionar tool `closer`" e o texto da frase); o motor também entende o chip cru,
 # para um prompt colado, importado ou gravado sem a expansão.
@@ -387,6 +389,8 @@ def ferramentas_do_prompt(prompt: str) -> tuple[list[str], list[str]]:
     e "@Transferência: X"."""
     destinos, acoes = [], []
     for nome in (re.findall(r"acionar\s+(?:a\s+)?tool\s+`([^`]+)`", prompt or "", re.I)
+                 # "Acione `voltarsdr`" (Desqualificado do BPC), sem a palavra tool: só esse nome, para não abrir destino novo.
+                 + re.findall(r"acion(?:ar|e)\s+(?:a\s+)?(?:tool\s+)?`(voltarsdr)`", prompt or "", re.I)
                  + _ARROBA_AGENTE.findall(prompt or "") + _ARROBA_TRANSFERENCIA.findall(prompt or "")):
         chave = _normal(nome)
         if chave in TOOLS_DE_ACAO and TOOLS_DE_ACAO[chave] not in acoes:
