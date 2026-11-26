@@ -688,7 +688,10 @@ async def _canal(pool: asyncpg.Pool, id_escritorio: str, dados: Ativar, id_agent
 
 
 def _config_do_agente(dados: Ativar, catalogo: dict[str, Any], produto: dict[str, Any], tem_zapsign: bool) -> dict[str, Any]:
-    papeis = {a.papel: {"nome": a.nome or NOMES_PAPEL.get(a.papel, a.papel), "boas_vindas": (a.boas_vindas or "").strip() or None,
+    # Boas-vindas só no SDR (o primeiro agente): os outros entram pela frase de entrada ("Maravilha!…"), que já é a
+    # boas-vindas deles. Com as duas, o Closer cumprimentava de novo ("Oi! Vi aqui que você tem um caso…").
+    papeis = {a.papel: {"nome": a.nome or NOMES_PAPEL.get(a.papel, a.papel),
+                        "boas_vindas": ((a.boas_vindas or "").strip() or None) if a.papel == "sdr" else None,
                         "mensagem_troca": (a.mensagem_troca or "").strip() or None,
                         "destinos": [d for d in DESTINOS.get(a.papel, []) if d in {x.papel for x in dados.agentes}]}
               for a in dados.agentes}
