@@ -461,3 +461,8 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 .lc-conta-seletor a { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 6px 12px; border-radius: 9px; font-size: 12.5px; font-weight: 600; color: #cbd5e1; transition: background .15s, color .15s; }
 .lc-conta-seletor a:hover { color: #fff; background: rgba(255,255,255,.08); }
 .lc-conta-seletor a.on { background: #fff; color: #101828; }
+
+/* "Voltar ao painel" (Central e Minha Conta): botão escuro, para se destacar na faixa clara. */
+.lc-btn-voltar { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 10px; background: #111827; color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px -6px rgba(16,24,40,.5); transition: background .15s, transform .15s; }
+.lc-btn-voltar:hover { background: #1f2937; }
+.lc-btn-voltar:active { transform: translateY(1px); }

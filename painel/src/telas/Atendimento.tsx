@@ -59,7 +59,7 @@ export function TelaAtendimento({ acoes }: { acoes?: ReactNode }) {
     <div className="flex-1 min-h-0 flex flex-col bg-white h-full">
       <div className="flex items-center justify-between gap-3 px-3 h-14 shrink-0 border-b border-[#eef1f5] bg-[#fafbfc]">
         <div className="flex items-center gap-3 min-w-0">
-          <button type="button" className="btn sm" onClick={voltar}><ArrowLeft size={15} /> Voltar ao painel</button>
+          <button type="button" className="lc-btn-voltar" onClick={voltar}><ArrowLeft size={15} /> Voltar ao painel</button>
           <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#101828] truncate">
             <Headset size={15} className="text-[#00bc33] shrink-0" /> Central de Atendimento
             {nomeEscritorio && <span className="font-normal text-[#667085] truncate">· {nomeEscritorio}</span>}

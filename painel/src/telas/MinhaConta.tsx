@@ -78,7 +78,7 @@ function ContaTelaCheia({ atual }: { atual: PaginaConta }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[#eef1f5] bg-[#fafbfc] px-3">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" className="btn sm" onClick={() => navegar(telaDoPainel())}><ArrowLeft size={15} /> Voltar ao painel</button>
+          <button type="button" className="lc-btn-voltar" onClick={() => navegar(telaDoPainel())}><ArrowLeft size={15} /> Voltar ao painel</button>
           <span className="inline-flex items-center gap-1.5 truncate text-[13px] font-semibold text-[#101828]">
             <Settings size={15} className="shrink-0 text-[#00bc33]" /> Minha Conta
             {nomeEscritorio && <span className="truncate font-normal text-[#667085]">· {nomeEscritorio}</span>}
