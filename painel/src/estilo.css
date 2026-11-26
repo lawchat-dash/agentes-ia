@@ -232,6 +232,24 @@ td.mono, .lst td.num { white-space: nowrap; }
 
 /* Lista de conferência da ativação */
 .passos-ativacao { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+/* Assistente de ativação em passos (Stepper do React Bits, telas/Agente.tsx > AbaGeral). */
+.ativ-assistente .stepper { font-family: inherit; }
+.ativ-assistente .stepper--framed { background: #F8FAF9; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.ativ-agora { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.ativ-agora .muted { font-size: 12.5px; margin-left: auto; }
+.ativ-passo-cab { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; }
+.ativ-passo-cab h3 { margin: 2px 0 2px; font-size: 17px; color: var(--ink); }
+.ativ-passo-cab p { margin: 0; font-size: 13px; color: var(--ink-2); }
+.ativ-passo-num { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--acento-forte); }
+.ativ-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.ativ-assistente .field .check input { width: auto; padding: 0; }
+.ativ-assistente .form.cols { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.ativ-assistente .stepper__pane > .stepper__step > .panel { box-shadow: none; }
+@media (max-width: 520px) {
+  .ativ-assistente > .panel-b { padding: 12px; }
+  .ativ-assistente .stepper__footer { flex-wrap: wrap; }
+  .ativ-assistente .stepper__button--next { white-space: normal; text-align: left; line-height: 1.2; height: auto; min-height: 38px; padding-top: 8px; padding-bottom: 8px; }
+}
 .passo-at { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border-top: 1px solid var(--line); }
 .passo-at:first-child { border-top: 0; }
 .passo-at svg { flex: none; margin-top: 2px; }

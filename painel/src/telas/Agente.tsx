@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type KeyboardEvent as TeclaReact } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent as TeclaReact, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, CircleDashed, FileText, FlaskConical, Lock, Pause, Play, Plus, Rocket, RotateCcw, Save, Send, Trash2, Unlock, Upload, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, CircleDashed, FileText, Lock, Pause, Play, Plus, RotateCcw, Save, Send, Trash2, Unlock, Upload, Wrench, XCircle } from "lucide-react";
 import { api, enviar, formatarTelefone, quando, type Agente, type Canal, type Definicao, type PassoAtivacao, type Preparacao } from "../api";
 import { Alerta, Cabecalho, Carregando, Painel, Situacao, Vazio, useAcao, useCarregar, useConfirmar } from "../componentes/ui";
 import { useSessao } from "../sessao";
@@ -9,6 +9,7 @@ import { EscolherPapeis, ItensDaBase, PerguntasSemResposta, ResumoFixoOuBuscado,
 import { AbaFollowup, PainelFollowupDoAgente } from "./AgenteFollowup";
 import { cartoesDo, estiloIconeSecao, secoesDo } from "./agenteSecoes";
 import { HistoricoDoAgente } from "./AgenteHistorico";
+import Stepper, { Step } from "@/components/reactbits/Stepper";
 import { AbaFuncoes } from "./AgenteFuncoes";
 
 export function TelaAgente() {
@@ -62,77 +63,35 @@ export function TelaAgente() {
   );
 }
 
-// =========================================================================== visão geral e ativação
-function AbaGeral({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente) => void }) {
-  const { catalogo } = useSessao();
-  const { ocupado, executar } = useAcao();
-  const canais = useCarregar<{ canais: Canal[] }>("/integracoes");
-  const [form, setForm] = useState({
-    nome: agente.nome, modelo: agente.modelo, honorarios: agente.honorarios,
-    minutos_pausa_humano: agente.minutos_pausa_humano, numeros_teste: agente.numeros_teste.map(formatarTelefone).join("\n"),
-    id_canal: agente.id_canal, espera_s: agente.espera_s ?? 0, pausa_sem_volta: Boolean(agente.pausa_sem_volta),
-  });
-  const salvar = () => executar(async () => aoSalvar(await enviar<Agente>(`/agentes/${agente.id}`, {
-    ...form, numeros_teste: form.numeros_teste.split(/[\n,;]/).map((n) => n.trim()).filter(Boolean),
-  }, "PATCH")), "Agente salvo.");
-
-  return (
-    <div className="two">
-      <div className="stack">
-      <Painel titulo="Configuração" acoes={<button className="btn pri sm" onClick={salvar} disabled={ocupado}><Save />Salvar</button>}>
-        <div className="form">
-          <div className="form cols">
-            <label className="field"><span className="lbl">Nome da persona</span><input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></label>
-            <label className="field"><span className="lbl">Modelo de IA</span>
-              <select value={form.modelo} onChange={(e) => setForm({ ...form, modelo: e.target.value })}>
-                {(catalogo?.modelos ?? []).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
-              </select></label>
-            <label className="field"><span className="lbl">Número de WhatsApp</span>
-              <select value={form.id_canal} onChange={(e) => setForm({ ...form, id_canal: e.target.value })}>
-                {(canais.dados?.canais ?? []).filter((c) => c.ativo && (!c.id_agente || c.id_agente === agente.id)).map((c) =>
-                  <option key={c.id} value={c.id}>{formatarTelefone(c.numero_normalizado)}</option>)}
-              </select></label>
-            <label className="field"><span className="lbl">Pausa quando a equipe fala (minutos)</span>
-              <input type="number" min={0} max={10080} value={form.minutos_pausa_humano} disabled={form.pausa_sem_volta} onChange={(e) => setForm({ ...form, minutos_pausa_humano: Number(e.target.value) })} />
-              <span className="ajuda"><label className="check"><input type="checkbox" checked={form.pausa_sem_volta} onChange={(e) => setForm({ ...form, pausa_sem_volta: e.target.checked })} />Só a equipe religa a IA</label></span></label>
-            <label className="field"><span className="lbl">Tempo de resposta (segundos)</span>
-              <select value={form.espera_s} onChange={(e) => setForm({ ...form, espera_s: Number(e.target.value) })}>
-                <option value={0}>Automático (pelo tamanho da mensagem)</option>
-                {[5, 10, 15, 20, 30, 45].map((s) => <option key={s} value={s}>{s} s</option>)}
-              </select></label>
-          </div>
-          <label className="field"><span className="lbl">Honorários</span>
-            <textarea rows={3} value={form.honorarios} onChange={(e) => setForm({ ...form, honorarios: e.target.value })} placeholder="Ex.: 30% do valor recebido, pagos só ao final e só se der certo." />
-            <span className="ajuda">A IA só pode citar valores escritos aqui. Qualquer outro número é barrado pela trava.</span></label>
-          <label className="field"><span className="lbl">Números de teste</span>
-            <textarea rows={3} value={form.numeros_teste} onChange={(e) => setForm({ ...form, numeros_teste: e.target.value })} placeholder={"Um por linha, com DDD.\n(11) 98888-7777"} />
-            <span className="ajuda">Em modo teste, a IA responde só a estes números.</span></label>
-        </div>
-      </Painel>
-      {/* Follow-up dentro do agente: ver, ligar/desligar na hora e ir montar a cadência (telas/AgenteFollowup.tsx). */}
-      <PainelFollowupDoAgente agente={agente} />
-      </div>
-
-      <div className="stack">
-        <PainelAtivacao agente={agente} aoSalvar={aoSalvar} />
-      </div>
-    </div>
-  );
-}
-
-// =========================================================================== ativação
+// =========================================================================== ativação (assistente em passos)
 const ICONE_PASSO: Record<PassoAtivacao["situacao"], JSX.Element> = {
   ok: <CheckCircle2 size={16} color="var(--ok)" />, feito: <Wrench size={16} color="var(--acento)" />,
   aviso: <AlertTriangle size={16} color="var(--warn)" />, erro: <XCircle size={16} color="var(--bad)" />,
   pulado: <CircleDashed size={16} color="var(--ink-3)" />, pendente: <CircleDashed size={16} color="var(--ink-3)" />,
 };
 
-/** Ativar de verdade: confere tudo, arruma o que dá sozinho (número, webhook) e só liga se nada estiver com erro. */
-function PainelAtivacao({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente) => void }) {
+/**
+ * Os passos do assistente de ativação. Cada um agrupa itens da conferência que o servidor já faz
+ * (app/gestao/ativacao.py, `codigos`): o passo fica pronto quando nenhum item dele está com erro, a mesma regra
+ * que barra a ativação. Follow-up é opcional (não barra nada); Ativar fica pronto quando o agente está ligado.
+ */
+interface PassoAssistente { chave: string; titulo: string; descricao: string; codigos: string[]; opcional?: boolean }
+const PASSOS_ATIVACAO: PassoAssistente[] = [
+  { chave: "numero", titulo: "Número de WhatsApp", descricao: "Conta da LawChat e o número que a IA usa", codigos: ["helena", "canal", "webhook", "alcance"] },
+  { chave: "comportamento", titulo: "Comportamento", descricao: "Nome, modelo de IA, honorários e pausas", codigos: ["etapas", "modelo_ia"] },
+  { chave: "teste", titulo: "Números de teste", descricao: "Quem recebe resposta no modo teste", codigos: ["teste"] },
+  { chave: "integracoes", titulo: "CRM e contrato", descricao: "Etapas do CRM, equipe e ZapSign", codigos: ["crm", "equipe", "contrato"] },
+  { chave: "followup", titulo: "Follow-up", descricao: "Opcional: lembrete para quem parou de responder", codigos: [], opcional: true },
+  { chave: "ativar", titulo: "Ativar", descricao: "Conferir tudo e ligar o agente", codigos: [] },
+];
+
+/** Conferência e ativação (antes o painel "Ativação"): mesmas chamadas, mesmas confirmações. */
+function useAtivacao(agente: Agente, aoSalvar: (a: Agente) => void) {
   const { ocupado, executar } = useAcao();
   const modoAlvo = agente.situacao === "ativo" && agente.modo === "teste" ? "producao" : "teste";
   const [prep, setPrep] = useState<Preparacao | null>(agente.ultima_preparacao ?? null);
   const [conferindo, setConferindo] = useState(false);
+  const [conferiuUmaVez, setConferiuUmaVez] = useState(false);
   const [confirmar, janelaConfirmar] = useConfirmar();
 
   const conferir = async (aplicar: boolean) => {
@@ -141,7 +100,7 @@ function PainelAtivacao({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Ag
       setPrep(aplicar
         ? await enviar<Preparacao>(`/agentes/${agente.id}/ativacao/preparar?modo=${modoAlvo}`, {})
         : await api<Preparacao>(`/agentes/${agente.id}/ativacao/checagem?modo=${modoAlvo}`));
-    } finally { setConferindo(false); }
+    } finally { setConferindo(false); setConferiuUmaVez(true); }
   };
   useEffect(() => { conferir(false).catch(() => undefined); }, [agente.id, agente.situacao, agente.modo]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -165,36 +124,205 @@ function PainelAtivacao({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Ag
       }
     }, situacao === "pausado" ? "Agente pausado." : modo === "producao" ? "Agente respondendo a todos." : "Agente ativo em teste.");
   };
-  const erros = prep?.passos.filter((p) => p.situacao === "erro").length ?? 0;
+  const preparar = () => executar(() => conferir(true), "Preparação feita.");
+  return { prep, conferindo, conferiuUmaVez, conferir, ativar, preparar, modoAlvo, ocupado, janelaConfirmar };
+}
+
+/** Itens da conferência (todos, no passo Ativar, ou só os de um passo). */
+function ItensConferencia({ passos, vazio }: { passos: PassoAtivacao[]; vazio: string }) {
+  return (
+    <div className="passos-ativacao" aria-live="polite">
+      {passos.length === 0 ? <span className="muted" style={{ padding: 10 }}>{vazio}</span> : passos.map((p) => (
+        <div key={p.codigo} className={`passo-at ${p.situacao}`}>
+          {ICONE_PASSO[p.situacao]}
+          <div><b>{p.titulo}</b><span>{p.detalhe}</span></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AbaGeral({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente) => void }) {
+  const { catalogo } = useSessao();
+  const [busca] = useSearchParams();
+  const { ocupado: salvando, executar } = useAcao();
+  const canais = useCarregar<{ canais: Canal[] }>("/integracoes");
+  const at = useAtivacao(agente, aoSalvar);
+  const doAgente = () => ({
+    nome: agente.nome, modelo: agente.modelo, honorarios: agente.honorarios,
+    minutos_pausa_humano: agente.minutos_pausa_humano, numeros_teste: agente.numeros_teste.map(formatarTelefone).join("\n"),
+    id_canal: agente.id_canal, espera_s: agente.espera_s ?? 0, pausa_sem_volta: Boolean(agente.pausa_sem_volta),
+  });
+  const [form, setForm] = useState(doAgente);
+  const [salvo, setSalvo] = useState(doAgente);
+  const mudou = JSON.stringify(form) !== JSON.stringify(salvo);
+  const salvar = async () => {
+    const ok = await executar(async () => {
+      aoSalvar(await enviar<Agente>(`/agentes/${agente.id}`, {
+        ...form, numeros_teste: form.numeros_teste.split(/[\n,;]/).map((n) => n.trim()).filter(Boolean),
+      }, "PATCH"));
+      return true;
+    }, "Agente salvo.");
+    if (ok) { setSalvo(form); at.conferir(false).catch(() => undefined); }
+    return Boolean(ok);
+  };
+
+  // Pronto = nenhum item do passo com erro na conferência. Agente já ligado: tudo pronto, salvo erro que apareça agora.
+  const ativo = agente.situacao === "ativo";
+  const [viuFollowup, setViuFollowup] = useState(false);
+  const itensDo = (codigos: string[]) => (at.prep?.passos ?? []).filter((p) => codigos.includes(p.codigo));
+  const comErro = (codigos: string[]) => itensDo(codigos).some((p) => p.situacao === "erro");
+  const feitos = PASSOS_ATIVACAO.map((p) =>
+    p.chave === "ativar" ? ativo
+      : p.chave === "followup" ? ativo || Boolean(agente.followup_resumo?.ativo) || viuFollowup
+        : (ativo || Boolean(at.prep)) && !comErro(p.codigos));
+  const total = PASSOS_ATIVACAO.length;
+
+  // Onde abrir: agente ligado abre no último passo (situação e botões); os outros, no primeiro passo pendente.
+  const [passo, setPasso] = useState<number | null>(null);
+  useEffect(() => {
+    if (passo !== null || (!at.prep && !at.conferiuUmaVez)) return;
+    if (ativo && !busca.get("criado")) { setPasso(total); return; }
+    const pendente = PASSOS_ATIVACAO.findIndex((p, i) => !p.opcional && !feitos[i]);
+    setPasso(pendente < 0 ? total : pendente + 1);
+  }, [at.prep, at.conferiuUmaVez]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const n = passo ?? 1;
+  const atual = PASSOS_ATIVACAO[n - 1];
+  const temForm = ["numero", "comportamento", "teste"].includes(atual.chave);
+  const irPara = (alvo: number) => {
+    if (atual.chave === "followup" && alvo > n) setViuFollowup(true);
+    setPasso(alvo);
+  };
+  // Continuar salva antes o que mudou (se falhar, fica no passo com o aviso do erro).
+  const continuar = async () => {
+    if (temForm && mudou && !(await salvar())) return;
+    irPara(Math.min(total, n + 1));
+  };
+  const erros = at.prep?.passos.filter((p) => p.situacao === "erro").length ?? 0;
+  // O botão final chama a mesma ação de antes: pausado -> ativar em teste; em teste -> ativar para todos.
+  const acaoFinal = agente.situacao === "pausado"
+    ? { texto: "Preparar e ativar em teste", fazer: () => at.ativar("ativo", "teste") }
+    : agente.modo === "teste" ? { texto: "Ativar para todos", fazer: () => at.ativar("ativo", "producao") } : null;
+  const ocupado = salvando || at.ocupado;
+
+  if (passo === null) {
+    return <Painel titulo="Ativação"><Carregando /><p className="muted" style={{ textAlign: "center", margin: 0, fontSize: 12.5 }}>Conferindo o que já está pronto…</p></Painel>;
+  }
+
+  const cabeca = (p: PassoAssistente, extra?: ReactNode) => (
+    <div className="ativ-passo-cab">
+      <div>
+        <span className="ativ-passo-num">Passo {PASSOS_ATIVACAO.indexOf(p) + 1} de {total}{p.opcional ? " · opcional" : ""}</span>
+        <h3>{p.titulo}</h3>
+        <p>{p.descricao}.</p>
+      </div>
+      {extra}
+    </div>
+  );
+  const botaoSalvar = <button className="btn sm" onClick={salvar} disabled={ocupado || !mudou}><Save />{mudou ? "Salvar" : "Salvo"}</button>;
+  const itens = (p: PassoAssistente) => <ItensConferencia passos={itensDo(p.codigos)} vazio={at.conferindo ? "Conferindo…" : "Ainda não conferido."} />;
+  const [pNumero, pComportamento, pTeste, pIntegracoes, pFollowup, pAtivar] = PASSOS_ATIVACAO;
 
   return (
-    <Painel titulo="Ativação" acoes={<button className="btn sm" onClick={() => executar(() => conferir(true), "Preparação feita.")} disabled={ocupado || conferindo}
-      title="Sincroniza o número e cria ou corrige o webhook na LawChat"><Wrench />Preparar agora</button>}>
-      <div className="form">
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}><span className="lbl">Agora:</span><Situacao valor={agente.situacao} />{agente.situacao === "ativo" && <Situacao valor={agente.modo} />}</div>
-        <div className="passos-ativacao" aria-live="polite">
-          {!prep ? <span className="muted" style={{ padding: 10 }}>{conferindo ? "Conferindo…" : "Ainda não conferido."}</span> : prep.passos.map((p) => (
-            <div key={p.codigo} className={`passo-at ${p.situacao}`}>
-              {ICONE_PASSO[p.situacao]}
-              <div><b>{p.titulo}</b><span>{p.detalhe}</span></div>
-            </div>
-          ))}
+    <section className="panel ativ-assistente">
+      <div className="panel-b">
+        <div className="ativ-agora">
+          <span className="lbl">Agora:</span><Situacao valor={agente.situacao} />{ativo && <Situacao valor={agente.modo} />}
+          <span className="muted">{feitos.filter(Boolean).length} de {total} passos prontos</span>
         </div>
-        {prep && <span className="muted" style={{ fontSize: 12 }}>{conferindo ? "Conferindo…" : `Conferido ${quando(prep.conferido_em)}${prep.por ? ` por ${prep.por}` : ""}${modoAlvo === "producao" ? ", pensando em produção" : ""}.`}</span>}
-        {erros > 0 && <Alerta tipo="warn">{erros === 1 ? "Falta 1 item" : `Faltam ${erros} itens`} antes de ativar. Número e webhook o sistema arruma sozinho ao ativar.</Alerta>}
-        {agente.situacao === "pausado" && <>
-          <button className="btn pri" onClick={() => ativar("ativo", "teste")} disabled={ocupado}><FlaskConical />Preparar e ativar em teste</button>
-          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Sincroniza o número, cria o webhook na LawChat, confere CRM e chave de IA, e liga. Só os números de teste recebem resposta.</p>
-        </>}
-        {agente.situacao === "ativo" && agente.modo === "teste" && <>
-          <button className="btn ok" onClick={() => ativar("ativo", "producao")} disabled={ocupado}><Rocket />Ativar para todos</button>
-          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>A IA passa a responder qualquer pessoa que escrever neste número.</p>
-        </>}
-        {agente.situacao === "ativo" && <button className="btn bad" onClick={() => ativar("pausado")} disabled={ocupado}><Pause />Pausar agente</button>}
-        {agente.situacao === "ativo" && agente.modo === "producao" && <button className="btn" onClick={() => ativar("ativo", "teste")} disabled={ocupado}><Play />Voltar para teste</button>}
+        <Stepper step={n} onStepChange={irPara} feitos={feitos} orientation="vertical" width="100%" radius={18}
+          nextButtonText={temForm && mudou ? "Salvar e continuar" : "Continuar"}
+          completeButtonText={acaoFinal?.texto ?? "Concluir"} mostrarProximo={atual.chave !== "ativar" || Boolean(acaoFinal)}
+          backButtonProps={{ disabled: ocupado }}
+          nextButtonProps={{
+            disabled: ocupado,
+            onClick: (e) => { e.preventDefault(); if (atual.chave === "ativar") acaoFinal?.fazer(); else continuar(); },
+          }}>
+          <Step title={pNumero.titulo} description="Conta da LawChat e o número">
+            {cabeca(pNumero, botaoSalvar)}
+            <div className="form">
+              <label className="field"><span className="lbl">Número de WhatsApp</span>
+                <select value={form.id_canal} onChange={(e) => setForm({ ...form, id_canal: e.target.value })}>
+                  {(canais.dados?.canais ?? []).filter((c) => c.ativo && (!c.id_agente || c.id_agente === agente.id)).map((c) =>
+                    <option key={c.id} value={c.id}>{formatarTelefone(c.numero_normalizado)}</option>)}
+                </select>
+                <span className="ajuda">O número precisa estar conectado na LawChat. Não achou? Veja em <Link to="/integracoes">Integrações</Link>.</span></label>
+              {itens(pNumero)}
+              <span className="muted" style={{ fontSize: 12.5 }}>O recebimento das mensagens (webhook) o sistema cria ou corrige sozinho ao ativar.</span>
+            </div>
+          </Step>
+          <Step title={pComportamento.titulo} description="Nome, modelo e honorários">
+            {cabeca(pComportamento, botaoSalvar)}
+            <div className="form">
+              <div className="form cols">
+                <label className="field"><span className="lbl">Nome da persona</span><input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></label>
+                <label className="field"><span className="lbl">Modelo de IA</span>
+                  <select value={form.modelo} onChange={(e) => setForm({ ...form, modelo: e.target.value })}>
+                    {(catalogo?.modelos ?? []).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                  </select></label>
+                <label className="field"><span className="lbl">Pausa quando a equipe fala (minutos)</span>
+                  <input type="number" min={0} max={10080} value={form.minutos_pausa_humano} disabled={form.pausa_sem_volta} onChange={(e) => setForm({ ...form, minutos_pausa_humano: Number(e.target.value) })} />
+                  <span className="ajuda"><label className="check"><input type="checkbox" checked={form.pausa_sem_volta} onChange={(e) => setForm({ ...form, pausa_sem_volta: e.target.checked })} />Só a equipe religa a IA</label></span></label>
+                <label className="field"><span className="lbl">Tempo de resposta (segundos)</span>
+                  <select value={form.espera_s} onChange={(e) => setForm({ ...form, espera_s: Number(e.target.value) })}>
+                    <option value={0}>Automático (pelo tamanho da mensagem)</option>
+                    {[5, 10, 15, 20, 30, 45].map((s) => <option key={s} value={s}>{s} s</option>)}
+                  </select></label>
+              </div>
+              <label className="field"><span className="lbl">Honorários</span>
+                <textarea rows={3} value={form.honorarios} onChange={(e) => setForm({ ...form, honorarios: e.target.value })} placeholder="Ex.: 30% do valor recebido, pagos só ao final e só se der certo." />
+                <span className="ajuda">A IA só pode citar valores escritos aqui. Qualquer outro número é barrado pela trava.</span></label>
+              {itens(pComportamento)}
+            </div>
+          </Step>
+          <Step title={pTeste.titulo} description="Quem recebe resposta no teste">
+            {cabeca(pTeste, botaoSalvar)}
+            <div className="form">
+              <label className="field"><span className="lbl">Números de teste</span>
+                <textarea rows={4} value={form.numeros_teste} onChange={(e) => setForm({ ...form, numeros_teste: e.target.value })} placeholder={"Um por linha, com DDD.\n(11) 98888-7777"} />
+                <span className="ajuda">Em modo teste, a IA responde só a estes números. Coloque o seu para conversar com o agente antes de liberar para todos.</span></label>
+              {itens(pTeste)}
+            </div>
+          </Step>
+          <Step title={pIntegracoes.titulo} description="CRM, equipe e ZapSign">
+            {cabeca(pIntegracoes)}
+            <div className="form">
+              {itens(pIntegracoes)}
+              <div className="ativ-links">
+                <Link className="btn sm" to={`/agentes/${agente.id}/funcoes`}><Wrench />Funções e automações</Link>
+                <Link className="btn sm" to="/integracoes"><Upload />Integrações (CRM e ZapSign)</Link>
+              </div>
+              <span className="muted" style={{ fontSize: 12.5 }}>As funções já vêm no padrão. Item com “função desligada” não impede a ativação.</span>
+            </div>
+          </Step>
+          <Step title={pFollowup.titulo} description="Opcional">
+            {cabeca(pFollowup)}
+            {/* Follow-up dentro do agente: ver, ligar/desligar na hora e ir montar a cadência (telas/AgenteFollowup.tsx). */}
+            <PainelFollowupDoAgente agente={agente} />
+          </Step>
+          <Step title={pAtivar.titulo} description="Conferir tudo e ligar">
+            {cabeca(pAtivar, <button className="btn sm" onClick={at.preparar} disabled={ocupado || at.conferindo}
+              title="Sincroniza o número e cria ou corrige o webhook na LawChat"><Wrench />Preparar agora</button>)}
+            <div className="form">
+              <ItensConferencia passos={at.prep?.passos ?? []} vazio={at.conferindo ? "Conferindo…" : "Ainda não conferido."} />
+              {at.prep && <span className="muted" style={{ fontSize: 12 }}>{at.conferindo ? "Conferindo…" : `Conferido ${quando(at.prep.conferido_em)}${at.prep.por ? ` por ${at.prep.por}` : ""}${at.modoAlvo === "producao" ? ", pensando em produção" : ""}.`}</span>}
+              {erros > 0 && <Alerta tipo="warn">{erros === 1 ? "Falta 1 item" : `Faltam ${erros} itens`} antes de ativar. Número e webhook o sistema arruma sozinho ao ativar.</Alerta>}
+              {agente.situacao === "pausado" && <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+                <b>Preparar e ativar em teste</b> sincroniza o número, cria o webhook na LawChat, confere CRM e chave de IA, e liga. Só os números de teste recebem resposta.</p>}
+              {ativo && agente.modo === "teste" && <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+                <b>Ativar para todos</b>: a IA passa a responder qualquer pessoa que escrever neste número.</p>}
+              {ativo && agente.modo === "producao" && <Alerta tipo="ok">O agente está ligado e respondendo a todos.</Alerta>}
+              {ativo && <div className="ativ-links">
+                <button className="btn bad" onClick={() => at.ativar("pausado")} disabled={ocupado}><Pause />Pausar agente</button>
+                {agente.modo === "producao" && <button className="btn" onClick={() => at.ativar("ativo", "teste")} disabled={ocupado}><Play />Voltar para teste</button>}
+              </div>}
+            </div>
+          </Step>
+        </Stepper>
       </div>
-      {janelaConfirmar}
-    </Painel>
+      {at.janelaConfirmar}
+    </section>
   );
 }
 
