@@ -67,8 +67,11 @@ export function TelaAtendimento() {
         </span>
       </div>
       {url && (
-        <iframe title="Atendimento na Helena" src={url} className="flex-1 w-full min-h-0 border-0"
-          allow="clipboard-read; clipboard-write; microphone; camera" referrerPolicy="no-referrer" />
+        // A barra de chat interno da equipe (faixa de 64px na direita) fica de fora: a tela é 64px mais larga e a sobra é cortada.
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <iframe title="Atendimento na LawChat" src={url} className="h-full border-0" style={{ width: "calc(100% + 64px)" }}
+            allow="clipboard-read; clipboard-write; microphone; camera" referrerPolicy="no-referrer" />
+        </div>
       )}
       {carregando && <div className="flex-1 grid place-items-center"><Carregando /></div>}
       {erro && (
