@@ -576,8 +576,8 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 
 /* Marca no topo: símbolo um pouco maior e a escrita "lawchat" (law verde, chat escuro) menor ao lado. */
 @media (min-width: 821px) {
-  .lc-topo-marca { gap: 7px; margin-right: 12px; }
-  .lc-topo-marca .lc-topo-simbolo { width: 36px; height: 37px; }
-  .lc-topo-marca .lc-topo-escrita { width: auto; height: 17px; margin-top: 2px; }
+  .lc-topo-marca { gap: 10px; margin-right: 18px; padding-right: 18px; border-right: 1px solid #eef1f5; }
+  .lc-topo-marca .lc-topo-simbolo { width: 30px; height: 31px; }
+  .lc-topo-marca .lc-topo-escrita { width: auto; height: 21px; margin-top: 3px; }
 }
 @media (min-width: 821px) and (max-width: 1360px) { .lc-topo-marca .lc-topo-escrita { display: none; } }
