@@ -184,8 +184,9 @@ export function SaldoCenter({ carteira, admin, className = "" }: { carteira: Car
         </div>
       </div>
 
-      <Link to={admin ? "/admin/cobranca" : "/consumo"} className="lc-pay-btn relative mt-3 w-full h-11 rounded-xl text-white font-bold text-[14px] inline-flex items-center justify-center gap-2">
-        {admin ? <><SlidersHorizontal className="size-4" /> Cobrança da IA</> : <>Ver consumo e pedir recarga</>} <ChevronRight className="size-4" />
+      {/* Dentro da conta o botão é sempre o da própria conta (Créditos); a cobrança geral fica só no superadmin. */}
+      <Link to="/consumo" className="lc-pay-btn relative mt-3 w-full h-11 rounded-xl text-white font-bold text-[14px] inline-flex items-center justify-center gap-2">
+        Ver consumo e pedir recarga <ChevronRight className="size-4" />
       </Link>
     </div>
   );
