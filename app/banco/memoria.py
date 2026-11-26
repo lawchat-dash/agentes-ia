@@ -258,6 +258,13 @@ class RepositorioMemoria:
     async def mensagens_pendentes(self, id_lead):
         return [m for m in self.mensagens[id_lead] if m.autor == "lead" and m.id_turno is None]
 
+    async def mensagens_para_suspeita(self, id_lead, limite=18):
+        """Conversa recente (lead e IA) depois do último disparo do detector de lead suspeito (app/canal/suspeito.py)."""
+        corte = self.__dict__.get("suspeitas", {}).get(id_lead)
+        recentes = [m for m in self.mensagens.get(id_lead, []) if m.autor in ("lead", "ia")
+                    and (corte is None or m.enviada_em > corte)]
+        return recentes[-limite:]
+
     async def historico(self, id_lead, limite=40):
         antigas = [m for m in self.mensagens[id_lead] if not (m.autor == "lead" and m.id_turno is None)]
         return antigas[-limite:]
@@ -484,6 +491,8 @@ class RepositorioMemoria:
         return float(sum(c.get("custo_usd") or 0 for c in self.chamadas if c.get("id_escritorio") == id_escritorio))
 
     async def gravar_eventos(self, *, id_escritorio, id_lead, id_turno, eventos) -> None:
+        if id_lead and any(e.get("tipo") == "lead_suspeito" for e in eventos):
+            self.__dict__.setdefault("suspeitas", {})[id_lead] = datetime.now(timezone.utc)
         self.eventos.extend({"id_escritorio": id_escritorio, "id_lead": id_lead, "id_turno": id_turno, **e}
                             for e in eventos)
 

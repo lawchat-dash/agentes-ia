@@ -273,6 +273,8 @@ class Atendimento:
             id_mensagem = existente.id
         decisao = filtro.decidir(evento, filtro.Regras.de(escritorio.config, agente.config if agente else None),
                                  self._rajada, agora())
+        if decisao.responder and (resultado := await self._barrar_lead_suspeito(escritorio, agente, lead, evento)):
+            return resultado                     # IA desligada (ou já estava) por suspeita: sem ler mídia, sem turno
         espera = self._tempo_de_espera(escritorio, agente, lead, evento) if decisao.responder else 0.0
         relogio, chegou_em = chegada or (asyncio.get_running_loop().time(), agora())
         if decisao.responder:
@@ -304,6 +306,69 @@ class Atendimento:
         # O prazo conta da chegada: o tempo da recepção já gasto sai da espera (assinatura de _agendar inalterada).
         self._agendar(lead.id, max(0.0, espera - (asyncio.get_running_loop().time() - relogio)))
         return {"feito": "agendado", "id_lead": lead.id, "espera_s": espera}
+
+    # ------------------------------------------------------------------ lead suspeito (app/canal/suspeito.py)
+    async def _barrar_lead_suspeito(self, escritorio: Escritorio, agente: Agente | None, lead: Lead,
+                                    evento: Evento) -> dict[str, Any] | None:
+        """Antes de gastar (modelo, transcrição, visão, PDF): o lead já marcado como suspeito só tem a mensagem gravada;
+        o que dispara agora desliga a IA (etiqueta, follow-ups cancelados, evento e nota interna). None = segue normal.
+        Nunca derruba a recepção: falha na checagem vira log e o atendimento segue."""
+        from app.canal import suspeito
+        if lead.estado == "pausado" and lead.motivo_estado == suspeito.MOTIVO:
+            await self.repo.atualizar_lead(lead.id, ultima_mensagem_lead_em=evento.enviada_em)
+            return {"feito": "gravado", "motivo": suspeito.MOTIVO, "id_lead": lead.id}
+        if lead.novo or lead.estado != "ativo" or not agente or agente.situacao != "ativo" or escritorio.situacao != "ativo" \
+                or escritorio.ia_desligada or self._fora_do_teste(escritorio, agente, lead):
+            return None                              # a IA não atenderia de qualquer jeito: nada a economizar
+        ler = getattr(self.repo, "mensagens_para_suspeita", None)
+        regras = suspeito.Regras.de(escritorio.config, agente.config)
+        if ler is None or not regras.ligado:
+            return None
+        try:
+            veredito = suspeito.avaliar(await ler(lead.id, regras.janela * 3), regras,
+                                        avancado=self._etapa_avancada(agente, lead))
+            if veredito is None:
+                return None
+            await self._desligar_por_suspeita(escritorio, lead, evento, veredito)
+        except Exception:
+            log.exception("falha na checagem de lead suspeito do lead %s", lead.id)
+            return None
+        return {"feito": "gravado", "motivo": suspeito.MOTIVO, "suspeita": veredito.motivo, "id_lead": lead.id}
+
+    @staticmethod
+    def _etapa_avancada(agente: Agente, lead: Lead) -> bool:
+        """Lead fora da etapa inicial (já qualificado, com dados): só repetição literal clara desliga a IA."""
+        principal = agente.principal()
+        return bool(lead.id_etapa and principal and lead.id_etapa != principal.id)
+
+    async def _desligar_por_suspeita(self, escritorio: Escritorio, lead: Lead, evento: Evento, veredito: Any) -> None:
+        """Mesmo efeito do desligar da equipe (app/ia_controle.py), sem prazo: só a equipe religa. Nada vai ao lead."""
+        from app import ia_controle
+        from app.canal import suspeito
+        if self._prazos.pop(lead.id, None) is not None and (espera := self._esperas.get(lead.id)) and not espera.done():
+            espera.cancel()                          # ainda esperando (não começou o turno): acaba sem processar
+        for tarefa in list(self._midias.get(lead.id, ())):
+            tarefa.cancel()                          # leitura de mídia em andamento: não transcreve nem descreve
+        await self._juntos(
+            self.repo.atualizar_lead(lead.id, estado="pausado", motivo_estado=suspeito.MOTIVO, pausado_ate=None,
+                                     ultima_mensagem_lead_em=evento.enviada_em),
+            self._marcar_resposta(lead.id, None),
+            self.repo.cancelar_followups(lead.id, suspeito.MOTIVO))
+        if limpar := getattr(self.repo, "limpar_midia_pendente", None):
+            for mensagem in await self.repo.mensagens_pendentes(lead.id):
+                if mensagem.midia_pendente_desde is not None:
+                    await limpar(mensagem.id)        # o turno de depois do religamento não espera leitura cancelada
+        await self.repo.gravar_eventos(id_escritorio=escritorio.id, id_lead=lead.id, id_turno=None, eventos=[{
+            "tipo": suspeito.MOTIVO, "gravidade": "aviso", "responsavel": "cliente", "descricao": veredito.descricao(),
+            "detalhe": {"motivo": veredito.motivo, "razao": veredito.razao, **veredito.contagens}}])
+        carimbo = self._carimbo()
+        # Chave com ':ia:' como no ia_controle: o CONTACT_TAG_UPDATE que a etiqueta gera é reconhecido como eco.
+        acoes = [{"tipo": "etiquetar", "chave_unica": f"{lead.id}:ia:suspeito-{carimbo}:etiqueta",
+                  "dados": {"adicionar": [ia_controle.ETIQUETA], "remover": []}}]
+        if lead.id_sessao_helena:
+            acoes.append({"tipo": "nota", "chave_unica": f"{lead.id}:nota:lead_suspeito:{carimbo}",
+                          "dados": {"texto": veredito.nota()}})
+        await self.repo.enfileirar_acoes(id_escritorio=escritorio.id, id_lead=lead.id, id_turno=None, acoes=acoes)
 
     async def _marcar_midia_pendente(self, id_mensagem: str) -> None:
         """Marca no banco que a mídia desta mensagem está sendo lida (outro servidor ou um reinício enxergam)."""

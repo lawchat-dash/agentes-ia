@@ -624,6 +624,20 @@ class RepositorioPostgres:
                order by enviada_em, registrada_em""", id_lead)
         return [self._mensagem(l) for l in linhas]
 
+    async def mensagens_para_suspeita(self, id_lead, limite=18):
+        """Conversa recente (lead e IA) depois do último disparo do detector de lead suspeito (app/canal/suspeito.py):
+        religada a IA, as mensagens antigas não disparam de novo. Uma ida ao banco (índices por lead nas duas tabelas)."""
+        linhas = await self._pool.fetch(
+            """select * from (
+                 select m.* from agentesia_mensagens m
+                 where m.id_lead = $1::uuid and m.autor in ('lead', 'ia')
+                   and m.registrada_em > coalesce((select max(e.criado_em) from agentesia_eventos e
+                                                   where e.id_lead = $1::uuid and e.tipo = 'lead_suspeito'),
+                                                  '-infinity'::timestamptz)
+                 order by m.enviada_em desc, m.registrada_em desc limit $2
+               ) recentes order by enviada_em, registrada_em""", id_lead, limite)
+        return [self._mensagem(l) for l in linhas]
+
     async def historico(self, id_lead, limite=40):
         linhas = await self._pool.fetch(
             """select * from (

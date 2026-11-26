@@ -50,6 +50,7 @@ REPETICAO_S = 15            # o mesmo prazo pedido de novo dentro disto é cliqu
 MOTIVOS = {
     "desativada_pela_equipe": "Desativada pela equipe",
     "humano_assumiu": "Um atendente assumiu a conversa",
+    "lead_suspeito": "Desligada sozinha: comportamento suspeito (robô, repetição ou só figurinhas)",
     "pediu_humano": "O lead pediu um atendente",
     "pediu_parar": "O lead pediu para parar",
     "desqualificado": "Lead desqualificado",

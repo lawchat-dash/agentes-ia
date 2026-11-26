@@ -164,6 +164,7 @@ function horaCurta(d: Date): string {
 const MOTIVOS: Record<string, string> = {
   desativada_pela_equipe: "Desligada pela equipe (painel, etiqueta ou botão da LawChat)",
   humano_assumiu: "A equipe assumiu o atendimento",
+  lead_suspeito: "Desligada sozinha: comportamento suspeito (robô, repetição ou só figurinhas)",
   pausado_pela_equipe: "Pausada pela equipe no painel",
   devolvido_pela_equipe: "Devolvida para a IA pela equipe",
   encerrado_pela_equipe: "Encerrada pela equipe no painel",

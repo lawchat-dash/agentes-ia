@@ -27,6 +27,7 @@ from app.canal.helena import normalizar_telefone
 
 ETIQUETA = "🤖 IA Desativada"
 MOTIVO = "desativada_pela_equipe"
+MOTIVO_SUSPEITO = "lead_suspeito"    # IA desligada sozinha por comportamento suspeito (app/canal/suspeito.py)
 ECO_MINUTOS = 3                      # etiqueta mexida pela LawChat há menos que isto: o evento é o eco dela
 ORIGENS = {"etiqueta": "pela etiqueta na Helena", "botao": "pelo botão da Helena", "painel": "pelo painel",
            "link": "pelo link da conversa", "prazo": "porque o prazo acabou"}
@@ -102,8 +103,9 @@ async def mudar_ia(pool: asyncpg.Pool, id_escritorio: str, *, ligar: bool, orige
                 continue
             # Pela etiqueta só desfaz o que a equipe fez (mexer em outra etiqueta não encerra a pausa do atendente).
             # Pelo botão e pelo painel é a equipe decidindo: religa qualquer pausa (pediu humano, sinal, trava, rajada...).
-            religavel = lead["motivo_estado"] == MOTIVO if origem == "etiqueta" else True
-            ja_desligada = lead["estado"] == "pausado" and lead["motivo_estado"] == MOTIVO
+            # O desligamento automático por lead suspeito (app/canal/suspeito.py) também põe a etiqueta: tirar religa.
+            religavel = lead["motivo_estado"] in (MOTIVO, MOTIVO_SUSPEITO) if origem == "etiqueta" else True
+            ja_desligada = lead["estado"] == "pausado" and lead["motivo_estado"] in (MOTIVO, MOTIVO_SUSPEITO)
             if ligar and lead["estado"] == "pausado" and religavel:
                 await conexao.execute(
                     "update agentesia_leads set estado = 'ativo', motivo_estado = null, pausado_ate = null where id = $1",
