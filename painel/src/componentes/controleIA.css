@@ -167,3 +167,70 @@
 .cia-explica { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 18px 8px; color: var(--cia-texto-3); }
 .cia-explica b { color: var(--cia-texto); font-size: 15px; }
 .cia-explica p { margin: 0; color: var(--cia-texto-2); font-size: 12.5px; line-height: 1.5; }
+
+/* ---------------------------------------------------------------- Painel de Controle IA (página do link) */
+.cia-ponte { place-items: start center; padding: 28px 16px; background: #f3f4f6; }
+.cpc-cartao { position: relative; width: 100%; max-width: 480px; background: #fff; border-radius: 20px; padding: 28px 28px 24px;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, .08); border: 1px solid #eef0f3; font-family: inherit; }
+.cpc-topo { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin-bottom: 20px; }
+.cpc-selo { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; background: #e9f9ee;
+  color: #16a34a; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+.cpc-topo h1 { margin: 2px 0 0; font-size: 26px; font-weight: 700; color: #111827; letter-spacing: -.01em; }
+.cpc-topo p { margin: 0; max-width: 340px; color: #6b7280; font-size: 14px; line-height: 1.55; }
+.cpc-atualizar { position: absolute; top: 16px; right: 16px; width: 34px; height: 34px; border-radius: 10px; border: 1px solid #e5e7eb;
+  background: #fff; color: #6b7280; display: grid; place-items: center; cursor: pointer; }
+.cpc-atualizar:hover { color: #111827; background: #f9fafb; }
+.cpc-corpo { display: flex; flex-direction: column; gap: 14px; }
+.cpc-carregando { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 24px; color: #6b7280; font-size: 14px; }
+.cpc-lead { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: #f9fafb; border: 1px solid #f0f1f4; }
+.cpc-lead b { display: block; font-size: 15px; color: #111827; }
+.cpc-lead small { display: block; margin-top: 2px; font-size: 12.5px; color: #6b7280; }
+.cpc-avatar { width: 40px; height: 40px; flex: none; border-radius: 12px; display: grid; place-items: center; background: #e9f9ee;
+  color: #16a34a; font-weight: 700; }
+.cpc-status { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 14px; border: 1px solid; }
+.cpc-status > i { width: 12px; height: 12px; margin-top: 5px; border-radius: 50%; flex: none; animation: cpc-pulso 1.6s ease-in-out infinite; }
+.cpc-status b { display: block; font-size: 16px; }
+.cpc-status span { display: block; margin-top: 2px; font-size: 13px; color: #4b5563; }
+.cpc-status.ligada { background: #f0fdf4; border-color: #bbf7d0; } .cpc-status.ligada b { color: #15803d; } .cpc-status.ligada > i { background: #22c55e; }
+.cpc-status.desligada { background: #fef2f2; border-color: #fecaca; } .cpc-status.desligada b { color: #b91c1c; } .cpc-status.desligada > i { background: #ef4444; }
+@keyframes cpc-pulso { 0%, 100% { box-shadow: 0 0 0 0 rgba(0,0,0,.0); opacity: 1; } 50% { opacity: .55; } }
+.cpc-botao { display: flex; align-items: center; justify-content: center; gap: 10px; height: 56px; border-radius: 16px; font-size: 16px;
+  font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s; }
+.cpc-botao.desativar { background: #f9f9fb; color: #f97316; border: 1px solid #fed7c3; }
+.cpc-botao.desativar:hover { background: #fff7f2; border-color: #fdba8c; }
+.cpc-botao.reativar { background: #16a34a; color: #fff; border: 1px solid #16a34a; }
+.cpc-botao.reativar:hover { background: #15803d; }
+.cpc-botao:disabled { opacity: .6; cursor: default; }
+.cpc-rodape { margin-top: 18px; text-align: center; font-size: 12px; color: #6b7280; }
+.cpc-fundo { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(229, 231, 235, .75);
+  backdrop-filter: blur(3px); }
+.cpc-janela { position: relative; width: 100%; max-width: 440px; background: #fff; border-radius: 22px; padding: 28px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, .15); }
+.cpc-janela h2 { margin: 0 28px 10px 0; font-size: 21px; font-weight: 700; color: #111827; }
+.cpc-janela p { margin: 0 0 18px; color: #6b7280; font-size: 14px; line-height: 1.6; }
+.cpc-fechar { position: absolute; top: 20px; right: 20px; border: 0; background: none; color: #6b7280; cursor: pointer; }
+.cpc-rotulo { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; letter-spacing: .05em; color: #6b7280; }
+.cpc-opcoes { display: flex; flex-direction: column; gap: 8px; }
+.cpc-opcoes button { text-align: left; height: 46px; padding: 0 16px; border-radius: 14px; border: 1px solid transparent; background: #f7f8fa;
+  color: #111827; font-size: 14.5px; font-weight: 500; cursor: pointer; }
+.cpc-opcoes button:hover { background: #f1f3f6; }
+.cpc-opcoes button.ativa { border-color: #f97316; background: #fff7f2; color: #c2410c; }
+.cpc-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 22px; }
+.cpc-cancelar, .cpc-continuar { height: 46px; border-radius: 14px; font-size: 14.5px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px; }
+.cpc-cancelar { border: 0; background: none; color: #4b5563; }
+.cpc-continuar { border: 1px solid #f97316; background: #f97316; color: #fff; }
+.cpc-continuar:disabled { background: #f7f8fa; border-color: #eef0f3; color: #9ca3af; cursor: default; }
+@media (max-width: 420px) { .cpc-cartao { padding: 22px 18px 18px; } .cpc-topo h1 { font-size: 22px; } }
+/* Tudo ao centro (pedido do dono, 26/11). */
+.cia-ponte { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.cpc-corpo { align-items: stretch; }
+.cpc-lead { flex-direction: column; text-align: center; gap: 8px; padding: 16px; }
+.cpc-status { justify-content: center; text-align: center; }
+.cpc-status > div { display: flex; flex-direction: column; align-items: center; }
+.cpc-status > i { margin-top: 6px; }
+.cpc-carregando, .cpc-corpo .cia-aviso, .cpc-corpo .cia-explica { text-align: center; justify-content: center; }
+.cpc-status { flex-direction: column; align-items: center; gap: 2px; }
+.cpc-status > i { display: none; }
+.cpc-status b { display: inline-flex; align-items: center; gap: 8px; }
+.cpc-status b::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; animation: cpc-pulso 1.6s ease-in-out infinite; }

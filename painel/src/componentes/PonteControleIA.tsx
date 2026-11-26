@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Loader2, RefreshCw, SearchX } from "lucide-react";
-import { MENSAGEM_CONVERSA, PainelDoLead, useLeadIA, type Alvo, type LeadIA } from "./ControleIA";
+import { Bot, Loader2, Power, RefreshCw, SearchX, X } from "lucide-react";
+import { MENSAGEM_CONVERSA, useLeadIA, type Alvo, type LeadIA } from "./ControleIA";
 import "./controleIA.css";
 
 /**
@@ -107,29 +107,117 @@ export default function PonteControleIA() {
 
   return (
     <div className="cia-ponte">
-      <div className="cia-ponte-cartao">
+      <div className="cpc-cartao">
         {p.conta ? <ControlePeloLink p={p} temConversa={temConversa} /> : <ControlePelaSessao p={p} temConversa={temConversa} />}
       </div>
+      <footer className="cpc-rodape">LawChat © {new Date().getFullYear()}</footer>
     </div>
   );
 }
 
 function Cabecalho({ aoAtualizar, carregando }: { aoAtualizar?: () => void; carregando?: boolean }) {
   return (
-    <header>
-      <span className="cia-titulo"><Bot size={17} /> Controle da IA</span>
+    <header className="cpc-topo">
       {aoAtualizar && (
-        <button type="button" className="cia-atualizar" title="Atualizar o status" aria-label="Atualizar o status" onClick={aoAtualizar} disabled={carregando}>
-          <RefreshCw size={14} className={carregando ? "cia-gira" : ""} />
+        <button type="button" className="cpc-atualizar" title="Atualizar o status" aria-label="Atualizar o status" onClick={aoAtualizar} disabled={carregando}>
+          <RefreshCw size={15} className={carregando ? "cia-gira" : ""} />
         </button>
       )}
+      <span className="cpc-selo"><Bot size={15} /> CONTROLE DA IA</span>
+      <h1>Painel de Controle IA</h1>
+      <p>Desative a IA desta conversa quando alguém da equipe for assumir o atendimento.</p>
     </header>
+  );
+}
+
+interface Controle {
+  lead: LeadIA | null; carregando: boolean; ocupado: boolean; erro: string | null;
+  aviso: { tipo: "ok" | "erro"; texto: string } | null; agir: (acao: "desativar" | "reativar", minutos?: number) => Promise<void> | void;
+}
+
+const DURACOES: { minutos: number; rotulo: string }[] = [
+  { minutos: 30, rotulo: "30 minutos" }, { minutos: 120, rotulo: "2 horas" }, { minutos: 1440, rotulo: "24 horas" },
+  { minutos: 0, rotulo: "Até alguém religar" },
+];
+
+function ate(iso: string | null): string {
+  if (!iso) return "até alguém religar";
+  try {
+    const d = new Date(iso);
+    const hoje = new Date().toDateString() === d.toDateString();
+    const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return hoje ? `até as ${hora}` : `até ${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${hora}`;
+  } catch { return ""; }
+}
+
+/** Visual do "Painel de Controle IA": o lead, o status e um botão grande; a duração escolhe numa janela. */
+function PainelControle({ ctl }: { ctl: Controle }) {
+  const [perguntando, setPerguntando] = useState(false);
+  const [duracao, setDuracao] = useState<number | null>(null);
+  const lead = ctl.lead;
+  if (!lead) return <div className="cpc-carregando"><Loader2 size={22} className="cia-gira" /> Carregando a conversa…</div>;
+  const ligada = lead.ia_ligada && !lead.encerrado;
+  const continuar = async () => {
+    if (duracao === null) return;
+    await ctl.agir("desativar", duracao);
+    setPerguntando(false); setDuracao(null);
+  };
+  return (
+    <>
+      <div className="cpc-lead">
+        <span className="cpc-avatar">{(lead.nome || "?").trim().charAt(0).toUpperCase()}</span>
+        <div>
+          <b>{lead.nome || "Sem nome"}</b>
+          <small>{[lead.telefone, lead.agente, lead.etapa_nome || lead.etapa].filter(Boolean).join(" · ")}</small>
+        </div>
+      </div>
+      <div className={`cpc-status ${ligada ? "ligada" : "desligada"}`}>
+        <i aria-hidden />
+        <div>
+          <b>{ligada ? "IA ligada" : lead.encerrado ? "Conversa encerrada" : "IA desativada"}</b>
+          <span>{ligada ? "Ela responde as próximas mensagens do lead." : lead.encerrado ? "A IA não atende mais esta conversa."
+            : `Atendimento humano ${ate(lead.pausado_ate)}.`}</span>
+        </div>
+      </div>
+      {lead.ia_desligada_escritorio && <div className="cia-aviso erro">A IA está desligada no escritório inteiro.</div>}
+      {ligada ? (
+        <button type="button" className="cpc-botao desativar" disabled={ctl.ocupado} onClick={() => setPerguntando(true)}>
+          <Power size={18} /> Desativar IA
+        </button>
+      ) : !lead.encerrado && (
+        <button type="button" className="cpc-botao reativar" disabled={ctl.ocupado} onClick={() => void ctl.agir("reativar")}>
+          {ctl.ocupado ? <Loader2 size={18} className="cia-gira" /> : <Power size={18} />} Reativar IA
+        </button>
+      )}
+      {ctl.aviso && <div className={`cia-aviso ${ctl.aviso.tipo}`} role="status">{ctl.aviso.texto}</div>}
+      {perguntando && (
+        <div className="cpc-fundo" role="dialog" aria-modal="true" aria-label="Desativar IA nesta conversa">
+          <div className="cpc-janela">
+            <button type="button" className="cpc-fechar" aria-label="Fechar" onClick={() => { setPerguntando(false); setDuracao(null); }}><X size={18} /></button>
+            <h2>Desativar IA nesta conversa?</h2>
+            <p>O atendimento passa a ser só humano nesta conversa. A IA para de responder até o prazo acabar ou alguém religar. Fica uma nota no atendimento.</p>
+            <span className="cpc-rotulo">DURAÇÃO</span>
+            <div className="cpc-opcoes">
+              {DURACOES.map((d) => (
+                <button type="button" key={d.minutos} className={duracao === d.minutos ? "ativa" : ""} onClick={() => setDuracao(d.minutos)}>{d.rotulo}</button>
+              ))}
+            </div>
+            <div className="cpc-acoes">
+              <button type="button" className="cpc-cancelar" onClick={() => { setPerguntando(false); setDuracao(null); }}>Cancelar</button>
+              <button type="button" className="cpc-continuar" disabled={duracao === null || ctl.ocupado} onClick={() => void continuar()}>
+                {ctl.ocupado ? <Loader2 size={16} className="cia-gira" /> : null} Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
 function SemConversa() {
   return (
-    <div className="cia-corpo">
+    <div className="cpc-corpo">
       <div className="cia-explica">
         <SearchX size={28} aria-hidden />
         <b>Abra pelo botão da conversa</b>
@@ -150,7 +238,7 @@ function ControlePeloLinkComConversa({ p }: { p: Parametros }) {
   return (
     <>
       <Cabecalho aoAtualizar={() => void ctl.carregar()} carregando={ctl.carregando} />
-      <div className="cia-corpo">
+      <div className="cpc-corpo">
         {naoAchou ? (
           <div className="cia-explica">
             <SearchX size={28} aria-hidden />
@@ -160,7 +248,7 @@ function ControlePeloLinkComConversa({ p }: { p: Parametros }) {
         ) : !ctl.lead && !ctl.carregando && ctl.erro ? (
           <div className="cia-aviso erro" role="alert">{ctl.erro}</div>
         ) : (
-          <PainelDoLead ctl={ctl} alvo={p} aoBuscar={false} />
+          <PainelControle ctl={ctl} />
         )}
       </div>
     </>
@@ -175,7 +263,7 @@ function ControlePelaSessao({ p, temConversa }: { p: Parametros; temConversa: bo
   return (
     <>
       <Cabecalho aoAtualizar={semLogin ? undefined : () => void ctl.carregar()} carregando={ctl.carregando} />
-      <div className="cia-corpo">
+      <div className="cpc-corpo">
         {semLogin ? (
           <div className="cia-explica">
             <Bot size={28} aria-hidden />
@@ -183,7 +271,7 @@ function ControlePelaSessao({ p, temConversa }: { p: Parametros; temConversa: bo
             <p>Copie o link no painel da LawChat (Integrações › Link do Controle da IA) e cadastre na plataforma de atendimento como botão da conversa. Ele já vem com a conta e os dados da conversa.</p>
           </div>
         ) : (
-          <PainelDoLead ctl={ctl} alvo={alvo} aoBuscar={false} />
+          <PainelControle ctl={ctl} />
         )}
       </div>
     </>
