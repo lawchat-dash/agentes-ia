@@ -1935,7 +1935,7 @@ def _lead_confirmou_dados(entrada: Entrada, saida: Saida) -> bool:
 # menor?", "filiação do(a) menor", "filiação da mae"). Aqui o código usa a ÚLTIMA PERGUNTA DA IA para decidir de quem é o
 # dado: pergunta sobre o filho/a criança -> campos _menor; pergunta sobre "seus pais"/"sua filiação" -> campos sem _menor.
 _SOBRE_A_CRIANCA = re.compile(r"\b(filh[oa]s?|crian[çc]a|menor|beb[eê]|dele|dela|do\(a\)|da\(o\))\b", re.I)
-_SOBRE_QUEM_FALA = re.compile(r"\b(seu|sua|voc[eê]|seus pais|sua m[aã]e|seu pai)\b", re.I)
+_SOBRE_QUEM_FALA = re.compile(r"\b(seu|sua|voc[eê]|seus pais|sua m[aã]e|seu pai|respons[aá]vel|quem (?:vai )?assina)\b", re.I)
 _TROCA_PARA_O_MENOR = {"nome_completo": "nome_menor", "cpf": "cpf_menor", "nacionalidade": "nacionalidade_menor",
                        "naturalidade": "naturalidade_menor", "filiacao": "filiacao_menor"}
 _TROCA_PARA_QUEM_ASSINA = {v: k for k, v in _TROCA_PARA_O_MENOR.items() if k != "nome_completo"}
@@ -1955,7 +1955,12 @@ def _dados_da_crianca_pela_pergunta(entrada: Entrada, produto: Any, extracao: An
         return
     pergunta = _ultima_pergunta_da_ia(entrada)
     trecho_da_pergunta = pergunta.split("?")[-2] if pergunta.count("?") >= 1 else pergunta
-    sobre_crianca = bool(_SOBRE_A_CRIANCA.search(trecho_da_pergunta))
+    _resposta_do_pedido_de_correcao(entrada, extracao, pergunta)
+    # "do responsável que vai assinar" ganha de "do Pedro"/"dele" na mesma pergunta: é sobre quem assina.
+    sobre_quem_assina = bool(re.search(r"respons[aá]vel|quem (?:vai )?assina", trecho_da_pergunta, re.I))
+    sobre_crianca = bool(_SOBRE_A_CRIANCA.search(trecho_da_pergunta)) and not sobre_quem_assina
+    if sobre_quem_assina:
+        sobre_crianca = False
     # "seus pais" com "do seu filho" na mesma pergunta é sobre a criança: a criança ganha.
     sobre_quem_fala = bool(_SOBRE_QUEM_FALA.search(trecho_da_pergunta)) and not sobre_crianca
     nome_menor = str(entrada.fatos.get("nome_menor") or "").strip().lower()
@@ -1975,3 +1980,24 @@ def _dados_da_crianca_pela_pergunta(entrada: Entrada, produto: Any, extracao: An
                                      pergunta=trecho_da_pergunta[-160:]))
         fato.chave = destino
     extracao.fatos = [f for f in extracao.fatos if f.chave != "descartar"]
+
+
+def _resposta_do_pedido_de_correcao(entrada: Entrada, extracao: Any, pergunta: str) -> None:
+    """O sistema pediu UM dado do contrato ("Para finalizar seu contrato, preciso confirmar uma informação: a sua
+    naturalidade...") e o extrator não gravou esse campo: a resposta do lead é esse dado. Sem isso o contrato pedia o
+    mesmo dado de novo e o lead ia para a equipe (contrato_correcao_repetida), na rodada com leads reais de 26/11."""
+    from app.contrato import dados as cdados
+    from app.cerebro.extrator import FatoExtraido
+
+    if "preciso confirmar uma informação" not in pergunta.lower():
+        return
+    pedidos = sorted((c for c, t in cdados.PEDIR.items() if t and t.lower() in pergunta.lower()),
+                     key=lambda c: -len(cdados.PEDIR[c]))
+    if not pedidos or pedidos[0] not in cdados.CAMPOS:
+        return
+    fato = cdados.CAMPOS[pedidos[0]]
+    if any(f.chave == fato for f in extracao.fatos):
+        return
+    resposta = " ".join(str(n) for n in (entrada.novas or [])).strip()
+    if 0 < len(resposta) <= 120:
+        extracao.fatos.append(FatoExtraido(fato, resposta.rstrip(". "), resposta))

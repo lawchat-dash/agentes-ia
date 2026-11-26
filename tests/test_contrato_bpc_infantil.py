@@ -48,3 +48,18 @@ def test_outra_familia_nao_mexe():
     extracao = Extracao(fatos=[FatoExtraido("nome_completo", "Fulano", "Fulano")])
     turno._dados_da_crianca_pela_pergunta(entrada, P(), extracao, turno.Saida())
     assert extracao.fatos[0].chave == "nome_completo"
+
+
+def test_pergunta_do_responsavel_que_cita_a_crianca_e_de_quem_assina():
+    assert _rodar("Carlos, qual a nacionalidade e naturalidade (cidade/UF onde nasceu) do responsável que vai assinar o contrato?",
+                  [("naturalidade_menor", "Montes Claros/MG")]) == {"naturalidade": "Montes Claros/MG"}
+
+
+def test_resposta_ao_pedido_de_correcao_vai_para_o_campo_pedido():
+    pergunta = ("Para finalizar seu contrato, preciso confirmar uma informação: a sua naturalidade (cidade onde você "
+                "nasceu). Pode me enviar novamente, por favor?")
+    entrada = turno.Entrada(escritorio="e", agente="a", etapa="contratos", novas=["Montes Claros/MG."],
+                            historico=[{"autor": "ia", "texto": pergunta}])
+    extracao = Extracao(fatos=[])
+    turno._dados_da_crianca_pela_pergunta(entrada, _Produto(), extracao, turno.Saida())
+    assert {f.chave: f.valor for f in extracao.fatos} == {"naturalidade": "Montes Claros/MG"}
