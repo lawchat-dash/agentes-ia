@@ -84,13 +84,69 @@ async def zerar_numero(id_agente: str, dados: Zerar, pedido: Request, ctx: Conte
     numero = normalizar_telefone(dados.numero or "")
     if not numero or numero not in set(agente.get("numeros_teste") or []):
         raise HTTPException(400, "Só dá para zerar um número que está na lista do filtro deste agente.")
+    # O que a plataforma tem deste lead (antes de apagar): atendimento, contato e card, para limpar lá também.
+    antes = await repo.pool.fetch(
+        """select l.id_sessao_helena, c.id_contato_helena, cc.id_card_helena
+             from agentesia_leads l join agentesia_contatos c on c.id = l.id_contato
+             left join agentesia_crm_cards cc on cc.id_lead = l.id
+            where l.id_escritorio = $1::uuid and c.telefone_normalizado = $2
+              and (l.id_agente = $3::uuid or l.id_agente is null)""", ctx.escritorio(), numero, id_agente)
     apagados = await repo.pool.fetch(
         """delete from agentesia_leads l using agentesia_contatos c
             where l.id_contato = c.id and l.id_escritorio = $1::uuid and c.telefone_normalizado = $2
               and (l.id_agente = $3::uuid or l.id_agente is null) returning l.id::text""",
         ctx.escritorio(), numero, id_agente)
+    limpeza = await _limpar_na_plataforma(pedido, repo, ctx.escritorio(), antes)
     await repo.registrar_alteracao(
         id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_leads", id_registro=id_agente,
         acao="zerou_numero_teste", resumo=f"Zerou a memória do número de teste em {agente.get('nome')} (volta ao início)",
-        depois={"leads_apagados": len(apagados)})
-    return {"zerado": True, "leads_apagados": len(apagados)}
+        depois={"leads_apagados": len(apagados), "plataforma": limpeza})
+    return {"zerado": True, "leads_apagados": len(apagados), "plataforma": limpeza}
+
+
+NOTA_ZERADO = "🔄 Memória da IA zerada (teste): a próxima mensagem deste número recomeça do primeiro agente (SDR)."
+
+
+async def _limpar_na_plataforma(pedido: Request, repo: Any, id_escritorio: str, linhas: list[Any]) -> dict[str, Any]:
+    """Zerar também na plataforma: tira a etiqueta "🤖 IA Desativada" e as das etapas, volta o card para a coluna SDR
+    e deixa uma nota. 26/11: o lead zerado continuava com a etiqueta de IA desativada e nada avisava no chat.
+    Falha aqui não desfaz o zerar (a memória já foi apagada): só volta o que não deu."""
+    from app import automacoes, ia_controle
+    from app.banco.postgres import token_helena
+    from app.canal.helena_conta import HelenaConta
+
+    feito: dict[str, Any] = {"etiquetas": False, "card": False, "nota": False}
+    if not linhas:
+        return feito
+    token = await token_helena(repo.pool, id_escritorio)
+    if not token:
+        feito["erro"] = "escritório sem conexão com a plataforma"
+        return feito
+    crm = await repo.pool.fetchval(
+        "select config from agentesia_integracoes where id_escritorio = $1::uuid and tipo = 'crm'", id_escritorio)
+    crm = crm if isinstance(crm, dict) else (__import__("json").loads(crm) if crm else {})
+    coluna_sdr = ((crm or {}).get("etapas_por_tipo") or {}).get("SDR")
+    cfg = getattr(pedido.app.state, "cfg", None)
+    helena = HelenaConta(token, getattr(cfg, "helena_url", None) or "https://api.helena.run")
+    etiquetas = [ia_controle.ETIQUETA, *[e for e in automacoes.ETIQUETA_DO_TIPO.values() if e != automacoes.ETIQUETA_SDR]]
+    for linha in linhas:
+        try:
+            if linha["id_contato_helena"]:
+                await helena.etiquetar(linha["id_contato_helena"], etiquetas, remover=True)
+                await helena.etiquetar(linha["id_contato_helena"], [automacoes.ETIQUETA_SDR])
+                feito["etiquetas"] = True
+        except Exception as erro:                             # noqa: BLE001  a limpeza é um extra
+            feito["erro_etiquetas"] = type(erro).__name__
+        try:
+            if linha["id_card_helena"] and coluna_sdr:
+                await helena.mover_card(linha["id_card_helena"], coluna_sdr)
+                feito["card"] = True
+        except Exception as erro:                             # noqa: BLE001
+            feito["erro_card"] = type(erro).__name__
+        try:
+            if linha["id_sessao_helena"]:
+                await helena.nota(linha["id_sessao_helena"], NOTA_ZERADO)
+                feito["nota"] = True
+        except Exception as erro:                             # noqa: BLE001
+            feito["erro_nota"] = type(erro).__name__
+    return feito
