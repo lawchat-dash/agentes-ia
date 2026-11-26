@@ -181,6 +181,10 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
     terminais = {e.codigo for e in produto.etapas if e.tipo == "terminal"}
     agora = contexto.agora_em_brasilia(entrada.agora)    # um relógio só para o turno inteiro
     catalogo = getattr(produto, "codigo", "") == "catalogo"
+    if catalogo and hasattr(produto, "para_o_papel"):
+        # O extrator do catálogo é do papel do turno: os campos do contrato só entram onde o contrato é coletado.
+        papel_do_turno = entrada.etapa if entrada.etapa in produto.papeis else produto.etapa_inicial()
+        produto = produto.para_o_papel(papel_do_turno, entrada.instrucoes.get(papel_do_turno))
 
     # 1. Extrator: o que o lead disse de novo.
     try:
@@ -188,11 +192,18 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
             extracao = await extrator.extrair(
                 modelo, nome_modelo=entrada.modelo_extrator, fatos_conhecidos=entrada.fatos,
                 historico=entrada.historico, novas=entrada.novas, produto=produto, agora=agora,
+                tolerar_falha=catalogo,
             )
     except ErroModelo as erro:
         saida.chamadas.extend(getattr(erro, "chamadas", []))
         return _falha(saida, "extrator", erro)
     saida.chamadas.extend(extracao.chamadas)
+    if extracao.falha:
+        # Saída do extrator cortada (repetição sem fim) ou fora do formato: o turno segue sem os fatos de IA deste lote,
+        # em vez de pausar o lead já na 1ª falha (ver extrator.FALHAS_TOLERADAS).
+        saida.eventos.append(_evento("extrator_falhou", "aviso", "provedor",
+                                     f"O extrator falhou ({extracao.falha}); o turno seguiu sem os fatos novos deste "
+                                     "lote.", motivo=extracao.falha))
     saida.contexto["extrator"] = {
         "conteudo": extrator.montar_conteudo(entrada.fatos, entrada.historico, entrada.novas, agora),
         "resposta": extracao.bruto,
@@ -411,7 +422,7 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         prompt=prompt, nome_agente=entrada.agente, escritorio=entrada.escritorio,
         conhecimento_texto=conhecimento_texto, regras=regras_escritorio, destinos=destinos, acoes=acoes,
         fatos_sistema=fatos_sistema, notificacoes=notificacoes, papel=etapa, ferramentas=ferramentas, papeis=papeis,
-        honorarios=entrada.honorarios, variaveis=valores)
+        honorarios=entrada.honorarios, variaveis=valores, familia=catalogo.familia_do_produto(produto.config))
     _variaveis_sem_valor(entrada, saida, etapa, catalogo.variaveis_sem_valor(
         [prompt, regras_escritorio, conhecimento_texto, entrada.honorarios]
         + [str((c or {}).get(k) or "") for c in ((produto.config.get("catalogo") or {}).get("papeis") or {}).values()
@@ -448,6 +459,8 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     so_texto = bool(saida.fatos_depois.get(MARCA_SO_TEXTO))
     if so_texto:
         linhas.append("\n(sistema) " + sinais_catalogo.ORIENTACAO_SEM_PAUSA["deficiencia_auditiva"])
+    if orientacao_closer := _desqualificacao_no_closer(entrada, produto, saida, etapa, destinos):
+        saida.contexto.setdefault("orientacoes_sinal", []).append(orientacao_closer)
     for orientacao in saida.contexto.get("orientacoes_sinal") or []:
         linhas.append("\n(sistema) " + orientacao)
     confirmou = _lead_confirmou_dados(entrada, saida) if "zapsign" in acoes and exigir_confirmacao_contrato(
@@ -1018,7 +1031,10 @@ MARCA_PORTAO = "_portao_barrou"                         # {"destino", "faltam"}:
 ROTULO_DO_CAMPO = {"nome": "nome completo", "cpf": "CPF", "endereco": "rua", "numero": "número", "bairro": "bairro",
                    "cidade": "cidade", "estado": "estado", "cep": "CEP", "email": "e-mail", "estado_civil": "estado civil",
                    "profissao": "profissão", "rg": "RG", "telefone": "telefone", "cpfdomenor": "CPF do(a) menor",
-                   "nomecompletomenor": "nome do(a) menor"}
+                   "nomecompletomenor": "nome do(a) menor", "nacionalidade": "nacionalidade",
+                   "naturalidade": "naturalidade", "filiacao": "filiação",
+                   "nacionalidadedomenor": "nacionalidade do(a) menor", "naturalidadedomenor": "naturalidade do(a) menor",
+                   "filiacaodomenor": "filiação do(a) menor"}
 # O endereço que veio do CEP neste turno é marcado na linha dos dados; o resto do endereço deste turno veio do lead.
 CAMPOS_DO_ENDERECO = ("endereco", "bairro", "cidade", "uf")
 # As travas de repetição (cpf_ja_conferido, resposta_repetida) pausam o lead quando a IA insiste? Desligado: elas só
@@ -1746,6 +1762,8 @@ def _desqualificacao_esquecida(entrada: Entrada, produto: Any, saida: Saida, eta
     if etapa == "desqualificado" or destino == "desqualificado" or "desqualificado" not in destinos \
             or not corrigir_desqualificacao_esquecida(getattr(produto, "config", {})):
         return None
+    if saida.contexto.get("desqualificacao_no_closer") == "confirmar":
+        return None          # neste turno o Closer foi orientado a confirmar o dado antes (não a desqualificar já)
     motivo = catalogo.motivo_de_desqualificar(getattr(produto, "config", {}), saida.fatos_depois)
     if not motivo or entrada.fatos.get(MARCA_DESQ_ESQUECIDA) == motivo[0]:
         return None
@@ -1763,6 +1781,66 @@ def _desqualificacao_insistida(produto: Any, saida: Saida, etapa: str) -> None:
                                  f"O lead disse algo que desqualifica o caso ({motivo[0]} = {motivo[1]}), mas a IA não "
                                  "desqualificou nem depois da correção. A conversa seguiu; vale a equipe conferir.",
                                  fato=motivo[0], valor=motivo[1], etapa=etapa))
+
+
+# Closer que ouve um motivo de desqualificação novo (com o portão de fatos desligado, nada no código desqualifica e a
+# IA do Closer seguia vendendo para quem disse "sou aposentado" ou "já tenho advogado nesse caso"). Dois turnos:
+#   1. o extrator gravou neste turno um fato que desqualifica: a IA confirma uma vez, com uma pergunta curta;
+#   2. no turno seguinte, com o fato ainda valendo: se o lead confirmou, desqualifica; se corrigiu, segue o roteiro.
+MARCA_DESQ_A_CONFIRMAR = "_desqualificacao_a_confirmar"   # fato que desqualifica dito no Closer, à espera da confirmação
+ROTULO_DO_MOTIVO = {"aposentado": "que já é aposentado(a)", "tem_advogado_no_caso": "que já tem advogado cuidando deste caso",
+                    "sequela": "que não ficou com sequela", "vinculo_na_data": "a situação de trabalho na data do acidente",
+                    "documentos_rurais": "que não tem documento do trabalho rural",
+                    "recebe_beneficio": "que quem vai receber já recebe um benefício (BPC, aposentadoria ou pensão)"}
+ORIENTACAO_CONFIRMAR_NO_CLOSER = (
+    "O lead acabou de dizer {rotulo} (\"{trecho}\"), o que desqualifica o caso pelo roteiro. Nesta etapa, confirme uma "
+    "vez, numa pergunta curta e nova (ex.: \"Só pra eu não errar: {pergunta}\"), sem explicar o motivo e sem seguir com "
+    "a venda. Advogado de antes, que já saiu, ou de outro caso NÃO desqualifica. Se ele já tinha confirmado isso com "
+    "clareza antes na conversa, marque transferir_para = \"desqualificado\" agora.")
+ORIENTACAO_CONFIRMOU_NO_CLOSER = (
+    "Você pediu para o lead confirmar {rotulo}. Se ele confirmou, marque transferir_para = \"desqualificado\" nesta "
+    "resposta e siga a regra de desqualificação. Se ele corrigiu (ou é advogado de antes ou de outro caso), siga o "
+    "roteiro normalmente.")
+PERGUNTA_DO_MOTIVO = {"aposentado": "você já é aposentado(a) hoje?",
+                      "tem_advogado_no_caso": "você já tem um advogado cuidando deste mesmo caso?",
+                      "sequela": "você não ficou com nenhuma sequela ou limitação depois do acidente?",
+                      "recebe_beneficio": "hoje já é pago algum benefício do INSS para quem vai receber?"}
+
+
+def confirmar_desqualificacao_no_closer(config: dict[str, Any] | None) -> bool:
+    """Orientar o Closer a confirmar e desqualificar quando o lead diz algo novo que desqualifica. Padrão: ligado (só no
+    papel closer; nos outros vale corrigir_desqualificacao_esquecida, desligada); "confirmar_desqualificacao_no_closer":
+    false desliga."""
+    return _opcao_do_agente(config, "confirmar_desqualificacao_no_closer") is not False
+
+
+def _desqualificacao_no_closer(entrada: Entrada, produto: Any, saida: Saida, etapa: str,
+                               destinos: list[str]) -> str | None:
+    """Orientação (linha "(sistema)" do conteúdo) do Closer para um motivo de desqualificação novo. Ver acima."""
+    from app.cerebro import catalogo
+
+    config = getattr(produto, "config", {}) or {}
+    pendente = str(entrada.fatos.get(MARCA_DESQ_A_CONFIRMAR) or "")
+    ligado = etapa == "closer" and "desqualificado" in destinos and confirmar_desqualificacao_no_closer(config)
+    motivos = catalogo.motivos_de_desqualificar(config)
+    novo = next((f for f in saida.fatos_novos if ligado and str(f.get("chave") or "") in motivos
+                 and str(f.get("valor") or "").strip().lower() in motivos[str(f.get("chave"))]), None)
+    if novo is not None:
+        chave = str(novo["chave"])
+        _gravar_controle(saida, MARCA_DESQ_A_CONFIRMAR, chave)
+        saida.contexto["desqualificacao_no_closer"] = "confirmar"
+        return ORIENTACAO_CONFIRMAR_NO_CLOSER.format(
+            rotulo=ROTULO_DO_MOTIVO.get(chave, chave.replace("_", " ")), trecho=str(novo.get("trecho") or "")[:120],
+            pergunta=PERGUNTA_DO_MOTIVO.get(chave, "é isso mesmo?"))
+    if not pendente:
+        return None
+    _gravar_controle(saida, MARCA_DESQ_A_CONFIRMAR, "")          # a marca vale só para o turno seguinte
+    if not ligado:
+        return None
+    if str(saida.fatos_depois.get(pendente) or "").strip().lower() not in motivos.get(pendente, ()):
+        return None                                      # o lead corrigiu o dado: nada a confirmar
+    saida.contexto["desqualificacao_no_closer"] = "confirmou"
+    return ORIENTACAO_CONFIRMOU_NO_CLOSER.format(rotulo=ROTULO_DO_MOTIVO.get(pendente, pendente.replace("_", " ")))
 
 
 def exigir_confirmacao_contrato(config: dict[str, Any] | None) -> bool:

@@ -57,6 +57,12 @@ CAMPOS: dict[str, str] = {
     "endereco": "endereco", "numero": "numero_casa", "complemento": "complemento", "bairro": "bairro",
     "cidade": "cidade", "estado": "uf", "cep": "cep", "telefone": "telefone_contrato", "email": "email",
     "nomecompletomenor": "nome_menor", "cpfdomenor": "cpf_menor",
+    # Qualificação completa do BPC infantil (o n8n mandava; ficavam de fora). Sem _menor = de quem assina (o
+    # responsável); com _menor = da criança. Opcionais: só são exigidos se o modelo da ZapSign do agente pedir
+    # (obrigatorios do modelo, que chegam ao turno em entrada.obrigatorios_contrato).
+    "nacionalidade": "nacionalidade", "naturalidade": "naturalidade", "filiacao": "filiacao",
+    "nacionalidadedomenor": "nacionalidade_menor", "naturalidadedomenor": "naturalidade_menor",
+    "filiacaodomenor": "filiacao_menor",
 }
 OBRIGATORIOS_PADRAO = ("nome", "cpf", "endereco", "numero", "bairro", "cidade", "estado", "cep")
 
@@ -66,6 +72,12 @@ PEDIR = {
     "estado": "o seu estado (a sigla, como MG ou SP)", "cep": "o seu CEP", "email": "o seu e-mail",
     "cpfdomenor": "o CPF do(a) menor", "estado_civil": "o seu estado civil", "profissao": "a sua profissão",
     "rg": "o seu RG", "telefone": "o seu telefone com DDD",
+    "nomecompletomenor": "o nome completo do(a) menor",
+    "nacionalidade": "a sua nacionalidade", "naturalidade": "a sua naturalidade (cidade onde você nasceu)",
+    "filiacao": "a sua filiação (nome do seu pai e da sua mãe)",
+    "nacionalidadedomenor": "a nacionalidade do(a) menor",
+    "naturalidadedomenor": "a naturalidade do(a) menor (cidade onde nasceu)",
+    "filiacaodomenor": "a filiação do(a) menor (nome do pai e da mãe)",
 }
 
 # Mapeamento padrão: os 22 nomes do modelo usado pela LawChat (texto exato da variável na ZapSign).
@@ -80,6 +92,13 @@ MAPEAMENTO_PADRAO: list[dict[str, str]] = [
     {"variavel": "DATA", "campo": "@data_geracao"},
     {"variavel": "Qual o nome completo do(a) menor?", "campo": "nomecompletomenor"},
     {"variavel": "Qual o CPF do(a) menor?", "campo": "cpfdomenor"},
+    # Nomes exatos do modelo do n8n (docs/n8n/contrato_zapsign.md, variáveis 18 a 22). "da mae" é o nome da variável
+    # no modelo; o campo é de quem assina (o responsável), seja mãe, pai ou guardião.
+    {"variavel": "Nacionalidade do(a) menor", "campo": "nacionalidadedomenor"},
+    {"variavel": "Naturalidade do(a) menor", "campo": "naturalidadedomenor"},
+    {"variavel": "filiação do(a) menor", "campo": "filiacaodomenor"},
+    {"variavel": "Naturalidade da mae", "campo": "naturalidade"},
+    {"variavel": "filiação da mae", "campo": "filiacao"},
 ]
 
 TEXTOS = {
@@ -172,7 +191,8 @@ def validar_dados(brutos: dict[str, Any], telefone_da_conversa: str | None = Non
         if campo in obrigatorios or d.get(campo):
             erros.append(CampoInvalido(campo, PEDIR.get(campo, campo)))
 
-    for campo in ("nome", "endereco", "bairro", "cidade", "complemento", "nomecompletomenor"):
+    for campo in ("nome", "endereco", "bairro", "cidade", "complemento", "nomecompletomenor", "naturalidade",
+                  "naturalidadedomenor", "filiacao", "filiacaodomenor"):
         if d.get(campo):
             d[campo] = capitalizar(d[campo])
     if not d.get("nome") or len(d["nome"].split()) < 2 or re.search(r"\d", d["nome"]):
@@ -347,11 +367,16 @@ def nota_dos_dados(dados: dict[str, str]) -> str:
     blocos = [
         ["📝 Dados do contrato preenchidos pelo lead"],
         [x for x in (linha("👤 Nome", "nome"), linha("🪪 CPF", "cpf"), linha("RG", "rg"),
-                     linha("Estado civil", "estado_civil"), linha("Profissão", "profissao")) if x],
+                     linha("Estado civil", "estado_civil"), linha("Profissão", "profissao"),
+                     linha("Nacionalidade", "nacionalidade"), linha("Naturalidade", "naturalidade"),
+                     linha("Filiação", "filiacao")) if x],
         [x for x in (f"🏠 Endereço: {rua}" if rua else None, linha("Bairro", "bairro"),
                      f"Cidade: {cidade}" if cidade else None, linha("CEP", "cep")) if x],
         [x for x in (linha("📞 Telefone", "telefone"), linha("✉️ E-mail", "email")) if x],
-        [x for x in (linha("👶 Menor", "nomecompletomenor"), linha("CPF do menor", "cpfdomenor")) if x],
+        [x for x in (linha("👶 Menor", "nomecompletomenor"), linha("CPF do menor", "cpfdomenor"),
+                     linha("Nacionalidade do menor", "nacionalidadedomenor"),
+                     linha("Naturalidade do menor", "naturalidadedomenor"),
+                     linha("Filiação do menor", "filiacaodomenor")) if x],
     ]
     return "\n\n".join("\n".join(b) for b in blocos if b)
 

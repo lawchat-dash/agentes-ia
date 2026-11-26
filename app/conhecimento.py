@@ -358,6 +358,28 @@ def _numeros_da_fonte(texto: str) -> set[str]:
     return numeros | {n.replace(".", "").replace(",", ".") for n in numeros} | {n.split(",")[0].replace(".", "") for n in numeros}
 
 
+_MILHAR = re.compile(r"\b\d{1,3}(?:[.,]\d{3})+\b")                       # "6.500", "6,500", "1.250.000"
+_MIL = re.compile(r"\b(\d+)(?:[.,](\d))?\s*mil\b(?:\s*(?:e\s*)?(\d{1,3})\b)?")    # "6 mil", "6,5 mil", "6 mil e 500"
+_CENTENAS_POR_EXTENSO = {"cem": "100", "cento": "100", "duzentos": "200", "trezentos": "300", "quatrocentos": "400",
+                         "quinhentos": "500", "seiscentos": "600", "setecentos": "700", "oitocentos": "800",
+                         "novecentos": "900"}
+
+
+def _numeros_do_lead(texto: str) -> set[str]:
+    """Números que o lead disse, também nas formas de dinheiro que a IA repete com outra grafia: "6500", "6.500",
+    "6,500", "R$ 6.500,00", "6 mil e 500", "6 mil e quinhentos", "6,5 mil" valem todos 6500. Sem isto, a confirmação
+    "renda de R$ 6.500, certo?" era barrada como valor inventado no BPC."""
+    corrido = _extenso(texto)
+    for palavra, numero in _CENTENAS_POR_EXTENSO.items():
+        corrido = re.sub(rf"\b{palavra}\b", numero, corrido)
+    numeros = _numeros_da_fonte(texto)
+    numeros |= {re.sub(r"[.,]", "", n) for n in _MILHAR.findall(corrido)}
+    for inteiro, decimal, resto in _MIL.findall(corrido):
+        valor = int(inteiro) * 1000 + (int(decimal) * 100 if decimal else 0) + (int(resto) if resto else 0)
+        numeros.add(str(valor))
+    return numeros
+
+
 def _pct(numero: str) -> str:
     """'30', '30,0', '30.00' -> '30'; '12,5' -> '12.5'."""
     numero = numero.replace(",", ".")
@@ -384,7 +406,7 @@ def fato_sem_fonte(textos: list[str], fontes: list[str], livres: list[str] | Non
     escritorio = " ".join(str(f) for f in fontes if f)
     do_lead = " ".join(str(f) for f in livres or [] if f)
     numeros = _numeros_da_fonte(escritorio)
-    numeros_lead = _numeros_da_fonte(do_lead)
+    numeros_lead = _numeros_do_lead(do_lead)
     porcentagens = _porcentagens_da_fonte(escritorio)
     prazos = _prazos_da_fonte(escritorio)
     resposta = _EXTENSO_NA_RESPOSTA.sub(lambda m: _NUMEROS_POR_EXTENSO[sem_acento(m.group(1))], "\n".join(textos))

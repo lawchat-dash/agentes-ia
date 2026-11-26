@@ -460,8 +460,10 @@ def por_turno(rodada: "Rodada", regras: Regras, anteriores: list["Rodada"], link
             _, erros = cdados.validar_dados(cdados.dados_dos_fatos(rodada.fatos_depois), regras.cenario.lead.telefone)
             if erros:
                 falhas.append(_falha("ferramenta_cedo", ALTA, n, "zapsign com dado faltando: " + ", ".join(e.campo for e in erros)))
+        # "R$ 6.500" é o "6500" que o lead disse: vale o número inteiro (sem o separador de milhar), não só os pedaços.
         numeros = [m.group(0) for m in _NUMERO.finditer(tudo)
-                   if not set(re.findall(r"\d+", m.group(0))) <= corpus]
+                   if not set(re.findall(r"\d+", m.group(0))) <= corpus
+                   and not ("$" in m.group(0) and re.sub(r"[^\d]", "", m.group(0).split(",")[0]) in corpus)]
         if numeros:
             falhas.append(_falha("numero_inventado", MEDIA, n, ", ".join(numeros)))
     return falhas
@@ -486,7 +488,10 @@ def _numeros_conhecidos(rodada: "Rodada", regras: Regras, anteriores: list["Roda
         textos += [f.texto_corrido() for f in r.falas] + [f.descricao or "" for f in r.falas] + r.enviadas_sistema
         textos += [str(v) for k, v in r.fatos_depois.items()
                    if revelados is None or not k.startswith(("acidente_", "demissao_")) or k in revelados]
-    return regras.numeros_do_agente | set(re.findall(r"\d+", "\n".join(textos)))
+    corrido = "\n".join(textos)
+    # "6.500" ou "6,500" do lead também valem como "6500" (a IA confirma o valor com outra grafia).
+    juntos = {re.sub(r"[.,]", "", n) for n in re.findall(r"\b\d{1,3}(?:[.,]\d{3})+\b", corrido)}
+    return regras.numeros_do_agente | set(re.findall(r"\d+", corrido)) | juntos
 
 
 def perguntas_contadas(texto: str, regras: Regras, etapa: str | None) -> int:

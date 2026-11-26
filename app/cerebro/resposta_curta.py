@@ -111,6 +111,10 @@ REGRAS: tuple[_Regra, ...] = (
                r".*\b(?:rural|rurais|roca|lavoura|agricult\w*|sitio|fazenda|terra|produtor\w*|lavrador\w*|campo)\b"
                r"|\b(?:rural|rurais|roca|lavoura|agricult\w*|sitio|fazenda|produtor\w*|lavrador\w*)\b.*"
                r"\b(?:documento\w*|comprovante\w*|papel|papeis|nota\w*|bloco|declarac\w*)\b")),
+    # BPC: "Hoje ele recebe algum benefício, como aposentadoria ou pensão?" + "Não" = nenhum. "Sim" não diz qual
+    # (fica para o extrator de IA). Antes da regra do aposentado: a pergunta do BPC cita aposentadoria como exemplo.
+    # Só vale onde recebe_beneficio está no esquema (famílias BPC); no Auxílio-Acidente cai na regra seguinte.
+    _Regra("recebe_beneficio", _re(r"\b(?:beneficio\w*|bpc|loas|pensao|bolsa familia)\b"), valores={"nao": "nenhum"}),
     _Regra("aposentado", _re(r"\baposentad\w*|\baposentadoria\w*")),
     _Regra("tem_advogado_no_caso", _re(r"\badvogad\w*|\bescritorio\w* (?:cuidando|olhando)|\bprocesso\b.*\bcaso\b")),
     _Regra("seguro_desemprego", _re(r"\bseguro desemprego\b")),
@@ -226,6 +230,9 @@ ASSUNTO: dict[str, re.Pattern[str]] = {
     "seguro_desemprego": _re(r"\b(?:seguro\w*|desemprego)\b"),
     "contribuiu_por_conta_propria": _re(r"\b(?:carne\w*|inss|contribu\w*|recolh\w*|mei|pag\w*|guia\w*|gps|"
                                         r"conta propria|autonom\w*)\b"),
+    # BPC: recebe_beneficio desqualifica (bpc, aposentadoria, pensão por morte): só vale quando o assunto apareceu.
+    "recebe_beneficio": _re(r"\b(?:benefici\w*|bpc|loas|aposent\w*|pensao|pensionista|auxilio\w*|bolsa|inss|"
+                            r"receb\w*|ganh\w*|encostad\w*|afastad\w*)\b"),
 }
 # Fora da trava: aceite_honorarios (portão de Contratos). Não desqualifica ninguém e o aceite é dito de mil jeitos
 # ("fechado", "bora", "pode mandar") depois de um vídeo com "O que acha?": a trava seguraria o contrato por engano.

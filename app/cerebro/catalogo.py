@@ -58,6 +58,18 @@ GUIA_DO_CAMPO = {
     "cep": ": 8 dígitos (00000-000), mesmo sem a palavra CEP quando é a resposta ao pedido do CEP; não confunda com telefone",
     "uf": " (se o lead escrever o nome, como \"Minas Gerais\", grave a sigla MG; nome de estado não vai para cidade)",
     "telefone_contrato": " (DDD e número; \"pode ser este do zap\" = deixe vazio, o sistema usa o número da conversa)",
+    # BPC infantil (rodada real): o nome do avô (da filiação da mãe) virou o nome de quem assina e a cidade de nascimento
+    # virou a cidade do endereço. Cada dado no seu campo.
+    "nome_completo": (" (de quem ASSINA o contrato: a pessoa adulta que está conversando, o responsável quando o "
+                      "benefício é de uma criança; nunca um nome tirado de uma filiação, do pai ou da mãe de alguém)"),
+    "cidade": (" (cidade do ENDEREÇO de hoje: só do resultado da busca do CEP ou do endereço que o lead digitou; nunca "
+               "a naturalidade nem a cidade onde alguém nasceu)"),
+    "naturalidade": " (cidade onde nasceu quem assina; não é a cidade do endereço)",
+    "filiacao": " (nomes do pai e da mãe de quem assina, como o lead escreveu; estes nomes nunca vão para nome_completo)",
+    "nacionalidade": " (de quem assina, ex.: brasileira)",
+    "nacionalidade_menor": " (da criança, ex.: brasileira)",
+    "naturalidade_menor": " (cidade onde a criança nasceu; não é a cidade do endereço)",
+    "filiacao_menor": " (nomes do pai e da mãe da criança, como o lead escreveu)",
 }
 
 # Fatos de qualificação que um papel pode exigir antes de transferir (config papeis[x].perguntar_antes_de_transferir).
@@ -80,7 +92,90 @@ GUIA_DA_QUALIFICACAO = {
     "documentos_rurais": "sim | nao (tem documentos do trabalho na roça)",
     "aceite_honorarios": "sim | nao | nao_sabe (\"sim\" só quando o lead aceita com clareza a proposta e os honorários; "
                          "\"não sei\", \"vou ver\", \"vou pensar\", \"talvez\" = nao_sabe)",
+    # Fatos do BPC/LOAS (famílias bpc_*). Sem eles no esquema, a IA enfiava "autismo" no bairro e "70 anos" na profissão.
+    "beneficiario_relacao": "proprio | filho | pai_mae | conjuge | outro (quem vai receber o benefício, em relação a "
+                            "quem está falando: \"é pro meu filho\" = filho; \"é pra mim\" = proprio; \"pra minha mãe\" = "
+                            "pai_mae; neto, sobrinho, irmão = outro)",
+    "beneficiario_idade": "idade de quem vai receber o benefício, em anos (número inteiro; bebê de meses = 0)",
+    "condicao_saude": "doença, deficiência ou condição de quem vai receber (\"autismo\", \"TEA\", \"cadeirante\"), nas "
+                      "palavras do lead. Nunca vai para bairro, profissão nem outro dado do contrato",
+    "recebe_beneficio": "nenhum | bpc | aposentadoria | pensao_morte | auxilio_doenca | bolsa_familia | outro (benefício "
+                        "que quem vai receber já recebe HOJE; \"não recebe nada\" = nenhum; benefício de outra pessoa "
+                        "da casa não conta)",
+    "pessoas_na_casa": "quantas pessoas moram na casa, contando quem vai receber (número inteiro)",
+    "renda_casa": "renda da casa como o lead disse (\"um salário mínimo\", \"uns 1.500\"), sem fazer conta",
 }
+# Valores aceitos dos fatos do BPC (mesmo formato de aa.FATOS: None = texto livre, "int:a-b" = inteiro no intervalo).
+FATOS_BPC: dict[str, tuple[str, ...] | str | None] = {
+    "beneficiario_relacao": ("proprio", "filho", "pai_mae", "conjuge", "outro"),
+    "beneficiario_idade": "int:0-130",
+    "condicao_saude": None,
+    "recebe_beneficio": ("nenhum", "bpc", "aposentadoria", "pensao_morte", "auxilio_doenca", "bolsa_familia", "outro"),
+    "pessoas_na_casa": "int:1-30",
+    "renda_casa": None,
+    "tem_advogado_no_caso": ("sim", "nao"),
+}
+
+
+def _validar_pela_regra(regra: tuple[str, ...] | str | None, valor: Any) -> Any | None:
+    """Mesma conferência de aa.validar_valor, para os fatos que não são do Auxílio-Acidente (FATOS_BPC)."""
+    if regra is None:
+        texto = re.sub(r"\s+", " ", str(valor or "")).strip()
+        return texto[:300] or None
+    if isinstance(regra, str) and regra.startswith("int:"):
+        minimo, maximo = (int(x) for x in regra[4:].split("-"))
+        try:
+            numero = int(str(valor).strip())
+        except ValueError:
+            return None
+        return numero if minimo <= numero <= maximo else None
+    texto = str(valor or "").strip().lower()
+    return texto if texto in regra else None
+
+
+# ---------------------------------------------------------------------------- famílias de produto
+# Cada família tem a sua inteligência dentro do mesmo funil: os fatos de qualificação que o extrator sempre procura,
+# os motivos de desqualificar e um bloco curto nas regras do motor. A família sai do slug do produto (começo do nome):
+# a ordem importa (o prefixo mais específico primeiro; qualquer outro "bpc..." é o BPC geral).
+FAMILIAS = ("auxilio_acidente", "bpc_infantil", "bpc_idoso", "bpc_geral", "previdenciario")
+_PREFIXOS_DA_FAMILIA = (("auxilio_acidente", "auxilio_acidente"), ("bpc_loas_autismo", "bpc_infantil"),
+                        ("bpc_loas_infantil", "bpc_infantil"), ("bpc_loas_idoso", "bpc_idoso"),
+                        ("bpc_loas_geral", "bpc_geral"))
+# Fatos que entram SEMPRE no esquema do extrator da família, mesmo com o portão de fatos desligado (o portão continua
+# desligado: nada segura a passagem por eles). Com o portão desligado o esquema só tinha o contrato, e o lead que dizia
+# "sou aposentado" ou "já tenho advogado nesse caso" no Closer passava por sorte.
+FATOS_DA_FAMILIA: dict[str, tuple[str, ...]] = {
+    "auxilio_acidente": ("aposentado", "tem_advogado_no_caso"),
+    "bpc_infantil": tuple(FATOS_BPC),
+    "bpc_idoso": tuple(FATOS_BPC),
+    "bpc_geral": tuple(FATOS_BPC),
+    "previdenciario": (),
+}
+# Quem assina o contrato em cada família (vai na guia do extrator, junto dos campos do contrato).
+GUIA_DO_ASSINANTE = {
+    "bpc_infantil": ("Contrato do BPC infantil: o titular do benefício é a criança, mas quem ASSINA é o responsável "
+                     "(mãe, pai ou guardião) que está conversando. nome_completo, cpf, rg, estado_civil, profissao, "
+                     "naturalidade e filiacao são do responsável; nome_menor, cpf_menor, nacionalidade_menor, "
+                     "naturalidade_menor e filiacao_menor são da criança."),
+    "bpc_geral": ("Contrato do BPC: se o benefício é de uma criança, quem assina é o responsável que está conversando "
+                  "(os campos sem _menor são dele; os com _menor são da criança). Adulto ou idoso assina por si: "
+                  "os campos sem _menor são do próprio beneficiário."),
+    "bpc_idoso": "Contrato do BPC idoso: quem assina é o idoso (os campos sem _menor são dele).",
+}
+
+
+def familia_do_produto(config: dict[str, Any] | None) -> str:
+    """Família do produto pelo slug (config.catalogo.slug, ou o nome): auxilio_acidente, bpc_infantil, bpc_idoso,
+    bpc_geral ou previdenciario (o que não casar)."""
+    slug = _slug_do_produto(config)
+    for prefixo, familia in _PREFIXOS_DA_FAMILIA:
+        if slug == prefixo or slug.startswith(prefixo + "_"):
+            return familia
+    return "bpc_geral" if slug.startswith("bpc") else "previdenciario"
+
+
+def e_bpc(familia: str) -> bool:
+    return familia.startswith("bpc")
 
 
 def _grupos_de_fatos(valor: Any) -> list[list[str]]:
@@ -124,7 +219,9 @@ MOTIVOS_DE_DESQUALIFICAR["auxilio_acidente"] = MOTIVOS_DE_DESQUALIFICAR["previde
 # BPC/LOAS (assistencial): não há acidente, sequela nem qualidade de segurado. Para o Comercial basta saber que não há
 # advogado no caso; renda, grupo familiar e laudo ficam com a conversa e com a equipe (a IA não desqualifica por renda).
 PORTAO_DE_FATOS["bpc"] = {"closer": ("tem_advogado_no_caso",), "contratos": ("aceite_honorarios=sim",)}
-MOTIVOS_DE_DESQUALIFICAR["bpc"] = {"tem_advogado_no_caso": ("sim",)}
+# Quem já recebe BPC, aposentadoria ou pensão por morte não acumula o BPC. Renda NUNCA desqualifica no código.
+MOTIVOS_DE_DESQUALIFICAR["bpc"] = {"tem_advogado_no_caso": ("sim",),
+                                   "recebe_beneficio": ("bpc", "aposentadoria", "pensao_morte")}
 # Pergunta direta de cada fato do portão: vai na CORRIJA e na mensagem que substitui a frase de passagem segurada.
 PERGUNTA_DO_PORTAO = {
     "aposentado": "Você já é aposentado(a) por alguma aposentadoria?",
@@ -232,6 +329,24 @@ class ProdutoCatalogo:
     objetivo: str = ""
     nunca: tuple[str, ...] = ()
     contrato: bool = True
+    # Papel do turno (turno.py preenche com para_o_papel). None = sem papel: o extrator vê todos os campos (como antes).
+    papel_atual: str | None = None
+    coleta_contrato: bool = True        # o papel do turno coleta o contrato (zapsign/buscar_cep): campos do contrato no extrator
+
+    @property
+    def familia(self) -> str:
+        return familia_do_produto(self.config)
+
+    def para_o_papel(self, papel: str, prompt: str | None = None) -> "ProdutoCatalogo":
+        """Cópia ajustada ao papel do turno. Os campos do contrato só entram no extrator dos papéis que coletam o contrato
+        (os que têm zapsign ou buscar_cep, no mapa ou no roteiro: Contratos e Assinatura). No SDR e no Closer eles
+        atraíam o que não era contrato ("autismo" no bairro, "70 anos" na profissão)."""
+        from dataclasses import replace
+
+        _destinos, do_prompt = ferramentas_do_prompt(prompt or "")
+        acoes = set(self.ferramentas_do_papel(papel)["acoes"]) | set(do_prompt)
+        coleta = papel in ("contratos", "assinatura") or bool(acoes & {"zapsign", "buscar_cep"})
+        return replace(self, papel_atual=papel, coleta_contrato=coleta)
 
     @property
     def etapas(self) -> list[EtapaDoProduto]:
@@ -279,7 +394,7 @@ class ProdutoCatalogo:
         """Fatos que algum papel exige antes de transferir (perguntar_antes_de_transferir) e os do portão de fatos dos
         papéis ativos (sempre, salvo portao_de_fatos=false), que o extrator sabe preencher."""
         papeis = (self.config.get("catalogo") or {}).get("papeis") or {}
-        conhecidos = set(aa.FATOS) | set(FATOS_EXTRAS)
+        conhecidos = set(aa.FATOS) | set(FATOS_EXTRAS) | set(FATOS_BPC)
         contrato = set(cdados.CAMPOS.values()) | {"nome"}
         vistos: list[str] = []
         for cfg in papeis.values():
@@ -287,16 +402,29 @@ class ProdutoCatalogo:
                 vistos += [f for grupo in grupos for f in grupo]
         # Portão de fatos (B4): o extrator SEMPRE procura os fatos que o código confere na passagem.
         vistos += fatos_do_portao(self.config, self.papeis)
+        # Fatos da família (com os que desqualificam): sempre, mesmo com o portão desligado.
+        vistos += list(FATOS_DA_FAMILIA.get(self.familia, ()))
         return tuple(f for f in dict.fromkeys(vistos)
                      if f in conhecidos and f not in contrato and f not in self.fatos_do_periodo)
 
+    @property
+    def _campos_do_contrato(self) -> list[str]:
+        """Fatos do contrato que o extrator deste turno procura: todos no papel que coleta o contrato, nenhum fora dele."""
+        return list(cdados.CAMPOS.values()) if self.coleta_contrato else []
+
     def esquema_extrator(self) -> dict[str, Any]:
-        chaves = sorted(set(cdados.CAMPOS.values()) | {"nome"} | set(self.fatos_do_periodo) | set(self.fatos_de_qualificacao))
+        chaves = sorted(set(self._campos_do_contrato) | {"nome"} | set(self.fatos_do_periodo)
+                        | set(self.fatos_de_qualificacao))
         return esquema_extrator(chaves, sinais_catalogo.DO_EXTRATOR, self.intencoes)
 
     def guia_do_extrator(self) -> str:
-        linhas = ["Campos possíveis (dados do contrato, só quando o lead disser claramente):"]
-        linhas += [f"- {fato}: {cdados.PEDIR.get(campo, campo)}{GUIA_DO_CAMPO.get(fato, '')}" for campo, fato in cdados.CAMPOS.items()]
+        linhas: list[str] = []
+        if self.coleta_contrato:
+            linhas.append("Campos possíveis (dados do contrato, só quando o lead disser claramente):")
+            linhas += [f"- {fato}: {cdados.PEDIR.get(campo, campo)}{GUIA_DO_CAMPO.get(fato, '')}"
+                       for campo, fato in cdados.CAMPOS.items()]
+            if assinante := GUIA_DO_ASSINANTE.get(self.familia):
+                linhas.append(assinante)
         linhas.append("- nome: como a pessoa quer ser chamada")
         if self.fatos_do_periodo:
             linhas.append("Datas do trabalho e do acidente (só o que foi dito; \"em 2021\" preenche só o ano):")
@@ -310,7 +438,11 @@ class ProdutoCatalogo:
             linhas.append("- seguro_desemprego: sim | nao (recebeu seguro-desemprego quando saiu do emprego)")
             linhas.append("- contribuiu_por_conta_propria: sim | nao (pagou o INSS por conta própria depois de sair: carnê, MEI)")
         if self.fatos_de_qualificacao:
-            linhas.append("Respostas do roteiro (só o que o lead disse com clareza):")
+            # Os fatos que desqualificam estão sempre aqui: só valem ditos pelo lead, com as palavras dele. O "não" curto
+            # é ligado à pergunta pelo código (extrator.pela_pergunta), que confere se a pergunta era daquele assunto.
+            linhas.append("Respostas do roteiro (só quando o lead disser explicitamente, com as próprias palavras; nunca "
+                          "deduza. Um \"não\" ou \"sim\" curto só vale para o fato que a ÚLTIMA pergunta da atendente "
+                          "perguntou, exatamente; advogado de antes ou de outro caso = tem_advogado_no_caso nao):")
             linhas += [f"- {fato}: {GUIA_DA_QUALIFICACAO.get(fato, fato)}" for fato in self.fatos_de_qualificacao]
         linhas.append(sinais_catalogo.guia_do_extrator(self.beneficio))
         linhas.append("Intenções:")
@@ -325,6 +457,8 @@ class ProdutoCatalogo:
         if chave in FATOS_EXTRAS and chave in self.fatos_de_qualificacao:
             texto = str(valor or "").strip().lower()
             return texto if texto in FATOS_EXTRAS[chave] else None
+        if chave in FATOS_BPC and chave not in aa.FATOS and chave in self.fatos_de_qualificacao:
+            return _validar_pela_regra(FATOS_BPC[chave], valor)
         if chave in self.fatos_do_periodo or chave in self.fatos_de_qualificacao:
             return aa.validar_valor(chave, valor)            # números e sim/nao conferidos como no Auxílio-Acidente
         texto = re.sub(r"\s+", " ", str(valor or "")).strip()
@@ -570,6 +704,15 @@ REGRA_ENCERRAMENTO = """Encerramento
 # Regras de cada papel do funil (além das que valem por ferramenta ou destino).
 REGRAS_DO_PAPEL = {"contratos": REGRA_COLETA, "assinatura": REGRA_ASSINATURA, "desqualificado": REGRA_ENCERRAMENTO}
 
+# Regras de cada família de produto (familia_do_produto). Auxílio-Acidente e previdenciário: nada além das gerais.
+REGRA_BPC = """BPC/LOAS
+- Nunca diga "per capita" e nunca mostre ao lead conta de renda (somar, dividir pelo número de pessoas, comparar
+  com o salário mínimo ou com 1/4 dele). Quem avalia a renda é o escritório.
+- Não peça para mandar laudo, exame, receita ou relatório médico pelo chat.
+- O benefício é de quem tem a deficiência ou a idade (o beneficiário), não de quem cuida dele: fale assim ("o
+  benefício do seu filho", "o benefício da sua mãe")."""
+REGRAS_DA_FAMILIA = {"bpc_infantil": REGRA_BPC, "bpc_idoso": REGRA_BPC, "bpc_geral": REGRA_BPC}
+
 # Áudios gravados pelo escritório (e vídeos, imagens) citados no roteiro: entra só no papel cujo roteiro, regras,
 # objeções ou base têm link de mídia (docs/AUDIO_NO_PROMPT.md). O motor confere tudo isto depois (turno e pipeline).
 REGRA_MIDIA = """Áudios e mídias do roteiro
@@ -684,11 +827,11 @@ def _frase_de_entrada(papeis: dict[str, Any] | None, papel: str) -> str:
 
 
 def regras_do_motor(papel: str, ferramentas: dict[str, Any] | None, destinos: list[str],
-                    papeis: dict[str, Any] | None = None, com_midia: bool = False) -> str:
+                    papeis: dict[str, Any] | None = None, com_midia: bool = False, familia: str | None = None) -> str:
     """Bloco "# REGRAS DO ATENDIMENTO (sistema)", em camadas: conduta e anti-invenção (todo papel); começo da etapa
     (papel com mensagem de entrada); desqualificação (destino "desqualificado"); calculadora (papel com a calculadora);
-    a regra própria do papel (coleta, assinatura, encerramento) e a das mídias (roteiro com link de áudio, vídeo ou
-    imagem). Estático por papel, ferramentas e roteiro."""
+    a regra própria do papel (coleta, assinatura, encerramento), a da família do produto (BPC) e a das mídias (roteiro
+    com link de áudio, vídeo ou imagem). Estático por papel, ferramentas, família e roteiro."""
     ferramentas = ferramentas or {}
     partes = [REGRAS_CONVERSA, REGRAS_NAO_INVENTAR]
     if frase := _frase_de_entrada(papeis, papel):
@@ -702,6 +845,8 @@ def regras_do_motor(papel: str, ferramentas: dict[str, Any] | None, destinos: li
         com_zapsign = "zapsign" in (ferramentas.get("acoes") or [])
         partes.append(REGRAS_DO_PAPEL[papel].replace(
             "{dado_errado}", "aí vale a regra do zapsign" if com_zapsign else "aí siga o roteiro para dado errado"))
+    if familia in REGRAS_DA_FAMILIA:
+        partes.append(REGRAS_DA_FAMILIA[familia])
     if com_midia:
         partes.append(REGRA_MIDIA)
     return "\n\n".join(partes)
@@ -806,7 +951,8 @@ def montar_sistema(*, prompt: str, nome_agente: str, escritorio: str, conhecimen
                    destinos: list[str], acoes: list[str], fatos_sistema: dict[str, Any] | None,
                    notificacoes: tuple[str, ...] | list[str] = (), papel: str = "",
                    ferramentas: dict[str, Any] | None = None, papeis: dict[str, Any] | None = None,
-                   honorarios: str | None = None, variaveis: dict[str, str] | None = None) -> str:
+                   honorarios: str | None = None, variaveis: dict[str, str] | None = None,
+                   familia: str | None = None) -> str:
     """Sistema do agente do papel: o roteiro (variáveis já trocadas), as regras do escritório, os honorários, a base,
     as REGRAS DO ATENDIMENTO do motor, o FORMATO e, por último, os fatos do sistema (o que muda por lead). A data de hoje (o 'A data de hoje é' dos agentes
     do n8n) vai no conteúdo do turno: com a hora no começo do sistema, nenhum turno reaproveitaria o cache do provedor."""
@@ -825,7 +971,7 @@ def montar_sistema(*, prompt: str, nome_agente: str, escritorio: str, conhecimen
                       "com suas palavras, em 1 ou 2 frases, e volte para a etapa. Se não estiver na base, diga que vai confirmar "
                       "com a equipe; nunca invente.\n\n" + preencher_variaveis(conhecimento_texto, valores)[0])
     partes.append(regras_do_motor(papel, ferramentas, destinos, papeis,
-                                  com_midia=bool(urls_de_midia(prompt, regras, conhecimento_texto))))
+                                  com_midia=bool(urls_de_midia(prompt, regras, conhecimento_texto)), familia=familia))
     partes.append(formato(destinos, acoes, notificacoes, papeis))
     # Os FATOS DO SISTEMA mudam por lead (nome, telefone, contrato) e por turno (contas da calculadora): vão no fim, para
     # tudo o que é fixo do agente e do papel (roteiro, regras, base, regras do motor, formato) ser o mesmo prefixo em toda

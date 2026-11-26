@@ -301,7 +301,10 @@ def test_b4_extrator_sempre_procura_os_fatos_do_portao_e_o_escritorio_pode_desli
     enum = lambda p: set(p.esquema_extrator()["properties"]["fatos"]["items"]["properties"]["chave"]["enum"])  # noqa: E731
     ligado = enum(produto())
     assert {"aposentado", "tem_advogado_no_caso", "sequela", "aceite_honorarios", "vinculo_na_data"} <= ligado
-    assert not {"aposentado", "aceite_honorarios"} & enum(produto(portao=False))
+    # Família auxilio_acidente (26/11): aposentado e advogado (que desqualificam) ficam no extrator mesmo com o portão
+    # desligado; o resto do portão (aceite, sequela) sai.
+    assert "aceite_honorarios" not in enum(produto(portao=False))
+    assert {"aposentado", "tem_advogado_no_caso"} <= enum(produto(portao=False))
     guia = produto().guia_do_extrator()
     assert "aceite_honorarios: sim | nao | nao_sabe" in guia and "\"vou ver\"" in guia
     assert produto().validar_valor("aceite_honorarios", "talvez") is None
@@ -498,7 +501,9 @@ def test_portao_do_bpc_nao_pede_sequela_e_familia_pelo_comeco_do_slug():
     bpc = {"catalogo": {"slug": "bpc-loas-geral-idoso"}}
     assert c.faltam_para_entrar(bpc, "closer", {}) == ["tem_advogado_no_caso"]
     assert c.faltam_para_entrar(bpc, "closer", {"tem_advogado_no_caso": "nao"}) == []
-    assert c.motivos_de_desqualificar(bpc) == {"tem_advogado_no_caso": ("sim",)}
+    # 26/11: quem já recebe BPC, aposentadoria ou pensão por morte também desqualifica (renda nunca).
+    assert c.motivos_de_desqualificar(bpc) == {"tem_advogado_no_caso": ("sim",),
+                                               "recebe_beneficio": ("bpc", "aposentadoria", "pensao_morte")}
     acidente = {"catalogo": {"slug": "auxilio-acidente-midia"}}
     assert "sequela" in c.faltam_para_entrar(acidente, "closer", {})
     assert c.faltam_para_entrar({"catalogo": {"slug": "outro"}}, "closer", {}) == ["aposentado", "tem_advogado_no_caso", "sequela"]

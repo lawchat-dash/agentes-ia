@@ -45,7 +45,9 @@ ROTULOS_VALOR = {"sim": "sim", "nao": "não", "nao_sabe": "não sabe", "clt": "c
 # Nunca na ficha: documento, contato, endereço e texto livre de saúde.
 FORA_DA_FICHA = {"rg", "endereco", "numero_casa", "complemento", "bairro", "cep", "email", "telefone_contrato", "telefone",
                  "nome_menor", "cpf_menor", "cpfdomenor", "nomecompletomenor", "acidente_descricao", "sequela_descricao",
-                 "laudo", "cid", "doenca", "diagnostico", "condicao_saude", "descricao_sequela"}
+                 "laudo", "cid", "doenca", "diagnostico", "condicao_saude", "descricao_sequela",
+                 # Qualificação do contrato do BPC infantil (dados de documento e de família).
+                 "nacionalidade", "naturalidade", "filiacao", "nacionalidade_menor", "naturalidade_menor", "filiacao_menor"}
 
 
 def mascarar_cpf(valor: Any) -> str:

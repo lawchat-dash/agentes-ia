@@ -135,6 +135,7 @@ class Extracao:
     bruto: dict[str, Any] = field(default_factory=dict)
     chamadas: list[Chamada] = field(default_factory=list)
     resolvidos: list[dict[str, Any]] = field(default_factory=list)  # fatos da resposta curta à última pergunta (código)
+    falha: str | None = None        # motivo do erro do extrator de IA quando o turno seguiu sem ele (tolerar_falha)
 
 
 def montar_conteudo(fatos_conhecidos: dict[str, Any], historico: list[dict[str, str]], novas: list[str],
@@ -230,6 +231,41 @@ def conferir(dados: dict[str, Any], textos_do_lead: list[str], fatos_conhecidos:
     return extracao
 
 
+# Teto de tokens de saída do extrator. A saída é curta (alguns fatos com o trecho); numa rodada real o modelo entrou em
+# repetição ("autismo" no bairro...) e só parava no teto geral (4000 na OpenAI, 16000 na Anthropic), gastando o turno
+# inteiro antes de falhar. Modelos sem raciocínio (gpt-4*) param em 1500; os de raciocínio gastam tokens pensando
+# (max_completion_tokens conta o raciocínio), então ficam em 4000.
+MAX_TOKENS_EXTRATOR = 1500
+MAX_TOKENS_EXTRATOR_RACIOCINIO = 4000
+# Falhas do extrator de IA que não derrubam o turno do catálogo (tolerar_falha=True): saída cortada pelo teto ou fora
+# do formato, já depois da 2ª tentativa do modelo (app/modelo.py repete uma vez). Antes, o turno ia para
+# pipeline._formato_invalido e o lead era pausado já na 1ª falha. Agora o turno segue sem os fatos de IA deste lote
+# (a resposta curta à última pergunta continua ligada pelo código) e fica o evento "extrator_falhou". Provedor fora do
+# ar, sem crédito ou chave recusada continuam no caminho de sempre (_falha -> nova tentativa do pipeline).
+FALHAS_TOLERADAS = ("saida_cortada", "saida_invalida")
+
+
+def max_tokens_do_extrator(nome_modelo: str) -> int:
+    return MAX_TOKENS_EXTRATOR if str(nome_modelo or "").startswith("gpt-4") else MAX_TOKENS_EXTRATOR_RACIOCINIO
+
+
+def _aceita_max_tokens(modelo: Any) -> bool:
+    """O gerar() do modelo aceita max_tokens? (os falsos da avaliação e o cassete não aceitam). Desembrulha o
+    pipeline.ModeloQueAnota, que repassa **pedido ao modelo de verdade."""
+    import inspect
+
+    alvo = modelo
+    for _ in range(5):
+        interno = getattr(alvo, "__dict__", {}).get("_modelo")
+        if interno is None:
+            break
+        alvo = interno
+    try:
+        return "max_tokens" in inspect.signature(alvo.gerar).parameters
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
 async def extrair(
     modelo: Modelo,
     *,
@@ -239,16 +275,29 @@ async def extrair(
     novas: list[str],
     produto: "Produto | None" = None,
     agora: datetime | None = None,
+    tolerar_falha: bool = False,
 ) -> Extracao:
+    from app.modelo import ErroModelo
+
     if produto is None:
         from app.cerebro.produto import AuxilioAcidente
         produto = AuxilioAcidente()
     conteudo = montar_conteudo(fatos_conhecidos, historico, novas, agora)
-    resultado = await modelo.gerar(
-        papel="extrator", sistema=sistema_do_extrator(produto), conteudo=conteudo,
-        esquema=produto.esquema_extrator(), modelo=nome_modelo, esforco="low",
-    )
+    extras = {"max_tokens": max_tokens_do_extrator(nome_modelo)} if _aceita_max_tokens(modelo) else {}
     textos_do_lead = novas + [m["texto"] for m in historico if m["autor"] == "lead"]
+    try:
+        resultado = await modelo.gerar(
+            papel="extrator", sistema=sistema_do_extrator(produto), conteudo=conteudo,
+            esquema=produto.esquema_extrator(), modelo=nome_modelo, esforco="low", **extras,
+        )
+    except ErroModelo as erro:
+        if not tolerar_falha or erro.motivo not in FALHAS_TOLERADAS:
+            raise
+        extracao = conferir({}, textos_do_lead, fatos_conhecidos, produto)
+        extracao.chamadas = list(getattr(erro, "chamadas", None) or [])
+        extracao.falha = erro.motivo
+        pela_pergunta(extracao, historico, novas, fatos_conhecidos, produto)
+        return extracao
     extracao = conferir(resultado.dados, textos_do_lead, fatos_conhecidos, produto)
     extracao.chamadas = resultado.chamadas
     pela_pergunta(extracao, historico, novas, fatos_conhecidos, produto)
