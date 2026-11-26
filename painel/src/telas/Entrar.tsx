@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { BlockedAccountDialog } from "@/components/auth/BlockedAccountDialog";
 import logoMark from "@/assets/lawchat-logo.png";
 import iconeLawChat from "@/assets/lawchat-icone.svg";
+import videoFundo from "@/assets/login-fundo.mp4";
 
 const ERROS_DA_HELENA: Record<string, string> = {
   link_incompleto: "O link da LawChat veio incompleto. Abra a IA de novo pelo botão dentro da LawChat.",
@@ -114,6 +115,9 @@ const splitStyle = `
     display:flex;flex-direction:column;justify-content:space-between;padding:44px 48px;min-height:calc(100vh - 32px)}
   .lcsplit-esq>*{position:relative;z-index:1}
   .lcsplit-esq>.lcauth-bg,.lcsplit-esq>.lcauth-grid,.lcsplit-esq>.lcauth-orb{position:absolute;z-index:0}
+  .lcsplit-esq>.lcsplit-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+  .lcsplit-esq>.lcsplit-veu{position:absolute;inset:0;z-index:0;
+    background:linear-gradient(180deg,rgba(6,12,20,.35) 0%,rgba(6,12,20,.55) 45%,rgba(6,12,20,.88) 100%)}
   .lcsplit-marca{display:flex;align-items:center;gap:10px;font-family:var(--fs);font-weight:700;font-size:1.25rem;letter-spacing:-.01em}
   .lcsplit-marca img{height:30px;width:auto}
   .lcsplit-titulo{font-family:var(--fs);font-weight:700;font-size:clamp(2rem,3.4vw,3rem);line-height:1.08;letter-spacing:-.03em;max-width:15ch;margin:0}
@@ -208,7 +212,9 @@ function TelaEntrada({ comSenha }: { comSenha: boolean }) {
       <style>{splitStyle}</style>
       <div className="lcsplit">
         <aside className="lcsplit-esq">
-          <Background />
+          {/* Fundo em vídeo (mudo, em loop), com um véu escuro por cima para o texto ficar legível. */}
+          <video className="lcsplit-video" src={videoFundo} autoPlay muted loop playsInline preload="auto" aria-hidden />
+          <div className="lcsplit-veu" aria-hidden />
           <div className="lcsplit-marca"><img src={iconeLawChat} alt="" /> LawChat</div>
           <div>
             <h1 className="lcsplit-titulo">Atendimento com IA para o <em>seu escritório.</em></h1>
