@@ -115,7 +115,7 @@ async def test_audio_e_depois_a_pergunta_saem_na_ordem_do_roteiro():
 async def test_pipeline_envia_o_audio_espera_e_depois_o_texto(monkeypatch):
     linha, *_ = await _envio(monkeypatch, [{"tipo": "midia", "url": COMO_FUNCIONA},
                                            {"tipo": "texto", "texto": "Conseguiu entender certinho?"}])
-    assert linha == [("espera", 0), ("envio", COMO_FUNCIONA), ("espera", 3.0), ("espera", 0),
+    assert linha == [("espera", 0), ("envio", COMO_FUNCIONA), ("espera", 10.0), ("espera", 0),
                      ("envio", "Conseguiu entender certinho?")]
 
 

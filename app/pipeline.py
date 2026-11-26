@@ -665,11 +665,7 @@ class Atendimento:
             try:
                 await self._evento(item["id_escritorio"], item["id_lead"], item["id_turno"], "turno_interrompido", "erro",
                                    "lawchat", self.texto_do_corte(item))
-                if item.get("enviadas", 1):              # parte da resposta saiu: a equipe confere a conversa
-                    lead = await self.repo.lead(item["id_lead"])
-                    escritorio = await self.repo.escritorio(item["id_escritorio"]) if lead else None
-                    if lead and escritorio:
-                        await self._nota_de_problema(escritorio, lead, "envio_falhou", "turno_interrompido")
+                # Sem nota no chat (26/11: "Parte da resposta não foi entregue" assustava): fica só em Erros.
             except Exception:
                 log.exception("falha ao avisar o turno interrompido %s", item.get("id_turno"))
 
@@ -1096,6 +1092,8 @@ class Atendimento:
             passos.append(seguro("nota_atendimento_iniciado", self._nota_interna(
                 escritorio, lead, f"{lead.id}:nota:atendimento_iniciado",
                 self._texto_atendimento_iniciado(escritorio, agente, entrada, saida))))
+        if modo != "laboratorio" and lead.id_sessao_helena:
+            passos.append(seguro("nota_dados_contrato", self._nota_dados_contrato(escritorio, agente, lead, saida)))
         with tempos.passo("pos_envio"):
             await asyncio.gather(*passos)            # cada um já se protege (_passo_seguro / _nota_de_problema)
         await self._fechar(id_turno, saida, saida.situacao, saida.motivo)
@@ -1133,6 +1131,19 @@ class Atendimento:
             etapa = next((e.nome for e in getattr(entrada.produto, "etapas", []) if e.codigo == codigo), codigo)
         nome = f"{agente.nome} ({etapa})" if etapa and etapa != agente.nome else agente.nome
         return self.NOTA_ATENDIMENTO_INICIADO.format(agente=nome, hora=self._hora(escritorio, agora()))
+
+    async def _nota_dados_contrato(self, escritorio: Escritorio, agente: Agente, lead: Lead, saida: cerebro.Saida) -> None:
+        """O lead terminou de mandar os dados do contrato (todos os obrigatórios válidos): nota organizada no atendimento,
+        uma vez por conjunto de dados (se ele corrigir algo, sai outra com o dado novo)."""
+        from app.contrato import dados as cdados
+        brutos = cdados.dados_dos_fatos(saida.fatos_depois or {})
+        if not brutos.get("nome") or not brutos.get("cpf"):
+            return
+        dados, erros = cdados.validar_dados(brutos, lead.telefone, await self._obrigatorios_do_contrato(escritorio, agente))
+        if erros:
+            return
+        await self._nota_interna(escritorio, lead, f"{lead.id}:nota:dados_contrato:{cdados.hash_dados(dados)[:16]}",
+                                 cdados.nota_dos_dados(dados))
 
     async def _nota_interna(self, escritorio: Escritorio, lead: Lead, chave: str, texto: str) -> None:
         """Nota interna no atendimento da Helena, pela fila (mesmo caminho das notas de aviso): não gasta IA e a chave
@@ -1293,8 +1304,7 @@ class Atendimento:
         basta a função de avisos ligada. Cada gatilho gera no máximo um aviso por turno (montar_acoes)."""
         if modo == "laboratorio":
             return
-        if not agente.config.get("automacoes") and not (agente.config.get("funcoes") or {}).get("avisos"):
-            return
+        # Sem regras no agente, o CRM automático (colunas fixas da conta) ainda vale: montar_acoes decide.
         gatilhos = automacoes.gatilhos_do_turno(
             primeira_resposta=not any(m["autor"] == "você" for m in entrada.historico),
             etapa_antes=saida.etapa_antes, etapa_depois=saida.etapa_depois,
@@ -1936,7 +1946,9 @@ class Atendimento:
         await self._nota_de_problema(escritorio, lead, "midia_quebrada", f"{nome}: {motivo}", inteiro=True)
         return True
 
-    ESPERA_DEPOIS_DA_MIDIA_S = {"video": 8.0, "audio": 3.0, "imagem": 2.0}
+    # O WhatsApp baixa o arquivo antes de entregar: áudio e vídeo chegavam DEPOIS do texto seguinte (26/11: áudio de
+    # 1:49 dos honorários chegou depois da pergunta "Conseguiu entender?"). Só depois de mídia, nunca depois do último.
+    ESPERA_DEPOIS_DA_MIDIA_S = {"video": 12.0, "audio": 10.0, "imagem": 3.0}
     ESPERA_DEPOIS_DO_PTV_S = 10.0                         # vídeo de apresentação (VIDEO INICIAL do n8n)
     HORARIO_DO_PTV = (8, 20)                              # das 8h às 20h, no fuso do escritório
     _EXTENSOES_DA_MIDIA = {"audio": (".ogg", ".oga", ".opus", ".mp3", ".m4a", ".aac", ".wav", ".flac"),

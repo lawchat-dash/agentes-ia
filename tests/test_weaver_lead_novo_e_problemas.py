@@ -95,8 +95,11 @@ def test_titulo_e_descricao_do_card():
     assert automacoes.titulo_do_card(None, "5511988887777") == "📞 (11) 98888-7777"
     quando = datetime(2026, 11, 24, 15, 30, tzinfo=timezone.utc)
     descricao = automacoes.descricao_do_card({"url": "https://fb.me/ad1", "campanha": "AA nov"}, quando)
-    assert descricao == "Anúncio: https://fb.me/ad1\nCampanha: AA nov\nConversa iniciada: 24/11/2026 12:30"
-    assert automacoes.descricao_do_card({}, quando) == "Conversa iniciada: 24/11/2026 12:30"
+    assert descricao == "🕒 Entrou em: 24/11/2026 às 12:30\n\n📣 Origem (UTM)\nCampanha: AA nov\nLink: https://fb.me/ad1"
+    anuncio = automacoes.descricao_do_card({"origem": "anuncio", "titulo": "Sequela? Fale com a gente", "fonte": "facebook"}, quando)
+    assert anuncio.splitlines()[2:] == ["📣 Veio de anúncio", "Anúncio: Sequela? Fale com a gente", "Fonte: facebook"]
+    assert automacoes.descricao_do_card({}, quando) == ("🕒 Entrou em: 24/11/2026 às 12:30\n\n"
+                                                        "📣 Origem: contato direto (sem anúncio ou UTM)")
 
 
 def test_sugestao_padrao_poe_a_etiqueta_sdr_no_lead_novo():
@@ -326,7 +329,7 @@ async def test_postgres_card_com_titulo_descricao_falha_e_nota_sem_lead():
         await executor.rodar_uma_vez()
         criado = next(c for m, p, c in chamadas if p == "/crm/v2/panel/card" and m == "POST")
         assert criado["title"] == "👤 Maria | 📞 (11) 90000-0011" and criado["stepId"] == "col-sdr"
-        assert criado["description"].startswith("Anúncio: https://fb.me/ad9\nCampanha: AA\nConversa iniciada: ")
+        assert criado["description"].startswith("🕒 Entrou em: ") and criado["description"].endswith("Campanha: AA\nLink: https://fb.me/ad9")
         assert ("POST", "/chat/v1/session/sessao-sem-numero/note", {"text": "🤖 A IA não iniciou a conversa"}) in chamadas
 
         evento = await pool.fetchrow("select tipo, responsavel from agentesia_eventos where id_lead = $1::uuid", lead2)

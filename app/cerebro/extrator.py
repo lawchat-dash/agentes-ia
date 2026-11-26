@@ -98,7 +98,9 @@ Intenções (true só quando estiver claro nas mensagens novas):
 
 Dados do contrato (fatos nome_completo, cpf, rg, estado_civil, profissao, cep, endereco, numero_casa, complemento,
 bairro, cidade, uf, email, telefone_contrato, nome_menor, cpf_menor): copie como o lead escreveu. endereco é só a rua,
-sem o número; numero_casa é só o número ("S/N" se não tiver); uf é a sigla do estado: se o lead escrever o nome \
+sem o número; numero_casa é só o número ("S/N" se não tiver); complemento é o que vier junto do número (apto 12, \
+bloco B, fundos, casa: "13 casa" = numero_casa 13 e complemento "casa"); se o lead disser que não tem complemento ("não \
+tem", "só o número", "sem complemento"), complemento = "sem complemento"; uf é a sigla do estado: se o lead escrever o nome \
 (Minas Gerais), converta para a sigla (MG), e nome de estado não vai para cidade; cep tem 8 dígitos (00000-000) e não \
 se confunde com telefone; telefone_contrato só com DDD e número ("pode ser este do zap" = deixe vazio); email só se \
 tiver @ ("não tenho" = deixe vazio, não registre). Se o lead corrigir um dado,

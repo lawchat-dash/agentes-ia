@@ -512,6 +512,7 @@ class RepositorioGestao:
                from agentesia_eventos v left join agentesia_escritorios e on e.id = v.id_escritorio
                where ($1::uuid is null or v.id_escritorio = $1::uuid)
                  and (not $2 or v.resolvido_em is null)
+                 and v.gravidade <> 'info'          -- "Etapa do lead: sdr → closer" é registro, não erro
                order by v.criado_em desc limit $3""", id_escritorio, abertos, limite))
 
     async def resolver_evento(self, id_evento: str, id_escritorio: str | None, id_usuario: str) -> bool:

@@ -156,6 +156,9 @@ def dados_dos_fatos(fatos: dict[str, Any]) -> dict[str, str]:
     dados = {campo: _texto(fatos.get(fato)) for campo, fato in CAMPOS.items() if _texto(fatos.get(fato))}
     if "nome" not in dados and _texto(fatos.get("nome")) and len(_texto(fatos.get("nome")).split()) >= 2:
         dados["nome"] = _texto(fatos.get("nome"))
+    # "sem complemento" é a resposta do lead (para a IA não perguntar de novo), não vai escrito no contrato.
+    if re.fullmatch(r"(?i)\s*(sem complemento|n[aã]o tem|nenhum|-)\s*", dados.get("complemento", "")):
+        dados.pop("complemento")
     return dados
 
 
@@ -287,6 +290,29 @@ def normalizar_profissao(valor: Any) -> str:
     if not texto:
         return ""
     return "Desempregado" if _DESEMPREGADO.match(_sem_acento(texto)) else texto
+
+
+def nota_dos_dados(dados: dict[str, str]) -> str:
+    """Nota interna organizada com os dados do contrato que o lead terminou de mandar (para a equipe conferir antes ou
+    depois da ZapSign). Só os campos preenchidos."""
+    def linha(rotulo: str, *campos: str, sep: str = ", ") -> str | None:
+        valor = sep.join(dados[c] for c in campos if dados.get(c))
+        return f"{rotulo}: {valor}" if valor else None
+
+    rua = ", ".join(x for x in (dados.get("endereco"), dados.get("numero")) if x)
+    if dados.get("complemento"):
+        rua = f"{rua} ({dados['complemento']})" if rua else dados["complemento"]
+    cidade = "/".join(x for x in (dados.get("cidade"), dados.get("estado")) if x)
+    blocos = [
+        ["📝 Dados do contrato preenchidos pelo lead"],
+        [x for x in (linha("👤 Nome", "nome"), linha("🪪 CPF", "cpf"), linha("RG", "rg"),
+                     linha("Estado civil", "estado_civil"), linha("Profissão", "profissao")) if x],
+        [x for x in (f"🏠 Endereço: {rua}" if rua else None, linha("Bairro", "bairro"),
+                     f"Cidade: {cidade}" if cidade else None, linha("CEP", "cep")) if x],
+        [x for x in (linha("📞 Telefone", "telefone"), linha("✉️ E-mail", "email")) if x],
+        [x for x in (linha("👶 Menor", "nomecompletomenor"), linha("CPF do menor", "cpfdomenor")) if x],
+    ]
+    return "\n\n".join("\n".join(b) for b in blocos if b)
 
 
 def hash_dados(dados: dict[str, str]) -> str:

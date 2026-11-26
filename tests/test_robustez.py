@@ -402,7 +402,7 @@ async def test_turno_processando_antigo_vira_erro_com_evento_e_nota():
     await atendimento.retomar_pendentes()
     assert (repo.turnos[id_turno]["situacao"], repo.turnos[id_turno]["motivo"]) == ("erro", "turno_interrompido")
     assert any(e["tipo"] == "turno_interrompido" for e in repo.eventos)
-    assert len(notas(repo, "envio_falhou")) == 1
+    assert len(notas(repo, "envio_falhou")) == 0            # só em Erros: a nota no chat assustava
     await atendimento.retomar_pendentes()                 # já fechado: não avisa de novo
     assert sum(e["tipo"] == "turno_interrompido" for e in repo.eventos) == 1
 

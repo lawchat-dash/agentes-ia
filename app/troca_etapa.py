@@ -206,7 +206,7 @@ async def _mudou_de_coluna(pool: asyncpg.Pool, id_escritorio: str, evento: dict[
              id_painel_helena = coalesce(excluded.id_painel_helena, agentesia_crm_cards.id_painel_helena),
              situacao = 'ok', erro = null, sincronizado_em = now(), atualizado_em = now()""",
         id_escritorio, id_lead, evento["id_card"], evento["id_painel"] or crm.get("id_painel"), evento["id_etapa"])
-    config = _json(lead["config_agente"])
+    config = automacoes.config_efetiva(_json(lead["config_agente"]), crm)   # CRM automático: colunas fixas da conta
     if config.get("seguir_coluna_do_crm") is False:
         return {**base, "feito": "ignorado", "motivo": "seguir_coluna_desligado"}
     etapas = etapas_da_coluna(config, evento["id_etapa"], lead["etapa_inicial"])

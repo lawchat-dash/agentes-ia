@@ -363,7 +363,7 @@ async def test_espera_depois_da_midia_pelo_tipo_e_nada_depois_da_ultima(monkeypa
     video, audio = "https://x.co/m/apresentacao.mp4", "https://x.co/m/objecao.ogg"
     linha, *_ = await _envio(monkeypatch, [{"tipo": "midia", "url": video}, {"tipo": "texto", "texto": "Assistiu?"},
                                            {"tipo": "midia", "url": audio}])
-    assert linha == [("espera", 0), ("envio", video), ("espera", 8.0), ("espera", 0), ("envio", "Assistiu?"),
+    assert linha == [("espera", 0), ("envio", video), ("espera", 12.0), ("espera", 0), ("envio", "Assistiu?"),
                      ("espera", 0), ("envio", audio)]
 
 

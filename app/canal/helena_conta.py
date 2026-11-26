@@ -179,10 +179,38 @@ class HelenaConta:
         Description (suposição: o v3 aceita "fields": ["Description"] como aceita ["StepId"])."""
         await self._pedir("PUT", f"crm/v3/panel/card/{id_card}", json={"fields": ["Description"], "description": descricao[:4000]})
 
+    @staticmethod
+    def chave_da_etiqueta(nome: Any) -> str:
+        """Nome da etiqueta sem emoji, acento, espaço e caixa: "📄 Contrato em Elaboração" = "Contrato em elaboracao"."""
+        import unicodedata
+        texto = unicodedata.normalize("NFKD", str(nome or "").casefold())
+        return "".join(c for c in texto if c.isalnum() and not unicodedata.combining(c))
+
+    async def ids_das_etiquetas(self, nomes: list[str]) -> tuple[list[str], list[str]]:
+        """(ids das etiquetas que já existem na conta com nome parecido, nomes que não existem). Sem isto, o nome com
+        emoji diferente do da conta criava uma etiqueta repetida (26/11: "Contrato em Elaboração" duas vezes)."""
+        if not hasattr(self, "_etiquetas_da_conta"):
+            try:
+                self._etiquetas_da_conta = {self.chave_da_etiqueta(t["nome"]): t["id"] for t in await self.etiquetas()
+                                            if t.get("id") and t.get("nome")}
+            except ErroHelenaApi:
+                self._etiquetas_da_conta = {}
+        ids, faltam = [], []
+        for nome in nomes:
+            achado = self._etiquetas_da_conta.get(self.chave_da_etiqueta(nome))
+            (ids.append(achado) if achado else faltam.append(nome))
+        return list(dict.fromkeys(ids)), faltam
+
     async def etiquetar(self, id_contato: str, nomes: list[str], *, remover: bool = False) -> None:
-        if nomes:
-            await self._pedir("POST", f"core/v1/contact/{id_contato}/tags", json={
-                "tagNames": nomes, "operation": "DeleteIfExists" if remover else "InsertIfNotExists"})
+        """Pelo id da etiqueta da conta (como o n8n). Nome que a conta não tem vai pelo nome (pôr cria; remover não)."""
+        if not nomes:
+            return
+        operacao = "DeleteIfExists" if remover else "InsertIfNotExists"
+        ids, faltam = await self.ids_das_etiquetas(nomes)
+        if ids:
+            await self._pedir("POST", f"core/v1/contact/{id_contato}/tags", json={"tagIds": ids, "operation": operacao})
+        if faltam:                                   # remover pelo nome nunca cria; pôr pelo nome só a que a conta não tem
+            await self._pedir("POST", f"core/v1/contact/{id_contato}/tags", json={"tagNames": faltam, "operation": operacao})
 
     async def nota(self, id_sessao: str, texto: str) -> None:
         await self._pedir("POST", f"chat/v1/session/{id_sessao}/note", json={"text": texto[:4000]})

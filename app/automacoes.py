@@ -123,6 +123,7 @@ def montar_acoes(config_agente: dict[str, Any], config_crm: dict[str, Any] | Non
                  gatilhos: list[str], *, id_lead: str, id_turno: str, contexto: str = "",
                  avisos: set[str] | frozenset[str] = frozenset()) -> list[dict[str, Any]]:
     """Ações a enfileirar, na ordem em que devem rodar. Respeita as funções ligadas no agente."""
+    config_agente = config_efetiva(config_agente, config_crm)
     funcoes = config_agente.get("funcoes") or {}
     automacoes = config_agente.get("automacoes") or {}
     id_painel = (config_crm or {}).get("id_painel")
@@ -149,7 +150,7 @@ def montar_acoes(config_agente: dict[str, Any], config_crm: dict[str, Any] | Non
                           "dados": {"adicionar": regra.get("adicionar_etiquetas", []),
                                     "remover": regra.get("remover_etiquetas", []),
                                     "gatilho": gatilho}})          # o executor ignora se a etapa já mudou
-        if funcoes.get("avisos") and regra.get("nota"):
+        if (funcoes.get("avisos") or regra.get("nota_sempre")) and regra.get("nota"):
             texto = regra["nota"] + (f"\n{contexto}" if contexto else "")
             acoes.append({"tipo": "nota", "chave_unica": f"{chave}:nota", "dados": {"texto": texto}})
         equipe = regra.get("id_equipe") or config_agente.get("id_equipe_transferencia")
@@ -175,6 +176,63 @@ def aviso_repetido(gatilho: str, gatilhos: list[str], avisos: set[str] | frozens
     return equivalente is not None and equivalente in gatilhos and equivalente in avisos
 
 
+# CRM automático: agente sem regras próprias numa conta com o painel de colunas fixas (onboarding, "etapas_por_tipo").
+# Cada papel do agente vai para a coluna do seu tipo, com a etiqueta do tipo e uma nota da troca no atendimento.
+PAPEL_PARA_TIPO = {
+    "sdr": "SDR", "periododegraca": "SDR", "periodo_de_graca": "SDR",
+    "closer": "COMERCIAL", "comercial": "COMERCIAL",
+    "contratos": "CONTRATO", "contrato": "CONTRATO", "coleta_dados": "CONTRATO",
+    "assinatura": "AGUARDANDO_ASSINATURA", "acompanhamento_assinatura": "AGUARDANDO_ASSINATURA",
+    "contrato_assinado": "CONTRATO_ASSINADO", "desqualificado": "DESQUALIFICADO",
+}
+ETIQUETA_DO_TIPO = {
+    "SDR": ETIQUETA_SDR, "COMERCIAL": "🛒 Comercial", "CONTRATO": "📄 Contrato em Elaboração",
+    "AGUARDANDO_ASSINATURA": "✍️ Etapa de Assinatura", "CONTRATO_ASSINADO": "✅ Contrato Assinado",
+    "DESQUALIFICADO": "❌ Desqualificado",
+}
+
+
+def _tipo_do_papel(papel: str) -> str | None:
+    chave = papel.lower().replace("-", "_").replace(" ", "_")
+    return PAPEL_PARA_TIPO.get(chave) or PAPEL_PARA_TIPO.get(chave.replace("_", ""))
+
+
+def regras_automaticas(config_agente: dict[str, Any], config_crm: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """Regras do CRM automático (ver PAPEL_PARA_TIPO). Vazio se a conta não tem as colunas fixas."""
+    por_tipo = (config_crm or {}).get("etapas_por_tipo") or {}
+    if not por_tipo or not (config_crm or {}).get("id_painel"):
+        return {}
+    papeis_cfg = ((config_agente.get("catalogo") or {}).get("papeis") or {})
+    papeis = list(papeis_cfg) or list(PAPEL_PARA_TIPO)
+    papeis = list(dict.fromkeys([*papeis, "contrato_assinado"]))
+    todas = list(dict.fromkeys(ETIQUETA_DO_TIPO.values()))
+    regras: dict[str, dict[str, Any]] = {
+        "lead_novo": {"coluna_crm": por_tipo.get("SDR"), "adicionar_etiquetas": [ETIQUETA_SDR]}}
+    for papel in papeis:
+        tipo = _tipo_do_papel(papel)
+        if not tipo:
+            continue
+        etiqueta = ETIQUETA_DO_TIPO[tipo]
+        nome = str((papeis_cfg.get(papel) or {}).get("nome") or papel).split("—")[0].strip()
+        regra: dict[str, Any] = {"coluna_crm": por_tipo.get(tipo), "adicionar_etiquetas": [etiqueta],
+                                 "remover_etiquetas": [e for e in todas if e != etiqueta],
+                                 "nota": f"🔄 Lead passou para o agente {nome}.", "nota_sempre": True}
+        if papel != "sdr" or tipo != "SDR":
+            regras[f"etapa:{papel}"] = regra
+    return regras
+
+
+def config_efetiva(config_agente: dict[str, Any], config_crm: dict[str, Any] | None) -> dict[str, Any]:
+    """Config do agente com o CRM automático quando ele não tem regras próprias (e o CRM não foi desligado nele)."""
+    funcoes = config_agente.get("funcoes") or {}
+    if config_agente.get("automacoes") or funcoes.get("crm") is False:
+        return config_agente
+    regras = regras_automaticas(config_agente, config_crm)
+    if not regras:
+        return config_agente
+    return {**config_agente, "automacoes": regras, "funcoes": {**funcoes, "crm": True}}
+
+
 def _chave_crm(id_lead: str, id_turno: str, gatilho: str) -> str:
     """Card e etiquetas do lead novo têm uma chave só por lead: a chegada do lead e a primeira resposta da IA
     disparam o mesmo gatilho, e a fila (on conflict) deixa passar só o primeiro. Um lead, um card."""
@@ -187,6 +245,7 @@ def acoes_do_lead_novo(config_agente: dict[str, Any], config_crm: dict[str, Any]
 
     Devolve (ações, problema). O problema diz por que o card não sai (sem painel ou sem coluna SDR);
     o pipeline transforma em evento 'card_nao_criado' e nota no chat. Sem a função CRM ligada não faz nada."""
+    config_agente = config_efetiva(config_agente, config_crm)
     if not (config_agente.get("funcoes") or {}).get("crm"):
         return [], None
     regra = (config_agente.get("automacoes") or {}).get("lead_novo") or {}
@@ -255,13 +314,17 @@ def descricao_do_card(origem: dict[str, Any] | None, iniciada_em: Any) -> str:
     from app.notificacoes import fuso
 
     origem = origem or {}
-    linhas = []
-    if origem.get("url"):
-        linhas.append(f"Anúncio: {origem['url']}")
-    if origem.get("campanha"):
-        linhas.append(f"Campanha: {origem['campanha']}")
     quando = iniciada_em if isinstance(iniciada_em, datetime) else datetime.now(timezone.utc)
-    linhas.append(f"Conversa iniciada: {quando.astimezone(fuso()):%d/%m/%Y %H:%M}")
+    linhas = [f"🕒 Entrou em: {quando.astimezone(fuso()):%d/%m/%Y às %H:%M}"]
+    # Origem organizada (anúncio ou UTM): campanha, anúncio, conteúdo, fonte, meio, termo e link, só o que veio.
+    campos = [(r, origem.get(c)) for r, c in (("Campanha", "campanha"), ("Anúncio", "titulo"), ("Conteúdo", "conteudo"),
+                                               ("Fonte", "fonte"), ("Meio", "meio"), ("Termo", "termo"), ("Link", "url"))]
+    campos = [(r, v) for r, v in campos if v]
+    if campos:
+        linhas += ["", "📣 Veio de anúncio" if origem.get("origem") == "anuncio" or origem.get("clid") else "📣 Origem (UTM)"]
+        linhas += [f"{r}: {v}" for r, v in campos]
+    else:
+        linhas += ["", "📣 Origem: contato direto (sem anúncio ou UTM)"]
     return "\n".join(linhas)
 
 
