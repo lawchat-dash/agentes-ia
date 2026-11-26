@@ -1,7 +1,7 @@
 import { ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFrasesTroca } from "@/hooks/useFrasesTroca";
-import { COR_TRANSFERENCIA, agentesSemFraseDeSaida, fraseDaEtapa, frasesReferenciadas, rotuloFrase } from "@/data/frasesTroca";
+import { COR_TRANSFERENCIA, ETAPAS_TROCA, agentesSemFraseDeSaida, destinosPorChip, fraseDaEtapa, frasesReferenciadas, rotuloFrase } from "@/data/frasesTroca";
 
 interface Props {
   /** Papel do agente (sdr, closer, contratos...). */
@@ -24,10 +24,13 @@ export const FraseEntradaCard = ({ role, prompt, onGerenciar }: Props) => {
   const lista = frases ?? [];
   const entrada = fraseDaEtapa(role, lista);
   const saidas = frasesReferenciadas(prompt ?? "", lista).filter((f) => f.etapa_destino !== role);
+  // Chips de passagem do motor ("@Comercial"): a troca é do motor e o lead ouve a frase de entrada do destino.
+  const porChip = destinosPorChip(prompt ?? "").filter((d) => d !== role && !saidas.some((f) => f.etapa_destino === d));
+  const nomeEtapa = (e: string) => (e === "closer" ? "Comercial" : ETAPAS_TROCA.find((x) => x.etapa === e)?.nome ?? e);
   // Trava: agente que passa o lead adiante SEM frase de saída (ex.: apagaram o chip) → aviso na
   // hora; o salvamento também é bloqueado (mesma regra de agentesSemFraseDeSaida).
   const semSaida = agentesSemFraseDeSaida([{ etapa: role, prompt: prompt ?? "" }], lista, { ignorarVazios: true }).length > 0;
-  if (!entrada && saidas.length === 0 && !onGerenciar && !semSaida) return null;
+  if (!entrada && saidas.length === 0 && porChip.length === 0 && !onGerenciar && !semSaida) return null;
 
   return (
     <div className="rounded-xl border p-3.5 space-y-2.5" style={{ borderColor: "#fed7aa", background: "#fff7ed" }}>
@@ -54,14 +57,25 @@ export const FraseEntradaCard = ({ role, prompt, onGerenciar }: Props) => {
             </p>
           </>
         ) : (
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Nenhuma frase cadastrada para este departamento.</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {role === "sdr" ? "É o primeiro agente: o lead começa aqui, não precisa de frase de entrada." : "Nenhuma frase cadastrada para este departamento."}
+          </p>
         )}
       </div>
 
       <div>
         <div className="text-[11px] font-semibold text-muted-foreground">Saída deste agente</div>
-        {saidas.length > 0 ? (
+        {saidas.length + porChip.length > 0 ? (
           <div className="mt-1 flex flex-wrap gap-1.5">
+            {porChip.map((d) => {
+              const f = fraseDaEtapa(d, lista);
+              return (
+                <span key={`chip-${d}`} title={f ? `O lead ouve: “${f.frase}”` : "Passagem feita pelo motor"}
+                  className="text-xs font-semibold rounded px-1.5 py-0.5 bg-white border" style={{ color: COR_TRANSFERENCIA, borderColor: "#fed7aa" }}>
+                  → {nomeEtapa(d)}
+                </span>
+              );
+            })}
             {saidas.map((f) => (
               <span
                 key={f.id}

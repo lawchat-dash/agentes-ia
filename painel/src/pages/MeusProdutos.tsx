@@ -331,7 +331,7 @@ const MeusProdutos = () => {
       {/* Lista */}
       {isLoading ? (
         <div className="grid place-items-center py-20"><Loader2 className="size-8 text-primary animate-spin" /></div>
-      ) : !products || products.length === 0 ? (
+      ) : filter !== "trash" && (!products || products.length === 0) ? (
         <Card className="p-12 text-center bg-gradient-card backdrop-blur border-dashed">
           <div className="size-16 rounded-2xl bg-primary/10 grid place-items-center mx-auto mb-4">
             <Package className="size-8 text-primary" />

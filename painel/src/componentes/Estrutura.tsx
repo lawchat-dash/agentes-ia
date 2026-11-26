@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { NomeDoEscritorio } from "./nomeEscritorio";
+import { NomeDoEscritorio, guardarTelaDoPainel } from "./nomeEscritorio";
 import { TelaAtendimento } from "../telas/Atendimento";
 import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -68,6 +68,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   const telaCheia = local.pathname.startsWith("/atendimento");
   const [visitou, setVisitou] = useState(false);
   useEffect(() => { if (telaCheia) setVisitou(true); }, [telaCheia]);
+  useEffect(() => { if (!telaCheia) guardarTelaDoPainel(local.pathname + local.search); }, [telaCheia, local.pathname, local.search]);
   const atendimentoVisitado = visitou || telaCheia;
   const celular = useCelular();
   const [abertos, setAbertos] = useState(false);

@@ -104,9 +104,32 @@ export const fraseDaEtapa = (etapa: string, lista: FraseTroca[] = getFrasesTroca
 export const frasesReferenciadas = (texto: string, lista: FraseTroca[] = getFrasesTroca()): FraseTroca[] =>
   !texto ? [] : lista.filter((f) => tokenRe(f.nome, "").test(texto));
 
-/** Etapas que PASSAM o lead adiante: o prompt delas precisa ter ao menos 1 Frase para
- *  Transferência de saída. Assinatura e Desqualificado são fim de funil (não precisam). */
-export const ETAPAS_COM_SAIDA = ["sdr", "periododegraca", "closer", "contratos"];
+/** Etapas que PASSAM o lead adiante: o prompt delas precisa ter ao menos 1 saída (Frase para
+ *  Transferência ou chip de passagem "@Comercial"...). Assinatura e Desqualificado são fim de funil.
+ *  A Coleta de Dados também não precisa: no nosso motor o lead vai para a Assinatura sozinho quando o
+ *  contrato é gerado (não depende de frase no prompt). */
+export const ETAPAS_COM_SAIDA = ["sdr", "periododegraca", "closer"];
+
+/** Chips de passagem do nosso motor ("@Comercial", "@Período de Graça"...) → etapa de destino. Com o motor em
+ *  JSON a troca vem de "transferir_para"; o chip no prompt é a saída do agente (vale como a frase do Weaver).
+ *  Lista própria (não importa handoffTargets, que importa este arquivo). */
+const CHIPS_DE_PASSAGEM: [string, string][] = [
+  ["Período de Graça", "periododegraca"], ["Coleta de Dados", "contratos"], ["Comercial", "closer"],
+  ["Assinatura", "assinatura"], ["Desqualificado", "desqualificado"], ["SDR", "sdr"],
+  ["Agente Período de Graça", "periododegraca"], ["Agente Coleta de Dados", "contratos"], ["Agente Closer", "closer"],
+  ["Closer", "closer"], ["Agente Acompanhamento Assinatura", "assinatura"], ["Agente Desqualificado", "desqualificado"],
+  ["Agente SDR", "sdr"],
+];
+
+/** Etapas para onde o prompt passa o lead por chip de passagem ("@Comercial" → closer). */
+export const destinosPorChip = (prompt: string): string[] => {
+  const txt = prompt ?? "";
+  const achados = new Set<string>();
+  for (const [rotulo, etapa] of CHIPS_DE_PASSAGEM) {
+    if (new RegExp("@" + escapeRe(rotulo) + FIM_PALAVRA).test(txt)) achados.add(etapa);
+  }
+  return [...achados];
+};
 
 /** Para onde cada etapa passa o lead (a frase de saída é a de ENTRADA de um destes). */
 export const DESTINOS_DA_ETAPA: Record<string, string[]> = {
@@ -120,6 +143,7 @@ export const DESTINOS_DA_ETAPA: Record<string, string[]> = {
  *  (A frase de entrada da própria etapa não conta.) */
 export const temFraseDeSaida = (prompt: string, etapa: string, lista: FraseTroca[] = getFrasesTroca()): boolean => {
   const txt = prompt ?? "";
+  if (destinosPorChip(txt).some((d) => d !== etapa)) return true;
   return lista.some((f) => f.etapa_destino !== etapa && (tokenRe(f.nome, "").test(txt) || (!!f.frase && txt.includes(f.frase))));
 };
 
