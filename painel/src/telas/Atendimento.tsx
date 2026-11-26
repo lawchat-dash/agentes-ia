@@ -106,11 +106,12 @@ export const CORTE_DIREITA = 64;
 const quadro = (topo: number) => ({ width: `calc(100% + ${CORTE_DIREITA}px)`, height: `calc(100% + ${topo}px)`, marginTop: -topo });
 // Na Central o cabeçalho da LawChat é um pouco mais baixo: 64px cortava o topo da conversa aberta.
 export const estiloDaCentral = quadro(58);
-export const estiloDoQuadro = quadro(64);
+// 72 e não 64: a sombra do cabeçalho da LawChat escorria uns pixels abaixo dele (faixa degradê no topo do CRM).
+export const estiloDoQuadro = quadro(72);
 /** Telas de "Configurações" da conta (Conta, Horário, Canais, Consumo): a LawChat põe um menu próprio de ~384px na
  *  esquerda. Aqui ele sai (as abas do painel fazem esse papel). */
 export const CORTE_ESQUERDA_CONFIG = 384;
-export const estiloDoQuadroConfig = { ...quadro(64), width: `calc(100% + ${CORTE_DIREITA + CORTE_ESQUERDA_CONFIG}px)`, marginLeft: -CORTE_ESQUERDA_CONFIG };
+export const estiloDoQuadroConfig = { ...quadro(72), width: `calc(100% + ${CORTE_DIREITA + CORTE_ESQUERDA_CONFIG}px)`, marginLeft: -CORTE_ESQUERDA_CONFIG };
 
 /** Tela de carregamento enquanto o login e a primeira carga acontecem (evita a tela branca). */
 export function TelaEntrando({ titulo = "Abrindo a Central de Atendimento" }: { titulo?: string }) {
