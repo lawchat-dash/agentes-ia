@@ -700,7 +700,8 @@ def _config_do_agente(dados: Ativar, catalogo: dict[str, Any], produto: dict[str
         "pausa_sem_volta": dados.pausa_min < 0,
         "temperatura": max(0.0, min(float(dados.temperatura), 2.0)),
         "modelos": {"etapa": dados.modelo, "extrator": "gpt-4.1-mini"},
-        "catalogo": {"id_produto_biblioteca": catalogo.get("id"), "slug": catalogo.get("slug"), "modo_midia": catalogo.get("modo_midia"),
+        # Portão de fatos desligado (decisão do dono, 26/11): a troca é decidida só pelo prompt de cada agente.
+        "catalogo": {"portao_de_fatos": False, "id_produto_biblioteca": catalogo.get("id"), "slug": catalogo.get("slug"), "modo_midia": catalogo.get("modo_midia"),
                      "papeis": papeis, "regras": dados.regras_markdown if dados.regras_markdown is not None else produto.get("regras_markdown")},
         "conhecimento": {
             "faq": [{"pergunta": f.get("pergunta") or f.get("q") or "", "resposta": f.get("resposta") or f.get("a") or ""} for f in faq],
