@@ -62,7 +62,7 @@ export function TelaAdminCobranca() {
 
 // ---------------------------------------------------------------------------- carteiras
 function Carteiras() {
-  const { dados, erro, recarregar } = useCarregar<LinhaCarteira[]>("/admin/carteiras", [], { guardar: false }); // saldos e formulário do detalhe
+  const { dados, erro, recarregar } = useCarregar<LinhaCarteira[]>("/admin/carteiras");
   const planos = useCarregar<Plano[]>("/admin/planos");
   const [aberta, setAberta] = useState<LinhaCarteira | null>(null);
   if (!dados) return <Carregando erro={erro} />;

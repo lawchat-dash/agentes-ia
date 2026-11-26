@@ -66,7 +66,6 @@ const AI_FEATURES = [
 const TILE = "lc-card lc-metric relative overflow-hidden";
 const APP_VERSION = "v0.1.0";
 const DIAS = 30;
-const ESPERA_ALERTAS_MS = 700;
 const CORES_AGENTES = ["#22c55e", "#0ea5e9", "#2563eb", "#f59e0b", "#ef4444"];
 const fmtBr = (n: number) => Math.round(Number(n) || 0).toLocaleString("pt-BR");
 const fmtK = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(".", ",")}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(Math.round(n)));
@@ -138,16 +137,6 @@ export function TelaInicio() {
   const [verTodosAlertas, setVerTodosAlertas] = useState(false);
   const { dispensados, dispensar } = useAlertasDispensados(escritorio);
   useCardGlow(rootRef, { pronto: Boolean(metricas.dados) });
-  // Os números chegaram e o /inicio (alertas) não: espera no máximo ESPERA_ALERTAS_MS e mostra o resto (os alertas
-  // entram depois, com animação). Antes a tela toda ficava no esqueleto esperando a rota mais lenta.
-  const [semEsperarAlertas, setSemEsperarAlertas] = useState(false);
-  const temNumeros = Boolean(metricas.dados);
-  const temAlertas = Boolean(inicio.dados || inicio.erro);
-  useEffect(() => {
-    if (!temNumeros || temAlertas) return;
-    const t = window.setTimeout(() => setSemEsperarAlertas(true), ESPERA_ALERTAS_MS);
-    return () => window.clearTimeout(t);
-  }, [temNumeros, temAlertas]);
 
   const firstName = eu?.nome?.split(" ")[0] || "você";
   const hora = new Date().getHours();
@@ -164,7 +153,7 @@ export function TelaInicio() {
   }
   const v = metricas.dados;
   // Espera também o /inicio (de onde vêm os alertas), para eles não surgirem depois empurrando os KPIs.
-  if (!v || (!temAlertas && !semEsperarAlertas)) return <Carregando erro={metricas.erro} />;
+  if (!v || (!inicio.dados && !inicio.erro)) return <Carregando erro={metricas.erro} />;
 
   /* ---------- alertas operacionais (topo) ---------- */
   const alertas: (AlertaOperacionalProps & { chave: string })[] = [];

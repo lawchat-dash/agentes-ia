@@ -138,7 +138,7 @@ export function TelaRoteiro() {
   const { id = "" } = useParams();
   const navegar = useNavigate();
   const avisar = useAvisar();
-  const { dados, erro, setDados } = useCarregar<Roteiro>(`/roteiros/${id}`, [id], { guardar: false }); // formulário
+  const { dados, erro, setDados } = useCarregar<Roteiro>(`/roteiros/${id}`, [id]);
   const { dados: opcoes } = useCarregar<Opcoes>("/roteiros/opcoes");
   const [form, setForm] = useState<{ titulo: string; texto: string; id_agente: string; etapa: string; id_produto_ativado: string } | null>(null);
   const { ocupado, executar } = useAcao();

@@ -31,7 +31,7 @@ const rotuloTempo = (h: number) => { const [n, u] = unidade(h); return `${n} ${n
 
 /** Follow-up do agente: cadência, mensagem de cada passo, prompt, horário, etapas, modelo aprovado e desistência. */
 export function AbaFollowup({ agente }: { agente: Agente }) {
-  const { dados, erro, recarregar } = useCarregar<Dados>(`/agentes/${agente.id}/followup`, [], { guardar: false }); // formulário
+  const { dados, erro, recarregar } = useCarregar<Dados>(`/agentes/${agente.id}/followup`);
   const modelos = useCarregar<{ id: string; nome: string; texto: string }[]>(dados?.tipo_canal === "oficial" ? "/integracoes/helena/modelos-aprovados" : null, [dados?.tipo_canal]);
   const { ocupado, executar } = useAcao();
   const { catalogo } = useSessao();

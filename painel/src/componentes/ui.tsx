@@ -2,62 +2,32 @@ import { createContext, useCallback, useContext, useEffect, useId, useRef, useSt
 import { AlertTriangle, Check, CheckCircle2, Copy, Info, Inbox, KeyRound, XCircle } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { api, geracaoAtual, guardarResposta, ultimaResposta } from "../api";
+import { api } from "../api";
 
 // --------------------------------------------------------------------------- carregar dados
-/**
- * GET de uma tela. Stale-while-revalidate: se a tela já foi aberta, mostra na hora a última resposta (guardada em
- * api.ts) e busca de novo por trás; `carregando` fica true enquanto busca. Qualquer escrita (POST/PUT/DELETE) apaga as
- * respostas guardadas. `guardar: false` para dado que não pode aparecer velho nem por um instante (saldo/extrato da
- * carteira, conversa aberta).
- */
-export function useCarregar<T>(caminho: string | null, dependencias: unknown[] = [], opcoes: { guardar?: boolean } = {}) {
-  const guardar = opcoes.guardar !== false;
-  const [dados, setDadosEstado] = useState<T | null>(() => (caminho && guardar ? ultimaResposta<T>(caminho) ?? null : null));
+export function useCarregar<T>(caminho: string | null, dependencias: unknown[] = []) {
+  const [dados, setDados] = useState<T | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(Boolean(caminho));
-  // fresco: o dado mostrado já veio do servidor nesta abertura (não é a cópia guardada). Telas com formulário que copiam
-  // o dado para o estado delas esperam por ele, para não editar uma cópia velha.
-  const [fresco, setFresco] = useState(false);
   const versao = useRef(0);
-
-  // Trocou o caminho (outro filtro, outro escritório) e já existe resposta guardada para ele: mostra na hora.
-  const caminhoAnterior = useRef(caminho);
-  if (caminhoAnterior.current !== caminho) {
-    caminhoAnterior.current = caminho;
-    const guardada = caminho && guardar ? ultimaResposta<T>(caminho) : undefined;
-    if (guardada !== undefined) setDadosEstado(guardada);
-    setFresco(false);
-  }
-
-  // setDados das telas (atualização local depois de salvar) também atualiza a cópia guardada.
-  const setDados = useCallback((valor: T | null | ((antes: T | null) => T | null)) => {
-    setDadosEstado((antes) => {
-      const novo = typeof valor === "function" ? (valor as (a: T | null) => T | null)(antes) : valor;
-      if (caminho && guardar && novo != null) guardarResposta(caminho, novo, geracaoAtual());
-      return novo;
-    });
-  }, [caminho, guardar]);
 
   const recarregar = useCallback(async () => {
     if (!caminho) return;
     const minha = ++versao.current;
-    const geracao = geracaoAtual();
     setCarregando(true);
     try {
       const resposta = await api<T>(caminho);
-      if (guardar) guardarResposta(caminho, resposta, geracao);
-      if (minha === versao.current) { setDadosEstado(resposta); setErro(null); setFresco(true); }
+      if (minha === versao.current) { setDados(resposta); setErro(null); }
     } catch (e) {
       if (minha === versao.current) setErro((e as Error).message);
     } finally {
       if (minha === versao.current) setCarregando(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caminho, guardar, ...dependencias]);
+  }, [caminho, ...dependencias]);
 
   useEffect(() => { recarregar(); }, [recarregar]);
-  return { dados, erro, carregando, recarregar, setDados, fresco };
+  return { dados, erro, carregando, recarregar, setDados };
 }
 
 // --------------------------------------------------------------------------- avisos rápidos

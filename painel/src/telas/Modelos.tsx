@@ -55,7 +55,7 @@ export function TelaModelos() {
 export function TelaModelo() {
   const { id = "" } = useParams();
   const { catalogo } = useSessao();
-  const { dados, erro, setDados } = useCarregar<Modelo>(`/admin/modelos/${id}`, [], { guardar: false }); // formulário
+  const { dados, erro, setDados } = useCarregar<Modelo>(`/admin/modelos/${id}`);
   const { ocupado, executar } = useAcao();
   const [form, setForm] = useState<{
     nome: string; descricao: string; situacao: string; honorarios: string; modelo_ia: string;
