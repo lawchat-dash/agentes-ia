@@ -4,7 +4,9 @@ Admin LawChat (por escritório, id no caminho):
   GET  /api/admin/escritorios/{id}/onboarding            passos guardados (não chama a Helena)
   POST /api/admin/escritorios/{id}/onboarding/conferir   confere todos os passos sem mudar nada na Helena
   POST /api/admin/escritorios/{id}/onboarding/avancar    faz o que cada passo pode fazer sozinho (webhook, canais,
-                                                         etiquetas padrão, painel escolhido, cópia da conta)
+                                                         etiquetas padrão, painel escolhido, cópia da conta); só o
+                                                         que não está ok, a não ser com {"forcar": true}; com
+                                                         {"passos": ["painel"], "id_painel": ...} só o painel
   POST /api/admin/escritorios/{id}/sincronizar           copia canais, painéis, colunas, etiquetas, equipes e usuários;
                                                          alinha os logins do painel com os usuários da conta
   GET  /api/admin/escritorios/{id}/helena-recursos       a cópia (?tipo=etiqueta&sumidos=true)
@@ -38,6 +40,7 @@ class Avancar(BaseModel):
     titulo_painel: str | None = None
     etapas_por_tipo: dict[str, str] | None = None     # {"SDR": "<id da coluna>", ...}: vence o palpite pelo nome
     criar_equipe_ia: bool = False                     # "🤖 Comercial IA" vira a equipe PADRÃO da conta: só se marcado
+    forcar: bool = False                              # refaz também os passos já ok/feito (sem: só o que falta)
 
 
 async def _escritorio_existe(repo: Any, id_escritorio: str) -> dict[str, Any]:
@@ -84,7 +87,7 @@ async def _onboarding(pedido: Request, ctx: Contexto, id_escritorio: str, *, apl
             id_conta=str(escritorio.get("id_conta_helena") or "") or None,
             guardar_token=_guardar_token(pedido, repo, id_escritorio),
             http=getattr(pedido.app.state, "http_ativacao", None), criar_equipe_ia=dados.criar_equipe_ia,
-            id_usuario=ctx.id_usuario)
+            id_usuario=ctx.id_usuario, forcar=dados.forcar, escritorio=escritorio)
     except Exception as erro:
         if aplicar:
             await repo.registrar_alteracao(
@@ -98,6 +101,14 @@ async def _onboarding(pedido: Request, ctx: Contexto, id_escritorio: str, *, apl
         # Nunca um 500 cru ("Internal Server Error" virava "Erro 500" na tela): texto legível, sem segredo.
         raise HTTPException(500, ("Não deu para avançar o onboarding: " if aplicar else "Não deu para conferir: ")
                             + onboarding._inesperado(erro) + ". O erro ficou no histórico da conta.") from erro
+    if aplicar and resultado.get("completo"):
+        # Conta pronta (os obrigatórios ok): a lista Contas passa a mostrar "Habilitado". Só grava a primeira vez.
+        config = dict(escritorio.get("config") or {})
+        if not (config.get("criar_agente") or {}).get("habilitado"):
+            config["criar_agente"] = {"habilitado": True, "em": resultado.get("atualizado_em"), "por": ctx.id_usuario,
+                                      "pelo_onboarding": True}
+            await repo.alterar_escritorio(id_escritorio, {"config": config})
+        resultado["habilitado"] = True
     if aplicar:
         feitos = [p["titulo"] for p in resultado["passos"] if p["situacao"] == "feito"]
         erros = [f"{p['titulo']}: {p['detalhe']}" for p in resultado["passos"] if p["situacao"] == "erro"]
@@ -154,7 +165,8 @@ async def _sincronizar(pedido: Request, ctx: Contexto, id_escritorio: str) -> di
     try:
         feita = await sincronizar_conta.sincronizar(
             repo=repo, id_escritorio=id_escritorio, helena=helena, parceiro=_parceiro(pedido),
-            id_conta=str(escritorio.get("id_conta_helena") or "") or None, id_usuario=ctx.id_usuario)
+            id_conta=str(escritorio.get("id_conta_helena") or "") or None, id_usuario=ctx.id_usuario,
+            escritorio=escritorio)
     except asyncpg.UndefinedTableError as erro:
         await falhou("banco sem a migração 006")
         raise HTTPException(503, "O banco ainda não tem a migração 006 (cópia da conta da LawChat).") from erro

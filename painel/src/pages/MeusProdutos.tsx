@@ -639,15 +639,20 @@ const MeusProdutos = () => {
 
                   {/* Abas do agente (as mesmas do submenu): Prompt, Follow-up, Conhecimento, Laboratório */}
                   {!trashed && !building && p.weaver_agent_id && (
-                    <nav aria-label={`Abrir ${p.name}`} className="px-3 pb-3 pt-1 grid grid-cols-3 gap-1.5 [&>*]:w-full [&>*]:justify-center [&>*]:py-1.5">
-                      {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
-                        <Link key={chave} to={`/agentes/${p.weaver_agent_id}/${chave}`}
-                          className="inline-flex items-center gap-1 rounded-lg border border-border/70 bg-muted/20 px-2 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors min-w-0">
-                          <Icone className="size-3 shrink-0" aria-hidden /><span className="truncate">{rotulo}</span>
-                        </Link>
-                      ))}
+                    <div className="px-3 pb-3 pt-1 space-y-2">
+                      {/* Atalhos do agente: ícone em cima e nome embaixo, os 4 lado a lado (cabem no cartão estreito). */}
+                      <nav aria-label={`Abrir ${p.name}`} className="grid grid-cols-4 gap-1.5">
+                        {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
+                          <Link key={chave} to={`/agentes/${p.weaver_agent_id}/${chave}`} title={rotulo}
+                            className="flex min-w-0 flex-col items-center gap-1 rounded-xl border border-border/70 bg-muted/20 px-1 py-2 text-[10.5px] font-semibold leading-none text-muted-foreground transition-colors hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33]">
+                            <Icone className="size-4 shrink-0" aria-hidden />
+                            <span className="w-full truncate text-center">{rotulo === "Conhecimento" ? "Base" : rotulo === "Laboratório" ? "Testar" : rotulo}</span>
+                          </Link>
+                        ))}
+                      </nav>
+                      {/* Filtro de número numa linha própria, com o estado à vista. */}
                       <FiltroNumero idAgente={p.weaver_agent_id} />
-                    </nav>
+                    </div>
                   )}
 
                   {/* Actions */}

@@ -23,10 +23,20 @@ export function FiltroNumero({ idAgente }: { idAgente: string }) {
   return (
     <>
       <button type="button" onClick={() => setAberto(true)}
-        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] ${ligado ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100" : "border-border/70 bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground"}`}
+        className={`flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] ${ligado ? "border-amber-300 bg-amber-50 hover:bg-amber-100" : "border-border/70 bg-muted/20 hover:bg-muted/40"}`}
         title={ligado ? `Responde só a: ${filtro!.numeros.map(formatarTelefone).join(", ")}` : "Fazer o agente responder só a alguns números (para testar)"}>
-        <Filter className="size-3 shrink-0" aria-hidden />
-        {ligado ? `Só ${filtro!.numeros.length} número${filtro!.numeros.length > 1 ? "s" : ""}` : "Filtrar número"}
+        <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${ligado ? "bg-amber-100 text-amber-700" : "bg-white text-muted-foreground"}`}>
+          <Filter className="size-3.5" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className={`block text-[12px] font-semibold ${ligado ? "text-amber-900" : "text-foreground"}`}>
+            {ligado ? `Teste: responde só a ${filtro!.numeros.length} número${filtro!.numeros.length > 1 ? "s" : ""}` : "Filtrar número"}
+          </span>
+          <span className={`block truncate text-[11px] ${ligado ? "text-amber-800/80" : "text-muted-foreground"}`}>
+            {ligado ? filtro!.numeros.map(formatarTelefone).join(", ") : "Responde a todos · toque para testar só com o seu"}
+          </span>
+        </span>
+        <span className={`shrink-0 text-[11px] font-semibold ${ligado ? "text-amber-800" : "text-muted-foreground"}`}>Alterar</span>
       </button>
       {aberto && createPortal(<JanelaFiltro idAgente={idAgente} atual={filtro} aoFechar={() => setAberto(false)} aoSalvar={setFiltro} />, document.body)}
     </>

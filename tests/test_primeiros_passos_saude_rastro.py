@@ -270,9 +270,12 @@ def test_contas_painel_do_crm_e_primeiro_agente():
     # "Primeiro produto" é da ativação do agente: aparece como informativo e não trava o onboarding da conta.
     assert 'const OBRIGATORIOS = ["token", "webhook", "etiquetas", "painel"];' in tela
     assert 'const INFORMATIVOS = ["produto"];' in tela
-    assert "Painel do CRM (aplica ao avançar)" in tela and "<CriarPainelPadrao idEscritorio={linha.id}" in tela
+    # O select aplica na hora (avançar só do passo "painel"); o rótulo não diz mais "aplica ao avançar".
+    assert '<span className="lbl">Painel do CRM</span>' in tela and "aplica ao avançar" not in tela
+    assert 'passos: ["painel"]' in tela and "<CriarPainelPadrao idEscritorio={linha.id}" in tela
+    assert 'titulo="Conta pronta"' in tela and '"Concluir"' in tela and '"Aplicando…"' in tela
     assert "Etapas do painel ligadas" in tela and "Falta escolher o painel do CRM" in tela
     assert "crm comercial ia" in tela and "/onboarding/conferir" in tela
     assert "Acessar e ativar o primeiro agente" in tela and 'entrar(id, "/biblioteca")' in tela
-    assert "Escolha aqui o painel do CRM. O número entra na ativação do agente." in tela
+    assert "O painel do CRM vale assim que você escolhe. O número entra na ativação do agente." in tela
     assert "O painel do CRM e o número entram na ativação do agente" not in tela

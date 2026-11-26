@@ -283,12 +283,7 @@ async def usuarios(helena: HelenaConta) -> list[dict[str, Any]]:
     página a página e com timeout curto, vem de usuarios_helena.listar e segue em "_usuario" para alimentar
     agentesia_usuarios (usuarios_helena.sincronizar)."""
     from app.gestao import usuarios_helena
-    return [{"id": u["id_usuario"], "nome": u["nome"],
-             "dados": {"id_atendente": u.get("id_atendente"),
-                       **({"disponibilidade": u["disponibilidade"]} if u.get("disponibilidade") else {}),
-                       **({} if u["ativo"] else {"inativo": True})},
-             "_usuario": u}
-            for u in await usuarios_helena.listar(helena)]
+    return _recursos_de("usuario", await usuarios_helena.listar(helena))["usuario"]
 
 
 async def criar_etiqueta(helena: HelenaConta, nome: str, cor: str | None) -> dict[str, Any]:
@@ -311,13 +306,17 @@ async def garantir_etiquetas_padrao(helena: HelenaConta, existentes: list[dict[s
     existentes = existentes if existentes is not None else await helena.etiquetas()
     nomes = {_chave_nome(e.get("nome")) for e in existentes}
     criadas, ja_existiam = [], []
-    for nome, cor in ETIQUETAS_PADRAO:
-        if _chave_nome(nome) in nomes:
+    faltam = [(nome, cor) for nome, cor in ETIQUETAS_PADRAO if _chave_nome(nome) not in nomes]
+    # As que faltam são criadas juntas (no máximo LEITURAS_JUNTAS de cada vez); a ordem da resposta é a da lista.
+    feitas = await em_paralelo({nome: criar_etiqueta(helena, nome, cor) for nome, cor in faltam}) if faltam else {}
+    for nome, _cor in ETIQUETAS_PADRAO:
+        if nome not in feitas:
             ja_existiam.append(nome)
             continue
-        feita = await criar_etiqueta(helena, nome, cor)
+        feita = feitas[nome]
+        if isinstance(feita, BaseException):
+            raise feita
         (ja_existiam if feita.get("ja_existia") else criadas).append(nome if feita.get("ja_existia") else feita)
-        nomes.add(_chave_nome(nome))
     return {"criadas": criadas, "ja_existiam": ja_existiam}
 
 
@@ -327,79 +326,174 @@ def etiquetas_padrao_faltando(existentes: list[dict[str, Any]]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------------------------- leitura da conta
-async def ler_conta(helena: HelenaConta) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
-    """Lê cada tipo separado: se um falhar, os outros ainda entram (e o que falhou não marca nada como sumido)."""
-    recursos: dict[str, list[dict[str, Any]]] = {}
-    erros: dict[str, str] = {}
+# Leituras independentes da LawChat vão juntas (asyncio.gather), no máximo LEITURAS_JUNTAS de cada vez. Cada uma
+# continua com o tempo-limite do próprio cliente (HelenaConta: 20 s; usuários: usuarios_helena.TIMEOUT_S).
+LEITURAS_JUNTAS = 4
 
-    try:
-        recursos["canal"] = [{
+
+async def em_paralelo(chamadas: dict[str, Any], limite: int = LEITURAS_JUNTAS) -> dict[str, Any]:
+    """{nome: corrotina} -> {nome: resultado ou a exceção}. Uma falha não cancela as outras."""
+    import asyncio
+    trava = asyncio.Semaphore(max(1, limite))
+
+    async def uma(corrotina: Any) -> Any:
+        async with trava:
+            return await corrotina
+    nomes = list(chamadas)
+    resultados = await asyncio.gather(*(uma(chamadas[n]) for n in nomes), return_exceptions=True)
+    return dict(zip(nomes, resultados))
+
+
+def _recursos_de(tipo: str, lido: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Lista lida da LawChat (formato de HelenaConta / usuarios_helena.listar) -> linhas da cópia."""
+    if tipo == "canal":
+        return {"canal": [{
             "id": c["id"], "nome": c.get("nome") or c.get("numero_formatado") or c.get("numero"),
             "dados": {"numero": c.get("numero"), "tipo": c.get("tipo"), "tipo_helena": c.get("tipo_helena"),
                       "ativo": c.get("ativo"), "provedor": c.get("provedor")},
             "_canal": c,
-        } for c in await helena.canais() if c.get("id")]
-    except ErroHelenaApi as erro:
-        erros["canal"] = erro.motivo
+        } for c in lido if c.get("id")]}
+    if tipo == "painel":
+        return {
+            "painel": [{"id": p["id"], "nome": p.get("titulo"), "dados": {"tipo": p.get("tipo"),
+                                                                          "colunas": len(p.get("etapas") or [])}}
+                       for p in lido if p.get("id")],
+            "coluna": [{"id": e["id"], "id_pai": p["id"], "nome": e.get("titulo"), "posicao": i,
+                        "dados": {"inicial": e.get("inicial"), "final": e.get("final"), "painel": p.get("titulo")}}
+                       for p in lido if p.get("id")
+                       for i, e in enumerate(p.get("etapas") or [], start=1) if e.get("id")],
+        }
+    if tipo == "etiqueta":
+        return {"etiqueta": [{"id": t["id"], "nome": t.get("nome"), "dados": {"cor": t.get("cor")}}
+                             for t in lido if t.get("id")]}
+    if tipo == "equipe":
+        return {"equipe": [{"id": d["id"], "nome": d.get("nome"), "dados": {"padrao": d.get("padrao")}}
+                           for d in lido if d.get("id")]}
+    return {"usuario": [{"id": u["id_usuario"], "nome": u["nome"],
+                         "dados": {"id_atendente": u.get("id_atendente"),
+                                   **({"disponibilidade": u["disponibilidade"]} if u.get("disponibilidade") else {}),
+                                   **({} if u["ativo"] else {"inativo": True})},
+                         "_usuario": u} for u in lido]}
 
-    try:
-        paineis = await helena.paineis()
-        recursos["painel"] = [{"id": p["id"], "nome": p.get("titulo"), "dados": {"tipo": p.get("tipo"),
-                                                                                 "colunas": len(p.get("etapas") or [])}}
-                              for p in paineis if p.get("id")]
-        recursos["coluna"] = [{"id": e["id"], "id_pai": p["id"], "nome": e.get("titulo"), "posicao": i,
-                               "dados": {"inicial": e.get("inicial"), "final": e.get("final"), "painel": p.get("titulo")}}
-                              for p in paineis if p.get("id")
-                              for i, e in enumerate(p.get("etapas") or [], start=1) if e.get("id")]
-    except ErroHelenaApi as erro:
-        erros["painel"] = erros["coluna"] = erro.motivo
 
-    try:
-        recursos["etiqueta"] = [{"id": t["id"], "nome": t.get("nome"), "dados": {"cor": t.get("cor")}}
-                                for t in await helena.etiquetas() if t.get("id")]
-    except ErroHelenaApi as erro:
-        erros["etiqueta"] = erro.motivo
-
-    try:
-        recursos["equipe"] = [{"id": d["id"], "nome": d.get("nome"), "dados": {"padrao": d.get("padrao")}}
-                              for d in await helena.equipes() if d.get("id")]
-    except ErroHelenaApi as erro:
-        erros["equipe"] = erro.motivo
-
-    try:
-        recursos["usuario"] = await usuarios(helena)
-    except ErroHelenaApi as erro:
-        erros["usuario"] = erro.motivo
+async def ler_conta(helena: HelenaConta, ja_lidos: dict[str, Any] | None = None
+                    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
+    """Lê cada tipo separado e em paralelo: se um falhar, os outros ainda entram (e o que falhou não marca nada como
+    sumido). `ja_lidos` ({"canal"|"painel"|"etiqueta"|"equipe"|"usuario": lista ou ErroHelenaApi}) reaproveita o que
+    o onboarding acabou de ler, sem chamar a LawChat de novo."""
+    from app.gestao import usuarios_helena
+    ja_lidos = dict(ja_lidos or {})
+    leitores = {"canal": helena.canais, "painel": helena.paineis, "etiqueta": helena.etiquetas,
+                "equipe": helena.equipes, "usuario": lambda: usuarios_helena.listar(helena)}
+    faltam = {t: leitores[t]() for t in leitores if t not in ja_lidos}
+    lidos = {**ja_lidos, **(await em_paralelo(faltam) if faltam else {})}
+    recursos: dict[str, list[dict[str, Any]]] = {}
+    erros: dict[str, str] = {}
+    for tipo in leitores:                               # mesma ordem de antes
+        lido = lidos[tipo]
+        if isinstance(lido, ErroHelenaApi):
+            erros[tipo] = lido.motivo
+            if tipo == "painel":
+                erros["coluna"] = lido.motivo
+            continue
+        if isinstance(lido, BaseException):
+            raise lido
+        recursos.update(_recursos_de(tipo, lido or []))
     return recursos, erros
 
 
 # ---------------------------------------------------------------------------------------------- gravação
 async def gravar_detalhes_canais(pool: Any, id_escritorio: str, canais: list[dict[str, Any]]) -> None:
-    """Nome de exibição e tipo cru da Helena nos canais (colunas da 006)."""
-    for c in canais:
-        if not c.get("id"):
-            continue
-        await pool.execute(
-            """update agentesia_canais set nome_exibicao = $3, tipo_helena = $4, sincronizado_em = now()
-               where id_escritorio = $1::uuid and id_canal_helena = $2""",
-            id_escritorio, c["id"], c.get("nome") or None, c.get("tipo_helena"))
+    """Nome de exibição e tipo cru da Helena nos canais (colunas da 006). Uma ida ao banco para todos."""
+    linhas = [{"id": str(c["id"]), "nome": c.get("nome") or None, "tipo": c.get("tipo_helena")}
+              for c in canais if c.get("id")]
+    if not linhas:
+        return
+    await pool.execute(
+        """update agentesia_canais c set nome_exibicao = x.nome, tipo_helena = x.tipo, sincronizado_em = now()
+           from jsonb_to_recordset($2::jsonb) as x(id text, nome text, tipo text)
+           where c.id_escritorio = $1::uuid and c.id_canal_helena = x.id""",
+        id_escritorio, json.dumps(linhas, ensure_ascii=False, default=str))
+
+
+async def gravar_copia(conexao: Any, id_escritorio: str, recursos: dict[str, list[dict[str, Any]]],
+                       agora: datetime) -> dict[str, dict[str, int]]:
+    """Grava a cópia inteira numa ida ao banco: upsert de todos os itens (jsonb_to_recordset), marca sumido o que não
+    veio nos tipos lidos e atualiza sincronizado_em. Devolve {tipo: {total, novos, sumiram}} como antes (linha a linha).
+    Item repetido (mesmo tipo e id) conta uma vez; vale o último."""
+    tipos = [t for t in TIPOS if t in recursos]
+    if not tipos:
+        return {}
+    unicos: dict[tuple[str, str], dict[str, Any]] = {}
+    for tipo in tipos:
+        for item in recursos[tipo]:
+            unicos[(tipo, str(item["id"]))] = {
+                "tipo": tipo, "id_externo": str(item["id"]),
+                "id_pai_externo": None if item.get("id_pai") is None else str(item["id_pai"]),
+                "nome": item.get("nome"), "posicao": item.get("posicao"), "dados": item.get("dados") or {}}
+    linhas = await conexao.fetch(
+        """with entrada as (
+             select * from jsonb_to_recordset($2::jsonb)
+               as x(tipo text, id_externo text, id_pai_externo text, nome text, posicao int, dados jsonb)
+           ), gravados as (
+             insert into agentesia_helena_recursos
+               (id_escritorio, tipo, id_externo, id_pai_externo, nome, posicao, dados, visto_em, sumiu_em)
+             select $1::uuid, tipo, id_externo, id_pai_externo, nome, posicao, coalesce(dados, '{}'::jsonb), $3, null
+             from entrada
+             on conflict (id_escritorio, tipo, id_externo) do update set
+               id_pai_externo = excluded.id_pai_externo, nome = excluded.nome, posicao = excluded.posicao,
+               dados = excluded.dados, visto_em = excluded.visto_em, sumiu_em = null
+             returning tipo, (xmax = 0) as novo
+           ), sumidos as (
+             update agentesia_helena_recursos r set sumiu_em = $3
+             where r.id_escritorio = $1::uuid and r.tipo = any($4::text[]) and r.sumiu_em is null
+               and not exists (select 1 from entrada e where e.tipo = r.tipo and e.id_externo = r.id_externo)
+             returning r.tipo
+           ), escritorio as (
+             update agentesia_escritorios set sincronizado_em = $3 where id = $1::uuid returning 1
+           )
+           select t.tipo,
+                  (select count(*) from gravados g where g.tipo = t.tipo)::int as total,
+                  (select count(*) from gravados g where g.tipo = t.tipo and g.novo)::int as novos,
+                  (select count(*) from sumidos s where s.tipo = t.tipo)::int as sumiram,
+                  (select count(*) from escritorio)::int as _e
+           from unnest($4::text[]) as t(tipo)""",
+        id_escritorio, json.dumps(list(unicos.values()), ensure_ascii=False, default=str), agora, tipos)
+    por_tipo = {l["tipo"]: {"total": l["total"], "novos": l["novos"], "sumiram": l["sumiram"]} for l in linhas}
+    return {t: por_tipo[t] for t in tipos}
+
+
+_NAO_LIDA = object()
 
 
 async def sincronizar(*, repo: Any, id_escritorio: str, helena: HelenaConta,
                       parceiro: HelenaConta | None = None, id_conta: str | None = None,
-                      com_usuarios: bool = True, id_usuario: str | None = None) -> dict[str, Any]:
+                      com_usuarios: bool = True, id_usuario: str | None = None,
+                      ja_lidos: dict[str, Any] | None = None, canais_gravados: bool = False,
+                      empresa: Any = _NAO_LIDA, escritorio: dict[str, Any] | None = None) -> dict[str, Any]:
     """Lê a conta e atualiza a cópia. Devolve, por tipo, quantos existem, quantos são novos e quantos sumiram.
     Com o token de parceiro, também guarda os dados cadastrais da empresa (sem e-mail/telefone).
     Com `com_usuarios`, alinha também os logins do painel (agentesia_usuarios) com os usuários da conta, usando a
-    mesma lista lida (resultado em "usuarios"; se a lista não veio, o erro já está em erros["usuario"])."""
-    recursos, erros = await ler_conta(helena)
+    mesma lista lida (resultado em "usuarios"; se a lista não veio, o erro já está em erros["usuario"]).
+    O onboarding passa o que já leu (`ja_lidos`, `empresa`: dict, None ou ErroHelenaApi) e `canais_gravados` quando
+    o passo "canais" acabou de gravar os números; a leitura do que falta e a da empresa vão em paralelo."""
     pool = repo.pool
+    ler_empresa = empresa is _NAO_LIDA and parceiro is not None and bool(id_conta)
+    if ler_empresa:
+        juntos = await em_paralelo({"conta": ler_conta(helena, ja_lidos), "empresa": dados_da_empresa(parceiro, id_conta)})
+        if isinstance(juntos["conta"], BaseException):
+            raise juntos["conta"]
+        recursos, erros = juntos["conta"]
+        empresa = juntos["empresa"]
+    else:
+        recursos, erros = await ler_conta(helena, ja_lidos)
     conta = None
-    if parceiro is not None and id_conta:
-        try:
-            conta = await dados_da_empresa(parceiro, id_conta)
-        except ErroHelenaApi as erro:
-            erros["empresa"] = erro.motivo
+    if isinstance(empresa, ErroHelenaApi):
+        erros["empresa"] = empresa.motivo
+    elif isinstance(empresa, BaseException):
+        raise empresa
+    elif isinstance(empresa, dict):
+        conta = empresa
     ids: dict[str, Any] = {}
     if "etiqueta" in recursos:
         ids["etiquetas"] = ids_das_etiquetas_padrao(recursos["etiqueta"])
@@ -409,7 +503,7 @@ async def sincronizar(*, repo: Any, id_escritorio: str, helena: HelenaConta,
             ids["id_departamento"] = equipe_ia["id"]
     if conta is not None or ids:
         await salvar_dados_helena(pool, id_escritorio, conta=conta, ids=ids)
-    if "canal" in recursos:
+    if "canal" in recursos and not canais_gravados:
         canais = [r["_canal"] for r in recursos["canal"]]
         # Mesmo caminho do botão "Atualizar números": upsert por id do canal e desliga os que sumiram.
         await repo.sincronizar_canais(id_escritorio, [
@@ -417,44 +511,15 @@ async def sincronizar(*, repo: Any, id_escritorio: str, helena: HelenaConta,
         await gravar_detalhes_canais(pool, id_escritorio, canais)
 
     agora = datetime.now(timezone.utc)
-    tipos: dict[str, dict[str, int]] = {}
-    async with pool.acquire() as conexao, conexao.transaction():
-        for tipo in TIPOS:
-            if tipo not in recursos:
-                continue
-            novos = 0
-            vistos = []
-            for item in recursos[tipo]:
-                id_externo = str(item["id"])
-                vistos.append(id_externo)
-                novo = await conexao.fetchval(
-                    """insert into agentesia_helena_recursos
-                         (id_escritorio, tipo, id_externo, id_pai_externo, nome, posicao, dados, visto_em, sumiu_em)
-                       values ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, null)
-                       on conflict (id_escritorio, tipo, id_externo) do update set
-                         id_pai_externo = excluded.id_pai_externo, nome = excluded.nome, posicao = excluded.posicao,
-                         dados = excluded.dados, visto_em = excluded.visto_em, sumiu_em = null
-                       returning (xmax = 0)""",
-                    id_escritorio, tipo, id_externo, item.get("id_pai"), item.get("nome"), item.get("posicao"),
-                    json.dumps(item.get("dados") or {}, ensure_ascii=False, default=str), agora)
-                novos += 1 if novo else 0
-            sumiram = await conexao.fetchval(
-                """with marcados as (
-                     update agentesia_helena_recursos set sumiu_em = $4
-                     where id_escritorio = $1::uuid and tipo = $2 and sumiu_em is null and not (id_externo = any($3::text[]))
-                     returning 1)
-                   select count(*)::int from marcados""", id_escritorio, tipo, vistos, agora)
-            tipos[tipo] = {"total": len(vistos), "novos": novos, "sumiram": sumiram}
-        if recursos:
-            await conexao.execute("update agentesia_escritorios set sincronizado_em = $2 where id = $1::uuid",
-                                  id_escritorio, agora)
+    # Uma ida ao banco para a cópia inteira (antes: uma por item, ~170 numa conta média = ~35 s a 200 ms cada).
+    tipos = await gravar_copia(pool, id_escritorio, recursos, agora)
     alinhados: dict[str, Any] | None = None
     if com_usuarios and "usuario" in recursos:
         from app.gestao import usuarios_helena
         try:
             alinhados = await usuarios_helena.sincronizar(
                 repo=repo, id_escritorio=id_escritorio, lista=[r["_usuario"] for r in recursos["usuario"]],
-                id_usuario=id_usuario)
+                id_usuario=id_usuario, escritorio=escritorio)
         except Exception as erro:                   # noqa: BLE001 — opcional: não derruba a cópia
             erros["usuarios_painel"] = usuarios_helena.erro_legivel(erro)
     return {"sincronizado_em": agora.isoformat() if recursos else None, "tipos": tipos, "erros": erros,

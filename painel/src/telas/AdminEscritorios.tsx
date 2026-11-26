@@ -480,33 +480,38 @@ function ResumoOnboarding({ linha, aoAbrir }: { linha: Linha; aoAbrir: () => voi
   );
 }
 
-/** Escolha do painel do CRM: o painel e, quando ele não tem as etapas fixas, qual coluna é cada tipo. */
-function EscolherPainel({ paineis, painel, setPainel, etapas, setEtapas }: { paineis: PainelDaConta[]; painel: string;
-  setPainel: (id: string) => void; etapas: Record<string, string>; setEtapas: (e: Record<string, string>) => void }) {
+/** Escolha do painel do CRM: o painel e, quando ele não tem as etapas fixas, qual coluna é cada tipo.
+ *  Aplica na hora: cada escolha chama o avançar só do passo "painel" (`aoEscolher`). */
+function EscolherPainel({ paineis, painel, etapas, aoEscolher, ocupado, passo }: { paineis: PainelDaConta[]; painel: string;
+  etapas: Record<string, string>; aoEscolher: (id: string, etapas: Record<string, string>) => void; ocupado: boolean;
+  passo?: PassoOnboarding }) {
   const escolhido = paineis.find((x) => x.id === painel);
   const candidatos = paineis.filter((x) => x.padrao).length;
+  const [valor, texto] = passo ? SITUACAO_PASSO[passo.situacao] ?? ["", String(passo.situacao ?? "")] : ["", ""];
   return (
     <div className="field" style={{ display: "grid", gap: 6 }}>
-      <label className="field"><span className="lbl">Painel do CRM (aplica ao avançar)</span>
-        <select className="inp" value={painel} onChange={(e) => {
+      <label className="field"><span className="lbl">Painel do CRM</span>
+        <select className="inp" value={painel} disabled={ocupado} onChange={(e) => {
           const id = e.target.value;
-          setPainel(id);
-          setEtapas({ ...(paineis.find((x) => x.id === id)?.sugestao ?? {}) });
+          aoEscolher(id, { ...(paineis.find((x) => x.id === id)?.sugestao ?? {}) });
         }}>
           <option value="">Escolher…</option>
           {paineis.map((x) => <option key={x.id} value={x.id}>{x.titulo} · {x.colunas} colunas{x.padrao ? " · etapas padrão" : ""}</option>)}
         </select>
         <span className="ajuda">{candidatos === 1 ? "O painel com as etapas padrão já vem escolhido. " : candidatos > 1 ? `${candidatos} painéis têm as etapas padrão: escolha qual a IA usa. ` : ""}
-          A ativação do agente usa este painel para mover os cards.</span>
+          Vale assim que você escolhe. A ativação do agente usa este painel para mover os cards.</span>
       </label>
+      {passo && painel && (
+        <div style={{ fontSize: 12 }}><Situacao valor={valor} texto={texto} /> {marca(passo.detalhe)}</div>
+      )}
       {escolhido && !escolhido.padrao && (escolhido.etapas?.length ?? 0) > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 6 }}>
           {TIPOS_ETAPA.map((tipo) => (
             <label key={tipo} className="field"><span className="lbl" style={{ fontSize: 12 }}>{NOME_ETAPA[tipo] ?? tipo}</span>
-              <select className="inp" value={etapas[tipo] ?? ""} onChange={(e) => {
+              <select className="inp" value={etapas[tipo] ?? ""} disabled={ocupado} onChange={(e) => {
                 const novo = { ...etapas };
                 if (e.target.value) novo[tipo] = e.target.value; else delete novo[tipo];
-                setEtapas(novo);
+                aoEscolher(painel, novo);
               }}>
                 <option value="">Sem coluna</option>
                 {(escolhido.etapas ?? []).map((c) => <option key={c.id} value={c.id}>{c.titulo || "(sem nome)"}</option>)}
@@ -519,10 +524,24 @@ function EscolherPainel({ paineis, painel, setPainel, etapas, setEtapas }: { pai
   );
 }
 
+/** Quanto o modal espera o servidor antes de dizer que está demorando (o pedido segue; a resposta tardia entra). */
+const PRAZO_MS = 20000;
+const DEMOROU = "O LawChat está demorando mais de 20 s para responder. O que já foi feito fica salvo: " +
+  "esta janela se atualiza sozinha quando a resposta chegar, ou clique em Conferir daqui a pouco.";
+function comPrazo<T>(pedido: Promise<T>, aoChegarTarde: (v: T) => void): Promise<T> {
+  let venceu = false;
+  return new Promise<T>((ok, falha) => {
+    const relogio = setTimeout(() => { venceu = true; falha(new Error(DEMOROU)); }, PRAZO_MS);
+    pedido.then((v) => { clearTimeout(relogio); if (venceu) aoChegarTarde(v); else ok(v); },
+      (e) => { clearTimeout(relogio); if (!venceu) falha(e); });
+  });
+}
+
 function PassosDaConta({ linha, aoFechar, aoAtivarProduto }: { linha: Linha; aoFechar: () => void; aoAtivarProduto: () => void }) {
   const base = `/admin/escritorios/${linha.id}`;
   const { dados, erro, recarregar } = useCarregar<ResultadoOnboarding>(`${base}/onboarding`);
   const { ocupado, executar } = useAcao();
+  const [acao, setAcao] = useState<string | null>(null);
   const [ultimo, setUltimo] = useState<ResultadoOnboarding | null>(null);
   const [sinc, setSinc] = useState<Sincronizacao | null>(null);
   const [painel, setPainel] = useState("");
@@ -532,18 +551,26 @@ function PassosDaConta({ linha, aoFechar, aoAtivarProduto }: { linha: Linha; aoF
   const atual = ultimo ?? dados;
   const paineis = Array.isArray(ultimo?.paineis) ? ultimo!.paineis : [];
   const obrigatorios = Array.isArray(atual?.obrigatorios) && atual!.obrigatorios.length ? atual!.obrigatorios : OBRIGATORIOS;
+  // Resposta que chegou depois do prazo: entra na tela sem aviso de erro.
+  const tardia = (r: ResultadoOnboarding) => { setFalha(null); setUltimo(r); recarregar(); };
   // Erro do servidor fica DENTRO do modal (legível), além do aviso no canto.
-  const rodar = (fn: () => Promise<void>, sucesso: string) => executar(async () => {
-    setFalha(null);
-    try { await fn(); } catch (e) { setFalha((e as Error).message || "Falha inesperada."); throw e; }
-  }, sucesso);
-  const conferirEmSilencio = () => enviar<ResultadoOnboarding>(`${base}/onboarding/conferir`, {}).then(setUltimo)
+  const rodar = (qual: string, fn: () => Promise<void>, sucesso: string) => {
+    setAcao(qual);
+    return executar(async () => {
+      setFalha(null);
+      try { await fn(); } catch (e) { setFalha((e as Error).message || "Falha inesperada."); throw e; }
+    }, sucesso).finally(() => setAcao(null));
+  };
+  const pedirOnboarding = (caminho: string, corpo: Record<string, unknown>) =>
+    comPrazo(enviar<ResultadoOnboarding>(`${base}/onboarding/${caminho}`, corpo), tardia);
+  const conferirEmSilencio = () => pedirOnboarding("conferir", {}).then(setUltimo)
     .catch((e) => setFalha((e as Error).message || "Não deu para conferir."));
-  const conferir = () => rodar(async () => { setUltimo(await enviar<ResultadoOnboarding>(`${base}/onboarding/conferir`, {})); recarregar(); }, "Passos conferidos.");
+  const conferir = () => rodar("conferir", async () => { setUltimo(await pedirOnboarding("conferir", {})); recarregar(); }, "Passos conferidos.");
   // Ao abrir, confere sozinho (só lê a conta): é o que traz a lista de painéis para escolher.
   useEffect(() => {
     let vivo = true;
-    enviar<ResultadoOnboarding>(`${base}/onboarding/conferir`, {}).then((r) => { if (vivo) setUltimo(r); })
+    comPrazo(enviar<ResultadoOnboarding>(`${base}/onboarding/conferir`, {}), (r) => { if (vivo) { setFalha(null); setUltimo(r); } })
+      .then((r) => { if (vivo) setUltimo(r); })
       .catch((e) => { if (vivo) setFalha((e as Error).message || "Não deu para conferir."); });
     return () => { vivo = false; };
   }, [base]);
@@ -556,31 +583,61 @@ function PassosDaConta({ linha, aoFechar, aoAtivarProduto }: { linha: Linha; aoF
     setPainel(id);
     setEtapas({ ...(paineis.find((x) => x.id === id)?.sugestao ?? {}), ...(id === gravado ? ultimo?.dados_helena?.ids?.etapas_por_tipo ?? {} : {}) });
   }, [paineis, painel, ultimo]);
-  const avancar = () => rodar(async () => {
-    const corpo: Record<string, unknown> = { criar_equipe_ia: criarEquipe };
-    if (painel) {
-      corpo.id_painel = painel;
-      const escolhido = paineis.find((x) => x.id === painel);
-      if (escolhido && !escolhido.padrao && Object.keys(etapas).length) corpo.etapas_por_tipo = etapas;
-    }
-    setUltimo(await enviar<ResultadoOnboarding>(`${base}/onboarding/avancar`, corpo)); recarregar();
+  const corpoDoPainel = (id: string, mapa: Record<string, string>) => {
+    const corpo: Record<string, unknown> = { id_painel: id };
+    const escolhido = paineis.find((x) => x.id === id);
+    if (escolhido && !escolhido.padrao && Object.keys(mapa).length) corpo.etapas_por_tipo = mapa;
+    return corpo;
+  };
+  // Escolher no select já aplica: o avançar só do passo "painel" (o resto só é conferido).
+  const escolherPainel = (id: string, mapa: Record<string, string>) => {
+    setPainel(id);
+    setEtapas(mapa);
+    if (!id) return;
+    void rodar("painel", async () => {
+      setUltimo(await pedirOnboarding("avancar", { passos: ["painel"], ...corpoDoPainel(id, mapa) })); recarregar();
+    }, "Painel do CRM aplicado.");
+  };
+  const avancar = () => rodar("avancar", async () => {
+    const corpo: Record<string, unknown> = { criar_equipe_ia: criarEquipe, ...(painel ? corpoDoPainel(painel, etapas) : {}) };
+    setUltimo(await pedirOnboarding("avancar", corpo)); recarregar();
   }, "Passos aplicados.");
-  const sincronizar = () => rodar(async () => { setSinc(await enviar<Sincronizacao>(`${base}/sincronizar`, {})); recarregar(); }, "Conta sincronizada.");
+  const sincronizar = () => rodar("sincronizar", async () => {
+    setSinc(await comPrazo(enviar<Sincronizacao>(`${base}/sincronizar`, {}), (r) => { setFalha(null); setSinc(r); recarregar(); }));
+    recarregar();
+  }, "Conta sincronizada.");
   const passos = Array.isArray(atual?.passos) ? atual!.passos : [];
   const passoPainel = passos.find((p) => p.codigo === "painel");
   const passoEquipe = passos.find((p) => p.codigo === "equipe");
+  // Conta pronta: todos os obrigatórios ok (o primeiro produto é só informativo e não entra aqui).
+  const pronta = passos.length > 0 && obrigatorios.every((c) => PASSO_OK(passos.find((p) => p.codigo === c)));
+  const feitosAgora = ultimo ? passos.filter((p) => p.situacao === "feito").map((p) => marca(p.titulo)) : [];
+  const textoBotao = ocupado ? (acao === "conferir" ? "Conferindo…" : "Aplicando…") : pronta ? "Concluir" : "Avançar";
   return (
     <Modal titulo={`Onboarding · ${linha.nome}`} largura={720} aoFechar={aoFechar}
-      texto="Conferir só lê a conta na LawChat. Avançar conecta o webhook, cria as etiquetas padrão que faltam, grava o painel do CRM e copia a conta. Escolha aqui o painel do CRM. O número entra na ativação do agente."
+      texto="Conferir só lê a conta na LawChat. Avançar faz só o que falta: conecta o webhook, cria as etiquetas padrão que faltam e copia a conta; o que já está ok não é refeito (Sincronizar conta copia de novo). O painel do CRM vale assim que você escolhe. O número entra na ativação do agente."
       rodape={<>
         <button className="btn" disabled={ocupado} onClick={sincronizar}>Sincronizar conta</button>
         <span className="sp" />
         <button className="btn" disabled={ocupado} onClick={conferir}>Conferir</button>
-        <button className="btn pri" disabled={ocupado} onClick={avancar}>{ocupado ? <RefreshCw className="animate-spin" /> : null}Avançar</button></>}>
+        {pronta && criarEquipe && !PASSO_OK(passoEquipe) && <button className="btn" disabled={ocupado} onClick={avancar}>Criar a equipe</button>}
+        <button className="btn pri" disabled={ocupado} aria-busy={ocupado} onClick={pronta ? aoFechar : avancar}>
+          {ocupado ? <RefreshCw className="animate-spin" /> : pronta ? <CheckCircle2 /> : null}{textoBotao}</button></>}>
       {!atual ? <Carregando erro={erro} /> : (
         <div className="form">
-          {falha && <Alerta tipo="bad">{marca(falha)}</Alerta>}
-          {atual.concluido_em && <Alerta tipo="ok">Onboarding da conta concluído em {quando(atual.concluido_em)}.</Alerta>}
+          {falha && <Alerta tipo={falha === DEMOROU ? "warn" : "bad"}>{marca(falha)}</Alerta>}
+          {pronta && (
+            <Alerta tipo="ok" titulo="Conta pronta">
+              {feitosAgora.length > 0 && <>Feito agora: {feitosAgora.join(" · ")}. </>}
+              {atual.concluido_em && <>Concluída em {quando(atual.concluido_em)}. </>}
+              <ul style={{ margin: "6px 0", paddingLeft: 18, fontSize: 12 }}>
+                {obrigatorios.map((c) => passos.find((p) => p.codigo === c)).filter(Boolean).map((p) => (
+                  <li key={p!.codigo}>{marca(p!.titulo)}: {marca(p!.detalhe)}</li>
+                ))}
+              </ul>
+              Clique em Concluir para fechar: a conta aparece como Habilitado na lista.
+            </Alerta>
+          )}
           <div className="lst"><table><tbody>{passos.filter((p) => !FORA_DA_INTEGRACAO.includes(p.codigo)).map((p) => {
             const [valor, texto] = SITUACAO_PASSO[p.situacao] ?? ["", String(p.situacao ?? "")];
             return (
@@ -597,7 +654,8 @@ function PassosDaConta({ linha, aoFechar, aoAtivarProduto }: { linha: Linha; aoF
               </tr>
             );
           })}</tbody></table></div>
-          {paineis.length > 0 && <EscolherPainel paineis={paineis} painel={painel} setPainel={setPainel} etapas={etapas} setEtapas={setEtapas} />}
+          {paineis.length > 0 && <EscolherPainel paineis={paineis} painel={painel} etapas={etapas} aoEscolher={escolherPainel}
+            ocupado={ocupado} passo={passoPainel} />}
           {!ultimo && !falha && <p className="muted" style={{ margin: 0, fontSize: 12 }}>Lendo os painéis da conta…</p>}
           {ultimo && !PASSO_OK(passoPainel) && passoPainel?.situacao !== "aviso" && (
             <CriarPainelPadrao idEscritorio={linha.id} config={ultimo.painel_crm} aoMudar={() => { recarregar(); void conferirEmSilencio(); }} />

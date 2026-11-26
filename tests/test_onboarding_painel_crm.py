@@ -205,3 +205,168 @@ async def test_primeiro_produto_nao_trava_o_onboarding_da_conta(ambiente):
     assert onboarding.OBRIGATORIOS == {"token", "webhook", "etiquetas", "painel"}
     guardado = (await cliente.get(f"{base}/onboarding")).json()
     assert guardado["concluido_em"] and "produto" not in guardado["obrigatorios"]
+
+
+# ------------------------------------------------------------------------------------------- desempenho do Avançar
+def _contar_idas_ao_banco(monkeypatch) -> dict:
+    """Conta as idas ao banco (cada execute/fetch* de uma conexão asyncpg)."""
+    import asyncpg
+    contador = {"idas": 0}
+    for nome in ("execute", "executemany", "fetch", "fetchval", "fetchrow"):
+        original = getattr(asyncpg.connection.Connection, nome)
+
+        def embrulho(original):
+            async def contado(self, *a, **k):
+                contador["idas"] += 1
+                return await original(self, *a, **k)
+            return contado
+        monkeypatch.setattr(asyncpg.connection.Connection, nome, embrulho(original))
+    return contador
+
+
+async def test_avancar_nao_refaz_os_passos_que_ja_estao_ok(ambiente, monkeypatch):
+    cliente, falsa, banco = ambiente
+    conta, id_escritorio, base = await _conta(cliente, falsa)
+    primeiro = (await cliente.post(f"{base}/onboarding/avancar", json={})).json()
+    assert _situacao(primeiro)["sincronizacao"]["situacao"] == "feito" and primeiro["completo"] is True
+    copia = "select max(visto_em) from agentesia_helena_recursos where id_escritorio = $1::uuid"
+    numeros = "select max(sincronizado_em) from agentesia_canais where id_escritorio = $1::uuid"
+    visto, canais = await banco._pool.fetchval(copia, id_escritorio), await banco._pool.fetchval(numeros, id_escritorio)
+    assert visto and canais
+    # Abrir o modal confere (só lê): não apaga o que já foi aplicado.
+    assert (await cliente.post(f"{base}/onboarding/conferir")).status_code == 200
+
+    # De novo, sem forcar: nenhuma escrita na LawChat, a cópia e os números não são regravados, poucas idas ao banco.
+    escritas = len([p for p in falsa.pedidos if p[0] != "GET"])
+    contador = _contar_idas_ao_banco(monkeypatch)
+    de_novo = (await cliente.post(f"{base}/onboarding/avancar", json={"id_painel": conta["paineis"][0]["id"]})).json()
+    passos = _situacao(de_novo)
+    assert de_novo["pulados"] == ["sincronizacao"] and "Sincronizar conta" in passos["sincronizacao"]["detalhe"]
+    codigos = ("token", "webhook", "etiquetas", "painel", "canais", "sincronizacao", "usuarios")
+    assert {c: passos[c]["situacao"] for c in codigos} == {c: "ok" for c in codigos}
+    assert "já estava escolhido" in passos["painel"]["detalhe"] and de_novo["completo"] is True
+    assert len([p for p in falsa.pedidos if p[0] != "GET"]) == escritas
+    assert await banco._pool.fetchval(copia, id_escritorio) == visto
+    assert await banco._pool.fetchval(numeros, id_escritorio) == canais
+    assert contador["idas"] <= 12, contador                       # antes: dezenas (uma por item copiado)
+
+    # O que deixou de estar ok é feito (só ele): a etiqueta padrão apagada na LawChat volta; a cópia continua pulada.
+    conta["etiquetas"] = [e for e in conta["etiquetas"] if e["name"] != "🤖 IA Desativada"]
+    refeito = (await cliente.post(f"{base}/onboarding/avancar", json={})).json()
+    etiquetas = _situacao(refeito)["etiquetas"]
+    assert etiquetas["situacao"] == "feito" and "IA Desativada" in etiquetas["detalhe"]
+    assert refeito["pulados"] == ["sincronizacao"]
+    # Número novo conectado: os números são gravados de novo (mudaram), sem refazer a cópia.
+    conta["canais"].append({"id": "ch-c-" + uuid.uuid4().hex[:6], "active": True, "type": "ZAPI_WhatsApp",
+                            "number": "5511955550000", "identity": {"displayName": "Novo"}})
+    com_numero = (await cliente.post(f"{base}/onboarding/avancar", json={})).json()
+    assert _situacao(com_numero)["canais"]["situacao"] == "feito"
+    assert await banco._pool.fetchval(
+        "select count(*) from agentesia_canais where id_escritorio = $1::uuid and ativo", id_escritorio) == 3
+
+    # forcar refaz tudo, inclusive a cópia.
+    forcado = (await cliente.post(f"{base}/onboarding/avancar", json={"forcar": True})).json()
+    assert forcado["pulados"] == [] and _situacao(forcado)["sincronizacao"]["situacao"] == "feito"
+    assert await banco._pool.fetchval(copia, id_escritorio) > visto
+    # A conta pronta aparece como Habilitado na lista.
+    lista = (await cliente.get("/api/admin/escritorios")).json()
+    assert next(e for e in lista if e["id"] == id_escritorio)["agente_habilitado"] is True
+
+
+async def test_escolher_o_painel_aplica_so_o_passo_painel(ambiente):
+    cliente, falsa, banco = ambiente
+    conta, id_escritorio, base = await _conta(cliente, falsa)
+    assert (await cliente.post(f"{base}/onboarding/conferir")).status_code == 200
+    escritas = len([p for p in falsa.pedidos if p[0] != "GET"])
+    juridico = conta["paineis"][2]
+    escolhido = (await cliente.post(f"{base}/onboarding/avancar", json={
+        "passos": ["painel"], "id_painel": juridico["id"]})).json()
+    passos = _situacao(escolhido)
+    assert passos["painel"]["situacao"] == "aviso" and "Jurídico escolhido" in passos["painel"]["detalhe"]
+    assert escolhido["dados_helena"]["ids"]["id_painel"] == juridico["id"]
+    crm = await banco._pool.fetchval(
+        "select config->>'id_painel' from agentesia_integracoes where id_escritorio = $1::uuid and tipo = 'crm'", id_escritorio)
+    assert crm == juridico["id"]
+    # Nada além do painel: nenhuma escrita na LawChat (webhook, etiquetas), sem cópia, sem logins, webhook só conferido.
+    assert len([p for p in falsa.pedidos if p[0] != "GET"]) == escritas
+    assert await banco._pool.fetchval(
+        "select count(*) from agentesia_helena_recursos where id_escritorio = $1::uuid", id_escritorio) == 0
+    assert await banco._pool.fetchval(
+        "select count(*) from agentesia_usuarios where id_escritorio = $1::uuid", id_escritorio) == 0
+    assert passos["webhook"]["situacao"] == "pendente" and passos["sincronizacao"]["situacao"] == "pendente"
+    # Trocar de novo pelo select: vale o novo (mesmo com o painel anterior já gravado).
+    padrao = conta["paineis"][0]
+    trocado = (await cliente.post(f"{base}/onboarding/avancar", json={"passos": ["painel"], "id_painel": padrao["id"]})).json()
+    assert _situacao(trocado)["painel"]["situacao"] == "feito" and "6/6" in _situacao(trocado)["painel"]["detalhe"]
+
+
+async def _copia_linha_a_linha(pool, id_escritorio, recursos, agora):
+    """A gravação de antes (uma ida ao banco por item), para comparar com sincronizar_conta.gravar_copia."""
+    import json
+    tipos = {}
+    async with pool.acquire() as conexao, conexao.transaction():
+        for tipo in sincronizar_conta.TIPOS:
+            if tipo not in recursos:
+                continue
+            novos, vistos = 0, []
+            for item in recursos[tipo]:
+                vistos.append(str(item["id"]))
+                novo = await conexao.fetchval(
+                    """insert into agentesia_helena_recursos
+                         (id_escritorio, tipo, id_externo, id_pai_externo, nome, posicao, dados, visto_em, sumiu_em)
+                       values ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, null)
+                       on conflict (id_escritorio, tipo, id_externo) do update set
+                         id_pai_externo = excluded.id_pai_externo, nome = excluded.nome, posicao = excluded.posicao,
+                         dados = excluded.dados, visto_em = excluded.visto_em, sumiu_em = null
+                       returning (xmax = 0)""",
+                    id_escritorio, tipo, str(item["id"]), item.get("id_pai"), item.get("nome"), item.get("posicao"),
+                    json.dumps(item.get("dados") or {}, ensure_ascii=False, default=str), agora)
+                novos += 1 if novo else 0
+            sumiram = await conexao.fetchval(
+                """with marcados as (update agentesia_helena_recursos set sumiu_em = $4
+                     where id_escritorio = $1::uuid and tipo = $2 and sumiu_em is null and not (id_externo = any($3::text[]))
+                     returning 1) select count(*)::int from marcados""", id_escritorio, tipo, vistos, agora)
+            tipos[tipo] = {"total": len(vistos), "novos": novos, "sumiram": sumiram}
+        await conexao.execute("update agentesia_escritorios set sincronizado_em = $2 where id = $1::uuid", id_escritorio, agora)
+    return tipos
+
+
+async def test_copia_em_lote_grava_o_mesmo_que_linha_a_linha(ambiente):
+    from datetime import datetime, timedelta, timezone
+
+    from app.canal.helena_conta import HelenaConta
+    _cliente, falsa, banco = ambiente
+    pool = banco._pool
+    token = "token-copia-" + uuid.uuid4().hex[:6]
+    falsa.conta(token)
+    recursos, erros = await sincronizar_conta.ler_conta(HelenaConta(token))
+    assert not erros and {t: len(v) for t, v in recursos.items()} == {
+        "canal": 2, "painel": 3, "coluna": 9, "etiqueta": 2, "equipe": 1, "usuario": 1}
+    antigo = str(await pool.fetchval("insert into agentesia_escritorios (nome) values ('Linha a linha') returning id"))
+    lote = str(await pool.fetchval("insert into agentesia_escritorios (nome) values ('Em lote') returning id"))
+
+    async def tabela(id_escritorio):
+        linhas = await pool.fetch(
+            """select tipo, id_externo, id_pai_externo, nome, posicao, dados::text as dados, visto_em,
+                      sumiu_em is not null as sumiu
+               from agentesia_helena_recursos where id_escritorio = $1::uuid order by tipo, id_externo""", id_escritorio)
+        return [dict(l) for l in linhas]
+
+    agora = datetime.now(timezone.utc)
+    sumida = None
+    for rodada in range(3):
+        quando = agora + timedelta(minutes=rodada)
+        esperado = await _copia_linha_a_linha(pool, antigo, recursos, quando)
+        feito = await sincronizar_conta.gravar_copia(pool, lote, recursos, quando)
+        assert feito == esperado, (rodada, feito, esperado)
+        assert await tabela(lote) == await tabela(antigo)
+        assert await pool.fetchval("select sincronizado_em from agentesia_escritorios where id = $1::uuid", lote) == quando
+        # Próxima rodada: some uma etiqueta e uma coluna, aparece uma equipe; na terceira, a etiqueta volta.
+        if rodada == 0:
+            sumida = recursos["etiqueta"].pop()
+            recursos["coluna"].pop(0)
+            recursos["equipe"].append({"id": "d-novo", "nome": "Nova", "dados": {"padrao": False}})
+        elif rodada == 1:
+            recursos["etiqueta"].append(sumida)
+    assert esperado["etiqueta"] == {"total": 2, "novos": 0, "sumiram": 0}
+    assert sum(1 for l in await tabela(lote) if l["sumiu"]) == 1                     # a coluna que sumiu

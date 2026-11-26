@@ -23,6 +23,7 @@ O histórico (agentesia_alteracoes) leva nome e papel; e-mail e telefone não en
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.canal.helena_conta import ErroHelenaApi, HelenaConta
@@ -116,30 +117,41 @@ def texto_do_resultado(r: dict[str, Any]) -> str:
 
 async def sincronizar(*, repo: Any, id_escritorio: str, helena: HelenaConta | None = None,
                       lista: list[dict[str, Any]] | None = None, simular: bool = False,
-                      id_usuario: str | None = None) -> dict[str, Any]:
+                      id_usuario: str | None = None, escritorio: dict[str, Any] | None = None) -> dict[str, Any]:
     """Alinha agentesia_usuarios do escritório com a LawChat. `lista` (de `listar`) evita ler de novo; `simular`
-    só conta o que faria. Devolve {criados, atualizados, desativados, ignorados, total, aviso, mudancas}."""
+    só conta o que faria; `escritorio` (a linha já lida) evita mais uma ida ao banco.
+    Devolve {criados, atualizados, desativados, ignorados, total, aviso, mudancas}.
+    Idas ao banco: 2 leituras (os usuários do escritório e os donos dos e-mails, juntas) e, se algo mudou, 2 escritas
+    (todas as mudanças numa só e o histórico numa só), qualquer que seja o número de usuários."""
     if lista is None:
         if helena is None:
             raise ValueError("sem a LawChat e sem a lista de usuários")
         lista = await listar(helena)
     pool = repo.pool
-    escritorio = await repo.escritorio(id_escritorio) or {}
+    if escritorio is None:
+        escritorio = await repo.escritorio(id_escritorio) or {}
     papel_novo = ((escritorio.get("config") or {}).get("papel_entrada_helena") or "gestor")
     papel_novo = papel_novo if papel_novo in PAPEIS_CLIENTE else "gestor"
 
-    locais = [dict(l) for l in await pool.fetch(
-        """select id::text as id, email, nome, papel, ativo, id_usuario_helena from agentesia_usuarios
-           where id_escritorio = $1::uuid""", id_escritorio)]
-    por_helena = {l["id_usuario_helena"]: l for l in locais if l["id_usuario_helena"]}
     ativos = [u for u in lista if u["ativo"]]
     ids_ativos = {u["id_usuario"] for u in ativos}
+    emails = sorted({u["email"] for u in ativos if u["email"]})
+    # Uma ida só: os usuários do escritório e quem já tem cada e-mail (em qualquer escritório).
+    linhas = await pool.fetch(
+        """select 'local' as de, id::text as id, email, nome, papel, ativo, id_usuario_helena,
+                  id_escritorio::text as id_escritorio
+           from agentesia_usuarios where id_escritorio = $1::uuid
+           union all
+           select 'email', id::text, email, nome, papel, ativo, id_usuario_helena, id_escritorio::text
+           from agentesia_usuarios where email = any($2::text[])""", id_escritorio, emails)
+    locais = [{k: l[k] for k in ("id", "email", "nome", "papel", "ativo", "id_usuario_helena")}
+              for l in linhas if l["de"] == "local"]
+    donos = {l["email"]: {k: l[k] for k in ("id", "papel", "id_escritorio", "id_usuario_helena")}
+             for l in linhas if l["de"] == "email"}
+    por_helena = {l["id_usuario_helena"]: l for l in locais if l["id_usuario_helena"]}
 
     async def dono_do_email(email: str) -> dict[str, Any] | None:
-        linha = await pool.fetchrow(
-            "select id::text as id, papel, id_escritorio::text as id_escritorio, id_usuario_helena from agentesia_usuarios where email = $1",
-            email)
-        return dict(linha) if linha else None
+        return donos.get(email)
 
     r: dict[str, Any] = {"criados": 0, "atualizados": 0, "desativados": 0, "ignorados": 0, "total": len(ativos),
                          "simulacao": simular, "aviso": None}
@@ -198,42 +210,67 @@ async def sincronizar(*, repo: Any, id_escritorio: str, helena: HelenaConta | No
         r["aviso"] = "a LawChat devolveu a lista de usuários vazia: ninguém foi desativado"
 
     if not simular and mudancas:
-        async with pool.acquire() as conexao, conexao.transaction():
-            for m in mudancas:
-                if m["acao"] == "criou":
-                    h = m["h"]
-                    m["id"] = str(await conexao.fetchval(
-                        """insert into agentesia_usuarios
-                             (email, nome, senha_hash, papel, id_escritorio, id_usuario_helena, trocar_senha)
-                           values ($1, $2, $3, $4, $5::uuid, $6, false) returning id""",
-                        m["email"], h["nome"], SEM_SENHA, m["papel"], id_escritorio, h["id_usuario"]))
-                elif m["acao"] == "alterou":
-                    n = m["novo"]
-                    await conexao.execute(
-                        """update agentesia_usuarios set
-                             id_usuario_helena = coalesce($2, id_usuario_helena), nome = coalesce($3, nome),
-                             email = coalesce($4, email), papel = coalesce($5, papel), ativo = coalesce($6, ativo),
-                             atualizado_em = now()
-                           where id = $1::uuid and id_escritorio = $7::uuid""",
-                        m["id"], n.get("id_usuario_helena"), n.get("nome"), n.get("email"), n.get("papel"),
-                        n.get("ativo"), id_escritorio)
-                else:
-                    await conexao.execute(
-                        """update agentesia_usuarios set ativo = false, atualizado_em = now()
-                           where id = $1::uuid and id_escritorio = $2::uuid""", m["id"], id_escritorio)
+        await _gravar(pool, id_escritorio, mudancas)
         for m in mudancas:
             if m.get("id"):
                 repo.esquecer_usuario(m["id"])
-        for m in mudancas:
-            await repo.registrar_alteracao(
-                id_usuario=id_usuario, id_escritorio=id_escritorio, tabela="agentesia_usuarios", id_registro=m["id"],
-                acao=m["acao"], resumo=_resumo(m), antes=m.get("antes"),
-                depois=({"papel": m["papel"]} if m["acao"] == "criou" else
-                        {k: v for k, v in (m.get("novo") or {}).items() if k not in ("email", "id_usuario_helena")}
-                        if m["acao"] == "alterou" else {"ativo": False}))
+        await _registrar(repo, pool, id_usuario, id_escritorio, mudancas)
     r["mudancas"] = [{"acao": m["acao"], "nome": m["nome"]} for m in mudancas]
     r["texto"] = texto_do_resultado(r)
     return r
+
+
+async def _gravar(pool: Any, id_escritorio: str, mudancas: list[dict[str, Any]]) -> None:
+    """Todas as mudanças numa ida ao banco (um comando só: tudo ou nada, como a transação de antes)."""
+    criar = [{"email": m["email"], "nome": m["h"]["nome"], "papel": m["papel"], "id_usuario_helena": m["h"]["id_usuario"]}
+             for m in mudancas if m["acao"] == "criou"]
+    alterar = [{"id": m["id"], **{k: m["novo"].get(k) for k in ("id_usuario_helena", "nome", "email", "papel", "ativo")}}
+               for m in mudancas if m["acao"] == "alterou"]
+    desativar = [m["id"] for m in mudancas if m["acao"] == "desativou"]
+    novos = await pool.fetch(
+        """with novos as (
+             insert into agentesia_usuarios (email, nome, senha_hash, papel, id_escritorio, id_usuario_helena, trocar_senha)
+             select x.email, x.nome, $2, x.papel, $1::uuid, x.id_usuario_helena, false
+             from jsonb_to_recordset($3::jsonb) as x(email text, nome text, papel text, id_usuario_helena text)
+             returning id::text as id, id_usuario_helena
+           ), alterados as (
+             update agentesia_usuarios u set
+               id_usuario_helena = coalesce(x.id_usuario_helena, u.id_usuario_helena), nome = coalesce(x.nome, u.nome),
+               email = coalesce(x.email, u.email), papel = coalesce(x.papel, u.papel), ativo = coalesce(x.ativo, u.ativo),
+               atualizado_em = now()
+             from jsonb_to_recordset($4::jsonb)
+               as x(id uuid, id_usuario_helena text, nome text, email text, papel text, ativo boolean)
+             where u.id = x.id and u.id_escritorio = $1::uuid
+             returning u.id
+           ), desativados as (
+             update agentesia_usuarios u set ativo = false, atualizado_em = now()
+             where u.id = any($5::uuid[]) and u.id_escritorio = $1::uuid
+             returning u.id
+           )
+           select id, id_usuario_helena from novos""",
+        id_escritorio, SEM_SENHA, json.dumps(criar, ensure_ascii=False), json.dumps(alterar, ensure_ascii=False),
+        desativar)
+    por_helena = {l["id_usuario_helena"]: l["id"] for l in novos}
+    for m in mudancas:
+        if m["acao"] == "criou":
+            m["id"] = por_helena.get(m["h"]["id_usuario"])
+
+
+async def _registrar(repo: Any, pool: Any, id_usuario: str | None, id_escritorio: str,
+                     mudancas: list[dict[str, Any]]) -> None:
+    """Histórico (agentesia_alteracoes) de todas as mudanças numa ida ao banco; o mesmo conteúdo de
+    repo.registrar_alteracao (nome e papel; nada de e-mail)."""
+    linhas = [{
+        "id_registro": m["id"], "acao": m["acao"], "resumo": _resumo(m), "antes": m.get("antes"),
+        "depois": ({"papel": m["papel"]} if m["acao"] == "criou" else
+                   {k: v for k, v in (m.get("novo") or {}).items() if k not in ("email", "id_usuario_helena")}
+                   if m["acao"] == "alterou" else {"ativo": False}),
+    } for m in mudancas]
+    await pool.execute(
+        """insert into agentesia_alteracoes (id_usuario, id_escritorio, tabela, id_registro, acao, resumo, antes, depois)
+           select $1::uuid, $2::uuid, 'agentesia_usuarios', x.id_registro, x.acao, x.resumo, x.antes, x.depois
+           from jsonb_to_recordset($3::jsonb) as x(id_registro uuid, acao text, resumo text, antes jsonb, depois jsonb)""",
+        id_usuario, id_escritorio, json.dumps(linhas, ensure_ascii=False, default=str))
 
 
 def _resumo(m: dict[str, Any]) -> str:

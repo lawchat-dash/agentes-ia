@@ -26,6 +26,8 @@ Ordem da primeira criação pedida pelo dono (um passo a passo só, retomável: 
   produto        há um produto (agente) ativado; só informativo (é da ativação do agente, não trava a conta)
 
 `aplicar=False` só confere (nada muda na Helena). `aplicar=True` faz o que o passo pode fazer sozinho.
+Avançar sem lista de passos não refaz o que já está pronto (a cópia já feita fica; números e ids só gravam o que
+mudou); `forcar` refaz. As leituras da LawChat vão juntas e a cópia da conta é gravada numa ida ao banco.
 """
 
 from __future__ import annotations
@@ -113,11 +115,33 @@ async def conferir(
     guardar_token: Callable[[str], Awaitable[Any]] | None = None,
     criar_equipe_ia: bool = False,
     id_usuario: str | None = None,
+    forcar: bool = False,
+    escritorio: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Confere (e, com aplicar, avança) os passos. `passos` limita o que é APLICADO; todos são conferidos.
-    Sem `passos`, aplica APLICADOS_POR_PADRAO (+ equipe só com criar_equipe_ia)."""
+    Sem `passos`, aplica APLICADOS_POR_PADRAO (+ equipe só com criar_equipe_ia).
+
+    O Avançar não refaz o que já está pronto: a cópia da conta (sincronizacao) que já foi feita fica como está (o
+    botão "Sincronizar conta" refaz), os números só são gravados quando mudaram desde a última gravação, e webhook,
+    equipe, etiquetas, painel e ids só escrevem quando falta ou mudou algo (os já certos são só conferidos com a
+    leitura que o passo já faz). `forcar` ou uma lista explícita de `passos` aplica de novo.
+    As leituras da LawChat (números, assinaturas, equipes, etiquetas, painéis, usuários e empresa) vão juntas, e os
+    ids do escritório (dados_helena) são gravados numa ida só no fim. `escritorio` (a linha já lida pela rota) evita
+    reler o onboarding guardado, os dados_helena e a data da cópia."""
     alvo = set(passos or (APLICADOS_POR_PADRAO + (["equipe"] if criar_equipe_ia else [])))
-    faz = lambda codigo: aplicar and codigo in alvo  # noqa: E731
+    refazer = forcar or bool(passos)
+    pool = repo.pool
+    estado = _estado_do_escritorio(escritorio) if escritorio is not None else await _ler_estado(pool, id_escritorio)
+    anterior, dados_helena = estado["onboarding"], estado["dados_helena"]
+    antes = {p.get("codigo"): p for p in anterior.get("passos") or [] if isinstance(p, dict)}
+    ids_antes = dict(dados_helena.get("ids") or {}) if isinstance(dados_helena.get("ids"), dict) else {}
+    ids_novos: dict[str, Any] = {}                  # tudo o que vai para dados_helena.ids (uma escrita no fim)
+    marcas: dict[str, str] = {}                     # impressão do que foi gravado, por passo (pular quando igual)
+    feitos_em: dict[str, str] = {}                  # quando o passo foi aplicado de verdade pela última vez
+    pulados: set[str] = set()
+    if aplicar and not refazer and "sincronizacao" in alvo and _ja_aplicado(antes.get("sincronizacao")):
+        pulados.add("sincronizacao")
+    faz = lambda codigo: aplicar and codigo in alvo and codigo not in pulados  # noqa: E731
     r = Resultado()
     extra: dict[str, Any] = {}
 
@@ -126,15 +150,48 @@ async def conferir(
         r.passos.append(p)
         return p
 
-    integracoes = await repo.integracoes(id_escritorio)
+    integracoes: dict[str, Any] = {}
+    helena: HelenaConta | None = None
+    erro_token: BaseException | None = None
+    inicio = await sincronizar_conta.em_paralelo({"integracoes": repo.integracoes(id_escritorio),
+                                                  "helena": helena_de(id_escritorio)})
+    if isinstance(inicio["integracoes"], BaseException):
+        raise inicio["integracoes"]
+    integracoes = inicio["integracoes"]
+    if isinstance(inicio["helena"], BaseException):
+        erro_token = inicio["helena"]
+    else:
+        helena = inicio["helena"]
+    url = url_do_escritorio(id_escritorio)
+    ler_assinaturas = bool(url) and not _endereco_local(url)
+    vai_copiar = faz("sincronizacao")
+
+    async def ler_tudo(h: HelenaConta) -> dict[str, Any]:
+        chamadas: dict[str, Any] = {"canais": h.canais(), "equipes": h.equipes(), "etiquetas": h.etiquetas(),
+                                    "paineis": h.paineis(), "usuarios": usuarios_helena.listar(h)}
+        if ler_assinaturas:
+            chamadas["assinaturas"] = h.assinaturas()
+        if vai_copiar and parceiro is not None and id_conta:
+            chamadas["empresa"] = sincronizar_conta.dados_da_empresa(parceiro, id_conta)
+        return await sincronizar_conta.em_paralelo(chamadas)
+
+    lidos: dict[str, Any] = {}
+
+    def pegar(nome: str) -> Any:
+        valor = lidos.get(nome)
+        if isinstance(valor, BaseException):
+            raise valor
+        return valor
 
     # 1. Token
     p_token = passo("token")
-    helena: HelenaConta | None = None
     canais: list[dict[str, Any]] = []
+    if helena is not None:
+        lidos = await ler_tudo(helena)
     try:
-        helena = await helena_de(id_escritorio)
-        canais = await helena.canais()
+        if erro_token is not None:
+            raise erro_token
+        canais = pegar("canais") or []
         p_token("ok", f"token aceito; {len(canais)} números na conta")
     except ErroHelenaApi as erro:
         helena = None
@@ -143,6 +200,7 @@ async def conferir(
         helena = None
         p_token("erro", getattr(erro, "detail", None) or str(erro) or "cadastre o token da LawChat")
     sem_token = helena is None and not ((integracoes.get("helena") or {}).get("tem_segredo"))
+    token_criado = False
     if sem_token and faz("token") and parceiro is not None and id_conta and guardar_token is not None:
         # Só cria quando NÃO há token guardado (idempotente: um token recusado não gera outro sozinho).
         try:
@@ -150,7 +208,9 @@ async def conferir(
             await guardar_token(novo)
             del novo
             helena = await helena_de(id_escritorio)
-            canais = await helena.canais()
+            lidos = await ler_tudo(helena)
+            canais = pegar("canais") or []
+            token_criado = True
             p_token("feito", f"token \"{NOME_DO_TOKEN}\" criado e guardado no cofre; {len(canais)} números na conta")
         except ErroHelenaApi as erro:
             helena = None
@@ -160,15 +220,17 @@ async def conferir(
             p_token("erro", getattr(erro, "detail", None) or "não deu para guardar o token da conta")
     elif sem_token and parceiro is None:
         p_token("erro", "cadastre o token da LawChat (ou configure AGENTESIA_HELENA_TOKEN_PARCEIRO para criar)")
+    if token_criado:
+        integracoes = await repo.integracoes(id_escritorio)
     if helena is not None:
-        final = ((await repo.integracoes(id_escritorio)).get("helena") or {}).get("final_segredo")
+        final = (integracoes.get("helena") or {}).get("final_segredo")
         if final:
-            await sincronizar_conta.salvar_dados_helena(repo.pool, id_escritorio, ids={"token_final": final})
+            ids_novos["token_final"] = final
 
-    # 2. Webhook
+    # 2. Webhook (a lista de assinaturas já veio na leitura junta; só chama de novo para criar ou corrigir)
     p_webhook = passo("webhook")
-    url = url_do_escritorio(id_escritorio)
-    id_assinatura = ((integracoes.get("helena") or {}).get("config") or {}).get("id_assinatura")
+    config_helena = (integracoes.get("helena") or {}).get("config") or {}
+    id_assinatura = config_helena.get("id_assinatura")
     if not url:
         p_webhook("pendente", "o servidor ainda não tem endereço público (AGENTESIA_URL_PUBLICA): o webhook é criado quando ele estiver no ar")
     elif _endereco_local(url):
@@ -178,20 +240,23 @@ async def conferir(
         p_webhook("pulado", "depende do token")
     else:
         try:
+            atuais = pegar("assinaturas") or []
+            nossa = next((a for a in atuais if a["id"] == id_assinatura), None) or \
+                next((a for a in atuais if a["nome"] == NOME_DA_ASSINATURA), None)
+            certa = bool(nossa and nossa["url"] == url and nossa["ativa"]
+                         and set(EVENTOS_DO_ATENDIMENTO) <= set(nossa["eventos"]))
             if faz("webhook"):
-                assinatura = await helena.garantir_assinatura(url, id_assinatura)
-                await repo.salvar_integracao(id_escritorio, "helena", situacao="ok",
-                                             config={"id_assinatura": assinatura["id"], "webhook_conectado": True})
-                await sincronizar_conta.salvar_dados_helena(repo.pool, id_escritorio, ids={"id_assinatura": assinatura["id"]})
+                assinatura = {**nossa, "acao": "ja_estava_certa"} if certa and nossa else \
+                    await helena.garantir_assinatura(url, id_assinatura)
+                if not (assinatura["acao"] == "ja_estava_certa" and id_assinatura == assinatura["id"]
+                        and config_helena.get("webhook_conectado")):
+                    await repo.salvar_integracao(id_escritorio, "helena", situacao="ok",
+                                                 config={"id_assinatura": assinatura["id"], "webhook_conectado": True})
+                ids_novos["id_assinatura"] = assinatura["id"]
                 p_webhook("ok" if assinatura["acao"] == "ja_estava_certa" else "feito",
                           {"criada": "assinatura criada na LawChat", "corrigida": "assinatura corrigida na LawChat",
                            "ja_estava_certa": "assinatura já estava certa"}[assinatura["acao"]])
             else:
-                atuais = await helena.assinaturas()
-                nossa = next((a for a in atuais if a["id"] == id_assinatura), None) or \
-                    next((a for a in atuais if a["nome"] == NOME_DA_ASSINATURA), None)
-                certa = bool(nossa and nossa["url"] == url and nossa["ativa"]
-                             and set(EVENTOS_DO_ATENDIMENTO) <= set(nossa["eventos"]))
                 p_webhook("ok" if certa else "pendente", "assinatura certa" if certa else "será criada ou corrigida ao avançar")
         except ErroHelenaApi as erro:
             p_webhook("erro", f"a LawChat não aceitou a assinatura ({erro.motivo})")
@@ -200,20 +265,22 @@ async def conferir(
 
     # 3. Equipe da IA (como o n8n: "🤖 Comercial IA", isDefault=true)
     p_equipe = passo("equipe")
+    equipes: Any = lidos.get("equipes")
     if helena is None:
         p_equipe("pulado", "depende do token")
     else:
         try:
-            equipes = await helena.equipes()
+            equipes = list(pegar("equipes") or [])
             achada = next((e for e in equipes if sincronizar_conta._chave_nome(e.get("nome"))
                            == sincronizar_conta._chave_nome(sincronizar_conta.EQUIPE_IA)), None)
             if achada:
-                await sincronizar_conta.salvar_dados_helena(repo.pool, id_escritorio, ids={"id_departamento": achada["id"]})
+                ids_novos["id_departamento"] = achada["id"]
                 p_equipe("ok", f"{sincronizar_conta.EQUIPE_IA} existe")
             elif faz("equipe"):
                 criada = await sincronizar_conta.criar_equipe_ia(helena, equipes)
                 if criada.get("id"):
-                    await sincronizar_conta.salvar_dados_helena(repo.pool, id_escritorio, ids={"id_departamento": criada["id"]})
+                    ids_novos["id_departamento"] = criada["id"]
+                    equipes.append({"id": criada["id"], "nome": criada.get("nome"), "padrao": True})
                 p_equipe("feito", f"{sincronizar_conta.EQUIPE_IA} criada (equipe padrão da conta)")
             else:
                 p_equipe("pendente", f"opcional: {sincronizar_conta.EQUIPE_IA} não existe; marque \"criar a equipe da IA\" "
@@ -225,11 +292,12 @@ async def conferir(
 
     # 4. Etiquetas padrão
     p_etiquetas = passo("etiquetas")
+    etiquetas: Any = lidos.get("etiquetas")
     if helena is None:
         p_etiquetas("pulado", "depende do token")
     else:
         try:
-            existentes = await helena.etiquetas()
+            existentes = list(pegar("etiquetas") or [])
             faltam = sincronizar_conta.etiquetas_padrao_faltando(existentes)
             if faltam and faz("etiquetas"):
                 criadas = await sincronizar_conta.garantir_etiquetas_padrao(helena, existentes)
@@ -242,9 +310,10 @@ async def conferir(
                 p_etiquetas("pendente", "faltam: " + ", ".join(faltam))
             else:
                 p_etiquetas("ok", f"as {len(sincronizar_conta.ETIQUETAS_PADRAO)} etiquetas padrão existem")
+            etiquetas = existentes
             ids_etiquetas = sincronizar_conta.ids_das_etiquetas_padrao(existentes)
             if ids_etiquetas:
-                await sincronizar_conta.salvar_dados_helena(repo.pool, id_escritorio, ids={"etiquetas": ids_etiquetas})
+                ids_novos["etiquetas"] = ids_etiquetas
         except ErroHelenaApi as erro:
             p_etiquetas("erro", f"não deu para ler ou criar as etiquetas ({erro.motivo})")
         except Exception as erro:
@@ -260,7 +329,7 @@ async def conferir(
         p_painel("pulado", "depende do token")
     else:
         try:
-            paineis = [p for p in await helena.paineis() if p.get("id")]
+            paineis = [p for p in pegar("paineis") or [] if p.get("id")]
             padrao = {str(p["id"]): etapas_do_painel_padrao(p) for p in paineis}
             candidatos = [p for p in paineis if padrao[str(p["id"])]]
             extra["paineis"] = [{
@@ -284,12 +353,19 @@ async def conferir(
                 else:
                     fixas = padrao[str(painel["id"])]
                     mapa = sincronizar_conta.mapear_etapas(painel, {**(fixas or {}), **(etapas_por_tipo or {})})
-                    await guardar_painel(repo, id_escritorio, {"id": str(painel["id"]), "titulo": painel.get("titulo") or ""},
-                                         mapa, titulo_painel)
+                    titulo = titulo_painel or painel.get("titulo") or ""
+                    igual = (not refazer and str(crm.get("id_painel") or "") == str(painel["id"])
+                             and (crm.get("etapas_por_tipo") or {}) == mapa and crm.get("titulo_painel") == titulo
+                             and ids_antes.get("id_painel") == str(painel["id"]) and ids_antes.get("etapas_por_tipo") == mapa)
+                    if not igual:                   # o mesmo painel com as mesmas etapas: nada a gravar
+                        await repo.salvar_integracao(id_escritorio, "crm", situacao="ok", config={
+                            "id_painel": str(painel["id"]), "titulo_painel": titulo, "etapas_por_tipo": mapa})
+                    ids_novos.update({"id_painel": str(painel["id"]), "etapas_por_tipo": mapa})
                     extra["etapas_por_tipo"] = mapa
                     faltam = [t for t in sincronizar_conta.TIPOS_DE_ETAPA if t not in mapa]
-                    p_painel("aviso" if faltam else "feito",
-                             f"painel {painel.get('titulo') or ''} escolhido"
+                    p_painel("aviso" if faltam else ("ok" if igual else "feito"),
+                             f"painel {painel.get('titulo') or ''} "
+                             + ("já estava escolhido" if igual else "escolhido")
                              + (" sozinho (tem as etapas padrão)" if automatico else "")
                              + f"; {len(mapa)}/6 tipos ligados"
                              + (f"; sem coluna para: {', '.join(faltam)}" if faltam else ""))
@@ -332,21 +408,30 @@ async def conferir(
         p_padrao("pulado", "criar o painel padrão está desligado no servidor (falta " + ", ".join(falta)
                            + "): escolha um painel que já existe")
 
-    # 6. Canais (números)
+    # 6. Canais (números). Gravados só quando mudaram desde a última gravação (impressão em "marca").
     p_canais = passo("canais")
+    canais_gravados = gravou = False
     if helena is None:
         p_canais("pulado", "depende do token")
     else:
         falhou_canais = None
-        if faz("canais"):
+        marca = _marca(canais)
+        mesma = (antes.get("canais") or {}).get("marca") == marca
+        if faz("canais") and (refazer or not mesma):
             try:
                 await repo.sincronizar_canais(id_escritorio, [
                     {**c, "numero_normalizado": normalizar_telefone(c["numero"]) or c["numero"]} for c in canais if c["id"]])
-                await sincronizar_conta.gravar_detalhes_canais(repo.pool, id_escritorio, canais)
+                await sincronizar_conta.gravar_detalhes_canais(pool, id_escritorio, canais)
+                marcas["canais"] = marca
+                canais_gravados = gravou = True
             except asyncpg.UndefinedColumnError:
-                pass                                # banco sem a 006: só não guarda nome e tipo
+                marcas["canais"] = marca            # banco sem a 006: só não guarda nome e tipo
+                canais_gravados = gravou = True
             except Exception as erro:
                 falhou_canais = _inesperado(erro)
+        elif mesma:
+            marcas["canais"] = marca                # já gravados assim: nada a fazer
+            canais_gravados = True
         conectados = [c for c in canais if c.get("ativo")]
         if falhou_canais:
             p_canais("aviso", "não deu para gravar os números: " + falhou_canais)
@@ -355,7 +440,7 @@ async def conferir(
             p_canais("pendente", "nenhum WhatsApp conectado ainda; dá para criar e configurar o agente. Depois de conectar o número, clique em Sincronizar conta")
         else:
             nomes = ", ".join((c.get("nome") or c.get("numero_formatado") or c.get("numero") or "?") for c in conectados[:3])
-            p_canais("feito" if faz("canais") else "ok",
+            p_canais("feito" if gravou else "ok",
                      f"{len(conectados)} conectado(s): {nomes}" + ("…" if len(conectados) > 3 else ""))
 
     # 7. ZapSign (opcional)
@@ -378,16 +463,25 @@ async def conferir(
     except Exception as erro:
         p_produto("aviso", "não deu para conferir o produto agora: " + _inesperado(erro))
 
-    # 6b. Dados da empresa e cópia da conta
+    # 6b. Dados da empresa e cópia da conta (com o que já foi lido acima; uma ida ao banco para a cópia inteira)
     p_sinc = passo("sincronizacao")
     if helena is None:
         p_sinc("pulado", "depende do token")
     elif faz("sincronizacao"):
         try:
             # Os usuários têm o passo próprio (abaixo): aqui só a cópia.
-            feita = await sincronizar_conta.sincronizar(repo=repo, id_escritorio=id_escritorio, helena=helena,
-                                                        parceiro=parceiro, id_conta=id_conta, com_usuarios=False)
+            ja_lidos = {"canal": lidos.get("canais"), "painel": lidos.get("paineis"),
+                        "etiqueta": etiquetas if etiquetas is not None else lidos.get("etiquetas"),
+                        "equipe": equipes if equipes is not None else lidos.get("equipes"),
+                        "usuario": lidos.get("usuarios")}
+            feita = await sincronizar_conta.sincronizar(
+                repo=repo, id_escritorio=id_escritorio, helena=helena, parceiro=parceiro, id_conta=id_conta,
+                com_usuarios=False, ja_lidos={t: v for t, v in ja_lidos.items() if v is not None},
+                canais_gravados=canais_gravados,
+                **({"empresa": lidos["empresa"]} if "empresa" in lidos else {}))
             extra["sincronizacao"] = feita
+            if feita.get("empresa") is not None:
+                dados_helena = {**dados_helena, "conta": feita["empresa"]}
             resumo = ", ".join(f"{v['total']} {t}" for t, v in feita["tipos"].items())
             if feita["erros"]:
                 p_sinc("aviso", f"{resumo}; falhou: " + ", ".join(f"{t} ({m})" for t, m in feita["erros"].items()))
@@ -399,19 +493,24 @@ async def conferir(
             p_sinc("aviso", f"não deu para copiar a conta ({erro.motivo})")
         except Exception as erro:
             p_sinc("aviso", "não deu para copiar a conta: " + _inesperado(erro))
+    elif "sincronizacao" in pulados:
+        quando = estado["sincronizado_em"]
+        p_sinc("ok", (f"cópia de {quando:%d/%m/%Y %H:%M}" if quando else "cópia já feita")
+               + "; para copiar de novo, use Sincronizar conta")
     else:
-        quando = await _sincronizado_em(repo.pool, id_escritorio)
+        quando = estado["sincronizado_em"]
         p_sinc("ok" if quando else "pendente",
                f"última em {quando:%d/%m/%Y %H:%M}" if quando else "ainda não sincronizada")
 
-    # 6c. Usuários da conta → logins do painel (opcional: falha vira aviso, nunca trava)
+    # 6c. Usuários da conta → logins do painel (opcional: falha vira aviso, nunca trava). Só grava o que mudou.
     p_usuarios = passo("usuarios")
     if helena is None:
         p_usuarios("pulado", "depende do token")
     else:
         try:
-            feito = await usuarios_helena.sincronizar(repo=repo, id_escritorio=id_escritorio, helena=helena,
-                                                      simular=not faz("usuarios"), id_usuario=id_usuario)
+            feito = await usuarios_helena.sincronizar(repo=repo, id_escritorio=id_escritorio, lista=pegar("usuarios"),
+                                                      simular=not faz("usuarios"), id_usuario=id_usuario,
+                                                      escritorio=escritorio)
             extra["usuarios"] = {k: v for k, v in feito.items() if k != "mudancas"}
             mudou = feito["criados"] + feito["atualizados"] + feito["desativados"]
             aviso = ("; " + feito["aviso"]) if feito.get("aviso") else ""
@@ -425,22 +524,100 @@ async def conferir(
         except Exception as erro:                   # noqa: BLE001 — opcional: vira texto e segue
             p_usuarios("aviso", "não deu para ler os usuários: " + usuarios_helena.erro_legivel(erro))
 
+    # ids do escritório: uma escrita só, e só do que mudou.
+    mudaram = {k: v for k, v in ids_novos.items() if ids_antes.get(k) != v}
+    if mudaram:
+        await sincronizar_conta.salvar_dados_helena(pool, id_escritorio, ids=mudaram)
+    dados_helena = {**dados_helena, "ids": {**ids_antes, **ids_novos}}
+
     ordem = {c: i for i, c in enumerate(CODIGOS)}
     r.passos.sort(key=lambda p: ordem[p.codigo])
     agora = datetime.now(timezone.utc).isoformat()
-    anterior = await ler(repo.pool, id_escritorio)
+    for p in r.passos:
+        anterior_p = antes.get(p.codigo) or {}
+        if faz(p.codigo) and p.situacao in ("ok", "feito"):
+            feitos_em[p.codigo] = agora
+        elif anterior_p.get("feito_em") and p.situacao in ("ok", "feito"):
+            feitos_em[p.codigo] = anterior_p["feito_em"]
     completo = all(p.situacao in ("ok", "feito") for p in r.passos if p.codigo in OBRIGATORIOS)
     onboarding = {
-        "passos": [{"codigo": p.codigo, "titulo": p.titulo, "situacao": p.situacao, "detalhe": p.detalhe, "em": agora}
+        "passos": [{"codigo": p.codigo, "titulo": p.titulo, "situacao": p.situacao, "detalhe": p.detalhe, "em": agora,
+                    **({"feito_em": feitos_em[p.codigo]} if p.codigo in feitos_em else {}),
+                    **({"marca": marcas[p.codigo]} if p.codigo in marcas else {})}
                    for p in r.passos],
         "concluido_em": (anterior.get("concluido_em") or agora) if completo else None,
         "atualizado_em": agora,
         "aplicado": aplicar,
     }
-    await salvar(repo.pool, id_escritorio, onboarding)
+    await salvar(pool, id_escritorio, onboarding)
     return {**onboarding, "pronto": r.pronto, "completo": completo, "pendencias": r.pendencias,
-            "obrigatorios": sorted(OBRIGATORIOS),
-            "dados_helena": await sincronizar_conta.ler_dados_helena(repo.pool, id_escritorio), **extra}
+            "obrigatorios": sorted(OBRIGATORIOS), "pulados": sorted(pulados),
+            "dados_helena": dados_helena, **extra}
+
+
+def _ja_aplicado(passo_guardado: dict[str, Any] | None) -> bool:
+    """O passo foi aplicado de verdade (não só conferido) e ficou ok/feito."""
+    p = passo_guardado or {}
+    return p.get("situacao") in ("ok", "feito") and bool(p.get("feito_em"))
+
+
+def _marca(canais: list[dict[str, Any]]) -> str:
+    """Impressão dos números como a LawChat devolveu (id, número, ativo, nome, tipo): igual = nada a gravar."""
+    import hashlib
+    chave = sorted((str(c.get("id") or ""), str(c.get("numero") or ""), bool(c.get("ativo")), str(c.get("nome") or ""),
+                    str(c.get("tipo_helena") or "")) for c in canais)
+    return hashlib.sha1(json.dumps(chave, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+def _onboarding_de(valor: Any) -> dict[str, Any]:
+    if isinstance(valor, str):
+        try:
+            valor = json.loads(valor or "{}")
+            if isinstance(valor, str):              # zerado como texto ('"{}"'): jsonb string dentro de string
+                valor = json.loads(valor or "{}")
+        except ValueError:
+            valor = {}
+    if not isinstance(valor, dict):
+        return {"passos": []}
+    if not isinstance(valor.get("passos"), list):
+        valor = {**valor, "passos": []}
+    return valor
+
+
+def _dados_de(valor: Any) -> dict[str, Any]:
+    if isinstance(valor, str):
+        try:
+            valor = json.loads(valor or "{}")
+        except ValueError:
+            valor = {}
+    return valor if isinstance(valor, dict) else {}
+
+
+def _data_de(valor: Any) -> datetime | None:
+    if isinstance(valor, datetime):
+        return valor
+    if not valor:
+        return None
+    try:
+        return datetime.fromisoformat(str(valor))
+    except ValueError:
+        return None
+
+
+def _estado_do_escritorio(escritorio: dict[str, Any]) -> dict[str, Any]:
+    """onboarding, dados_helena e sincronizado_em da linha já lida (select * de agentesia_escritorios)."""
+    return {"onboarding": _onboarding_de(escritorio.get("onboarding")),
+            "dados_helena": _dados_de(escritorio.get("dados_helena")),
+            "sincronizado_em": _data_de(escritorio.get("sincronizado_em"))}
+
+
+async def _ler_estado(pool: Any, id_escritorio: str) -> dict[str, Any]:
+    """O mesmo de _estado_do_escritorio numa ida ao banco (funciona sem a 006: os campos vêm vazios)."""
+    linha = await pool.fetchrow(
+        """select to_jsonb(e) -> 'onboarding' as onboarding, to_jsonb(e) -> 'dados_helena' as dados_helena,
+                  to_jsonb(e) ->> 'sincronizado_em' as sincronizado_em
+           from agentesia_escritorios e where e.id = $1::uuid""", id_escritorio)
+    return _estado_do_escritorio(dict(linha) if linha else {})
 
 
 def _inesperado(erro: BaseException) -> str:
@@ -484,17 +661,6 @@ async def guardar_painel(repo: Any, id_escritorio: str, painel: dict[str, Any], 
     await sincronizar_conta.salvar_dados_helena(repo.pool, id_escritorio,
                                                 ids={"id_painel": painel["id"], "etapas_por_tipo": mapa})
     return config
-
-
-async def _sincronizado_em(pool: Any, id_escritorio: str) -> datetime | None:
-    valor = await pool.fetchval(
-        "select to_jsonb(e) ->> 'sincronizado_em' from agentesia_escritorios e where e.id = $1::uuid", id_escritorio)
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(valor)
-    except ValueError:
-        return None
 
 
 async def ler(pool: Any, id_escritorio: str) -> dict[str, Any]:
