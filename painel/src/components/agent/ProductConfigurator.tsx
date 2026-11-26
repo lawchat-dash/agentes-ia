@@ -46,6 +46,8 @@ import { useRascunhoLocal } from "@/hooks/useRascunhoLocal";
 import { RecuperarRascunhoBanner } from "@/components/common/RecuperarRascunhoBanner";
 import { Aviso } from "@/components/common/Aviso";
 import { AvisoFollowupDesligado, type FollowupSituacao } from "@/components/followup/AvisoFollowupDesligado";
+import { AbaFollowup, tempoLegivel } from "@/telas/AgenteFollowup";
+import type { Agente } from "@/api";
 
 // (sem dados mockados — tudo vem da API do painel: docs/API_PRODUTOS.md)
 
@@ -298,6 +300,18 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // Etapa "Follow-up": vem LIGADO (opt-out, docs/FOLLOWUP.md); a cadência é a padrão do produto da biblioteca.
   const [followupLigado, setFollowupLigado] = useState(true);
   const [followupEdicao, setFollowupEdicao] = useState<FollowupSituacao | null>(editData?.followup ?? null);
+  const [followupPopup, setFollowupPopup] = useState(false);
+  // Fechou o popup do follow-up: relê a situação para o resumo e a revisão mostrarem o que ficou salvo.
+  const fecharFollowupPopup = async () => {
+    setFollowupPopup(false);
+    const id = editData?.weaverAgentId;
+    if (!id) return;
+    try {
+      const d = await api<{ config: { ativo: boolean; passos: { apos_horas: number }[] }; configurado?: boolean }>(`/agentes/${id}/followup`);
+      setFollowupEdicao({ ligado: d.config.ativo, configurado: d.configurado ?? true, passos: d.config.passos.length,
+                          resumo: d.config.passos.map((p) => tempoLegivel(p.apos_horas)) });
+    } catch { /* mantém o resumo de antes */ }
+  };
   const [fuPrevia, setFuPrevia] = useState<{ resumo: string[]; passos?: number[]; por_que: string; aviso_oficial: string; do_produto: boolean } | null>(null);
   // Cadência escolhida na ativação (horas de cada tentativa). null = a padrão do produto, sem mexer.
   const [fuHoras, setFuHoras] = useState<number[] | null>(null);
@@ -2379,10 +2393,10 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="font-bold text-[#101828]">Follow-up {followupEdicao?.ligado ? "ligado" : "desligado"}</div>
-                        <p className="text-xs text-muted-foreground mt-0.5">Cadência: {(followupEdicao?.resumo ?? []).join(", ") || "—"}. Para mudar tempos, mensagens e horário, use a aba Follow-up do agente.</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Cadência: {(followupEdicao?.resumo ?? []).join(", ") || "—"}. Para mudar tempos, mensagens e horário, clique em Configurar follow-up (abre aqui mesmo, sem sair da ativação).</p>
                       </div>
                       {editData?.weaverAgentId && (
-                        <Link to={`/agentes/${editData.weaverAgentId}/followup`} className="text-sm font-semibold text-primary inline-flex items-center gap-1">Abrir a aba Follow-up<ExternalLink className="size-3.5" /></Link>
+                        <Button type="button" variant="outline" size="sm" className="font-semibold" onClick={() => setFollowupPopup(true)}><Settings2 className="size-4 mr-1.5" />Configurar follow-up</Button>
                       )}
                     </div>
                   ) : (
@@ -2601,6 +2615,18 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           )}
           </AnimatePresence>
 
+        <Dialog open={followupPopup} onOpenChange={(v) => { if (!v) void fecharFollowupPopup(); }}>
+          <DialogContent className="max-w-5xl w-[calc(100vw-24px)] max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+            <DialogHeader className="p-5 pb-3 text-left">
+              <DialogTitle className="flex items-center gap-2"><BellRing className="size-5 text-primary" />Follow-up do agente</DialogTitle>
+            </DialogHeader>
+            <div className="px-5 pb-5 overflow-y-auto">
+              {followupPopup && editData?.weaverAgentId && (
+                <AbaFollowup agente={{ id: editData.weaverAgentId, nome: "" } as Agente} />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
         <ZapsignDialog
           open={zapsignOpen}
           onOpenChange={setZapsignOpen}
