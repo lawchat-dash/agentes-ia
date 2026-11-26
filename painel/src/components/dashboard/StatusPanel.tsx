@@ -44,7 +44,7 @@ export function StatusPanel({ total, donutDelta, items, ops, onReport, countKey,
           </div>
         </div>
         {onReport && (
-          <button onClick={onReport} className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] hover:border-[#cbd5e1] transition-colors shrink-0">
+          <button onClick={onReport} className="lc-brilho lc-brilho--borda inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] hover:border-[#cbd5e1] transition-colors shrink-0">
             <BarChart3 className="size-3.5 text-[#00bc33]" /> Ver relatório
           </button>
         )}

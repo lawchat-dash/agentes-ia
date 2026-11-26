@@ -71,12 +71,12 @@ svg.i { width: 18px; height: 18px; flex: none; }
 .btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 13px; font-weight: 600; font-size: 13px; color: var(--ink); white-space: nowrap; text-decoration: none; }
 .btn:hover:not(:disabled) { border-color: var(--line-2); background: var(--surface-2); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
-.btn.pri { background: var(--acento); border-color: var(--acento); color: var(--acento-tinta); }
-.btn.pri:hover:not(:disabled) { background: var(--acento-forte); border-color: var(--acento-forte); }
+.btn.pri { background-color: var(--acento); background-image: linear-gradient(180deg, rgb(255 255 255 / .14) 0%, rgb(255 255 255 / 0) 52%, rgb(0 0 0 / .06) 100%); border-color: var(--acento); color: var(--acento-tinta); }
+.btn.pri:hover:not(:disabled) { background-color: var(--acento-forte); border-color: var(--acento-forte); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
 .btn.ghost:hover:not(:disabled) { background: var(--surface-2); }
 .btn.bad { color: var(--bad); }
-.btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn.ok { background-color: var(--ok); background-image: linear-gradient(180deg, rgb(255 255 255 / .14) 0%, rgb(255 255 255 / 0) 52%, rgb(0 0 0 / .06) 100%); border-color: var(--ok); color: #fff; }
 .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
 .btn svg { width: 15px; height: 15px; }
 
@@ -363,7 +363,7 @@ td.mono, .lst td.num { white-space: nowrap; }
 /* Botões: resposta ao toque e ao passar o mouse. */
 .btn { transition: transform .12s ease, box-shadow .15s ease, background-color .15s ease, border-color .15s ease, color .15s ease, opacity .15s; }
 .btn:not(:disabled):hover { box-shadow: 0 2px 8px rgba(16, 24, 40, .08); }
-.btn.pri:not(:disabled):hover { box-shadow: 0 4px 14px color-mix(in srgb, var(--acento) 35%, transparent); transform: translateY(-1px); }
+.btn.pri:not(:disabled):hover { transform: translateY(-1px); } /* a sombra verde vem do brilho (estilo-brilho.css) */
 .btn:not(:disabled):active { transform: translateY(0) scale(.97); }
 .btn svg { transition: transform .2s var(--ease-out); }
 .btn:not(:disabled):hover svg { transform: scale(1.08); }

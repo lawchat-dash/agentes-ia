@@ -48,7 +48,7 @@ export function ListaConversas(p: Props) {
             <span className="size-8 rounded-xl grid place-items-center" style={{ background: "#e8f9ee", color: "#00bc33" }}><MessagesSquare className="size-4" /></span>
             Conversas
           </h2>
-          <button type="button" className="cv-icone-btn" onClick={p.aoRecarregar} disabled={p.atualizando} aria-label="Atualizar a lista" title="Atualizar">
+          <button type="button" className="lc-brilho lc-brilho--borda cv-icone-btn" onClick={p.aoRecarregar} disabled={p.atualizando} aria-label="Atualizar a lista" title="Atualizar">
             <RefreshCw className={p.atualizando ? "animate-spin" : ""} />
           </button>
         </div>

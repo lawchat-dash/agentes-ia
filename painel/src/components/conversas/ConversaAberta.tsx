@@ -90,7 +90,7 @@ function Conversa({ detalhe: d, aoVoltar, aoAbrirDetalhes, acoes }: { detalhe: D
   return (
     <Moldura>
       <header className="cv-cab">
-        <button type="button" className="cv-icone-btn cv-voltar" onClick={aoVoltar} aria-label="Voltar para a lista"><ArrowLeft /></button>
+        <button type="button" className="lc-brilho lc-brilho--borda cv-icone-btn cv-voltar" onClick={aoVoltar} aria-label="Voltar para a lista"><ArrowLeft /></button>
         <span className="cv-av" style={{ background: corDoAvatar(d.id), width: 40, height: 40 }} aria-hidden>
           {iniciais(nome)}<i className="cv-av-ponto" style={{ background: estado.cor }} />
         </span>
@@ -102,10 +102,10 @@ function Conversa({ detalhe: d, aoVoltar, aoAbrirDetalhes, acoes }: { detalhe: D
           </p>
         </div>
         {acoes && <div className="cv-acoes-cab">{acoes}</div>}
-        <button type="button" className="cv-icone-btn" aria-label="Abrir esta conversa na LawChat" title="Abrir na LawChat (já logado)"
+        <button type="button" className="lc-brilho lc-brilho--borda cv-icone-btn" aria-label="Abrir esta conversa na LawChat" title="Abrir na LawChat (já logado)"
           onClick={() => { abrirHelenaEmJanela(d.id).catch((e) => toast.error((e as Error).message)); }}><Headset /></button>
         {aoAbrirDetalhes && (
-          <button type="button" className="cv-icone-btn" onClick={aoAbrirDetalhes} aria-label="Ver detalhes do lead" title="Fatos, origem, turnos e eventos"><PanelRightOpen /></button>
+          <button type="button" className="lc-brilho lc-brilho--borda cv-icone-btn" onClick={aoAbrirDetalhes} aria-label="Ver detalhes do lead" title="Fatos, origem, turnos e eventos"><PanelRightOpen /></button>
         )}
       </header>
       {(d.ia_desligada_escritorio || (d.situacao_agente && d.situacao_agente !== "ativo")) && (
@@ -154,7 +154,7 @@ function Moldura({ children }: { children: ReactNode }) {
 function CabecalhoVoltar({ aoVoltar }: { aoVoltar: () => void }) {
   return (
     <header className="cv-cab cv-so-celular">
-      <button type="button" className="cv-icone-btn" onClick={aoVoltar} aria-label="Voltar para a lista"><ArrowLeft /></button>
+      <button type="button" className="lc-brilho lc-brilho--borda cv-icone-btn" onClick={aoVoltar} aria-label="Voltar para a lista"><ArrowLeft /></button>
       <span className="text-[13px] font-semibold text-[#344054]">Conversas</span>
     </header>
   );

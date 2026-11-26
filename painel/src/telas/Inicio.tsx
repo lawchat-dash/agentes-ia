@@ -484,7 +484,7 @@ const PanelHead = ({ title, icon: Icon, iconColor, action, actionIcon: ActionIco
       {Icon && <Icon className="size-4" style={{ color: iconColor }} />} {title}
     </h3>
     {action && to && (
-      <Link to={to} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] transition-colors">
+      <Link to={to} className="lc-brilho lc-brilho--borda inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] transition-colors">
         {action} <ActionIcon className="size-3.5" />
       </Link>
     )}

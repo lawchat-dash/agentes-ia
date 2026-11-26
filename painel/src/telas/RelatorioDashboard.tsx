@@ -352,7 +352,7 @@ function MelhoresAnuncios({ anuncios, abrir, de, ate, gerado }: { anuncios: Anun
           </div>
         </div>
         <button type="button" onClick={() => exportarAnuncios(ordenados, de, ate)} disabled={!lista.length}
-          className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-background px-3.5 py-2 text-sm font-medium text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-border hover:text-foreground disabled:opacity-50 print:hidden">
+          className="lc-brilho lc-brilho--borda flex items-center gap-1.5 rounded-xl border border-border/60 bg-background px-3.5 py-2 text-sm font-medium text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-border hover:text-foreground disabled:opacity-50 print:hidden">
           <Download className="h-4 w-4" />Exportar
         </button>
       </div>
@@ -1119,7 +1119,7 @@ function LeadsPorEtapa({ d }: { d: Dashboard }) {
           <p className="text-[11px] text-muted-foreground">Onde os leads do período estão agora, por etapa e agente</p>
         </div>
         <div className="flex items-center gap-2 print:hidden">
-          <button type="button" onClick={exportar} className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+          <button type="button" onClick={exportar} className="lc-brilho flex items-center gap-1.5 rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
             <Download className="h-3.5 w-3.5" />CSV
           </button>
           <div className="relative">
@@ -1195,7 +1195,7 @@ function CardsDoCrm({ d, pedirImportacao, pedindo }: { d: Dashboard; pedirImport
         </div>
         {c && (
           <button type="button" onClick={pedirImportacao} disabled={pedindo || c.importacao_pedida}
-            className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-background px-3.5 py-2 text-sm font-medium text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-border hover:text-foreground disabled:opacity-60 print:hidden">
+            className="lc-brilho lc-brilho--borda flex items-center gap-1.5 rounded-xl border border-border/60 bg-background px-3.5 py-2 text-sm font-medium text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-border hover:text-foreground disabled:opacity-60 print:hidden">
             <Sparkles className="h-4 w-4 text-primary" />{c.importacao_pedida ? "Importação na fila" : c.importado_em ? "Importar de novo" : "Importar cards antigos"}
           </button>
         )}

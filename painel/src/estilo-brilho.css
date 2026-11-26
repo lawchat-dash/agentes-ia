@@ -1,0 +1,125 @@
+/* =========================================================================
+   Brilho dos botões: a versão leve (CSS) do SpecularButton, para a plataforma toda.
+   - faixa de luz na borda que segue o cursor (--bx/--by, escritos por lib/brilhoBotoes.ts);
+   - brilho suave por dentro, perto do cursor;
+   - reflexo parado no canto de cima quando o mouse está longe (--bp = 0);
+   - leve encolhida ao apertar.
+   Quem ganha: .lc-brilho (Button do shadcn e botões soltos), .btn do CSS antigo (menos ghost/link),
+   .cv-botao, .cr-botao-verde, .lc-pay-btn e .btn-lawchat. A lista é a mesma de SELETOR_BRILHO.
+   O WebGL (BotaoBrilho) continua só nos CTAs principais.
+   ========================================================================= */
+
+/* Base: especificidade zero, para qualquer utilitário (absolute, fixed...) continuar mandando. */
+:where(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat) {
+  --bx: 30%;
+  --by: -60%;
+  --bp: 0;
+  --brilho-cor: 0 168 46;        /* cor da luz (r g b): verde nos botões claros */
+  --brilho-forca: 1;             /* força da faixa na borda com o cursor em cima */
+  --brilho-repouso: .38;         /* reflexo parado no canto */
+  --brilho-dentro: .08;          /* brilho por dentro */
+  --brilho-borda: 1.5px;         /* espessura da faixa */
+  --brilho-inset: 0px;           /* -1px quando o botão tem borda de 1px (a faixa cobre a borda) */
+  --brilho-raio: 72px;
+  position: relative;
+  isolation: isolate;
+}
+:where(.btn, .cv-botao, .lc-brilho--borda) { --brilho-inset: -1px; }
+
+/* Botões cheios (verde, vermelho): luz branca, mais forte. */
+:is(.lc-brilho--forte, .lc-brilho--luz, .btn.pri, .btn.ok, .cv-botao.verde, .cr-botao-verde, .lc-pay-btn, .btn-lawchat) {
+  --brilho-cor: 255 255 255;
+  --brilho-forca: 1;
+  --brilho-repouso: .75;
+  --brilho-dentro: .24;
+  --brilho-borda: 2px;
+  --brilho-raio: 84px;
+}
+.btn.bad, .cv-botao.vermelho { --brilho-cor: 220 38 38; }
+.cv-botao.ambar { --brilho-cor: 178 107 0; }
+.btn.sm { --brilho-raio: 56px; --brilho-dentro: .06; }
+
+/* Faixa de luz na borda (máscara deixa só o anel). */
+:is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat)::after {
+  content: "";
+  position: absolute;
+  inset: var(--brilho-inset);
+  z-index: 1;
+  border-radius: inherit;
+  padding: var(--brilho-borda);
+  pointer-events: none;
+  background:
+    radial-gradient(circle calc(var(--brilho-raio) * .4) at var(--bx) var(--by),
+      rgb(var(--brilho-cor) / calc(var(--bp) * var(--brilho-forca))) 0%,
+      rgb(var(--brilho-cor) / 0) 100%),
+    radial-gradient(circle var(--brilho-raio) at var(--bx) var(--by),
+      rgb(var(--brilho-cor) / calc(var(--bp) * var(--brilho-forca) * .7)) 0%,
+      rgb(var(--brilho-cor) / calc(var(--bp) * var(--brilho-forca) * .25)) 50%,
+      rgb(var(--brilho-cor) / 0) 100%),
+    radial-gradient(90% 160% at 8% 0%,
+      rgb(var(--brilho-cor) / calc((1 - var(--bp)) * var(--brilho-repouso))) 0%,
+      rgb(var(--brilho-cor) / 0) 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+/* Brilho suave por dentro, atrás do texto e dos ícones. */
+:is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle calc(var(--brilho-raio) * 1.6) at var(--bx) var(--by),
+    rgb(var(--brilho-cor) / calc(var(--bp) * var(--brilho-dentro))) 0%,
+    rgb(var(--brilho-cor) / 0) 70%);
+}
+
+/* Transições do botão (o brilho em si não tem transição: ele acompanha o cursor quadro a quadro, e assim não fica
+   animação rodando). O :not() extra só sobe a especificidade para ganhar do "transition-colors" do Tailwind e das
+   transições antigas de cada botão. */
+:is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):not(.lc-brilho-x) {
+  transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .25s ease, background-color .15s ease,
+    background-position .5s ease, border-color .15s ease, color .15s ease, opacity .15s ease, filter .2s ease;
+}
+:is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):not(.lc-brilho-x):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(.965);
+}
+/* Teclado: a borda acende no foco, como se o cursor estivesse em cima. */
+:is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):focus-visible {
+  --bp: .8;
+  --bx: 50%;
+  --by: 0%;
+}
+
+/* Botões verdes cheios: profundidade (reflexo em cima, sombra verde que cresce com o cursor perto). */
+:is(.btn.pri, .btn.ok, .lc-brilho--forte):not(:disabled):not(.lc-brilho-x) {
+  --brilho-sombra: 0 150 42;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / .24),
+    0 1px 2px rgb(16 24 40 / .08),
+    0 8px 18px -10px rgb(var(--brilho-sombra) / calc(.5 + var(--bp) * .4)),
+    0 0 calc(2px + var(--bp) * 18px) rgb(var(--brilho-sombra) / calc(var(--bp) * .28));
+}
+.lc-brilho--perigo:not(:disabled) { --brilho-sombra: 200 30 30; }
+.lc-brilho--forte {
+  background-image: linear-gradient(180deg, rgb(255 255 255 / .14) 0%, rgb(255 255 255 / 0) 52%, rgb(0 0 0 / .06) 100%);
+}
+/* Botões claros (contorno): sombra leve que sobe com o cursor perto. */
+:is(.lc-brilho:not(.lc-brilho--forte), .btn:not(.ghost):not(.link):not(.pri):not(.ok), .cv-botao:not(.verde)):not(:disabled):hover {
+  box-shadow: 0 1px 2px rgb(16 24 40 / .06), 0 4px 12px -6px rgb(var(--brilho-cor) / .28);
+}
+
+/* Sem efeito: desativado, dentro de tabelas, menus e listas suspensas. */
+:is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):is(:disabled, [aria-disabled="true"], .disabled)::after,
+:is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):is(:disabled, [aria-disabled="true"], .disabled)::before,
+:is(td, [role="menu"], [role="listbox"], [role="menubar"], [data-radix-popper-content-wrapper], [cmdk-root], .lc-sem-brilho) :is(.lc-brilho, .btn, .cv-botao)::after,
+:is(td, [role="menu"], [role="listbox"], [role="menubar"], [data-radix-popper-content-wrapper], [cmdk-root], .lc-sem-brilho) :is(.lc-brilho, .btn, .cv-botao)::before {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):not(.lc-brilho-x) { transition: none; }
+  :is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):not(.lc-brilho-x):active:not(:disabled) { transform: none; }
+}

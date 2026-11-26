@@ -56,7 +56,7 @@ export function AlertaOperacional({ tom, icone: Icone, titulo, texto, passos, ac
   const reduzir = useReducedMotion();
   const barra = progresso == null ? null : Math.max(3, Math.min(100, progresso));
   const IconeAcao = acao?.icone ?? ArrowRight;
-  const classeBotao = `lc-alerta-btn ${FOCO} inline-flex w-full sm:w-auto items-center justify-center gap-1.5 h-10 px-4 rounded-xl text-white font-bold text-[13px] whitespace-nowrap`;
+  const classeBotao = `lc-alerta-btn lc-brilho lc-brilho--luz ${FOCO} inline-flex w-full sm:w-auto items-center justify-center gap-1.5 h-10 px-4 rounded-xl text-white font-bold text-[13px] whitespace-nowrap`;
 
   return (
     <motion.div

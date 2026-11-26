@@ -270,7 +270,7 @@ export function MenuFiltro({ icone, textoTodos, opcoes, valor, aoMudar, multi = 
     <Popover open={aberto} onOpenChange={(v) => { setAberto(v); if (!v) setBusca(""); }}>
       <PopoverTrigger asChild>
         <button type="button" aria-haspopup="listbox"
-          className={cn("rl-menu-botao group inline-flex h-9 max-w-[240px] items-center gap-2 max-sm:w-full max-sm:max-w-none rounded-xl border bg-white px-3 text-sm font-medium text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-px hover:border-emerald-300 hover:shadow-md data-[state=open]:border-emerald-500 data-[state=open]:ring-2 data-[state=open]:ring-emerald-500/20",
+          className={cn("lc-brilho lc-brilho--borda rl-menu-botao group inline-flex h-9 max-w-[240px] items-center gap-2 max-sm:w-full max-sm:max-w-none rounded-xl border bg-white px-3 text-sm font-medium text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-px hover:border-emerald-300 hover:shadow-md data-[state=open]:border-emerald-500 data-[state=open]:ring-2 data-[state=open]:ring-emerald-500/20",
             valor.length ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200")}>
           <span className="shrink-0 text-emerald-600">{icone}</span>
           <span className="truncate">{texto}</span>
@@ -610,12 +610,12 @@ export function BotoesExportar({ csv }: { csv: { rotulo: string; aoClicar: () =>
   return (
     <div className="flex flex-wrap justify-center gap-3 pb-4 print:hidden">
       <button type="button" onClick={() => window.print()}
-        className="flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-medium text-foreground shadow-card transition-colors hover:bg-secondary">
+        className="lc-brilho lc-brilho--borda flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-medium text-foreground shadow-card transition-colors hover:bg-secondary">
         <FileDown className="h-4 w-4 text-primary" />Exportar Relatório em PDF
       </button>
       {csv.map((c) => (
         <button key={c.rotulo} type="button" onClick={c.aoClicar}
-          className="flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-medium text-foreground shadow-card transition-colors hover:bg-secondary">
+          className="lc-brilho lc-brilho--borda flex items-center gap-2 rounded-lg border border-border bg-card px-6 py-3 text-sm font-medium text-foreground shadow-card transition-colors hover:bg-secondary">
           <Download className="h-4 w-4 text-primary" />{c.rotulo}
         </button>
       ))}

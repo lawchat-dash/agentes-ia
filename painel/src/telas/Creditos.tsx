@@ -159,7 +159,7 @@ function Topo({ dias, setDias, podeExportar, aoExportar, aoRecarregar }: {
           ))}
         </div>
         <button disabled={!podeExportar} onClick={aoExportar}
-          className="inline-flex items-center gap-2 rounded-xl border border-[#e6ebe8] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1d2939] transition hover:bg-[#f7f9f8] disabled:opacity-40">
+          className="lc-brilho lc-brilho--borda inline-flex items-center gap-2 rounded-xl border border-[#e6ebe8] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1d2939] transition hover:bg-[#f7f9f8] disabled:opacity-40">
           <Download className="size-4" />Exportar
         </button>
         <button onClick={aoRecarregar} className="cr-botao-verde inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[13.5px] font-semibold text-white">
@@ -330,7 +330,7 @@ function Simulador({ p, valor, setValor, aoRecarregar }: { p: PainelConsumo; val
           const n = leadsDe(v, cpl);
           return (
             <button key={v} onClick={() => setValor(v)} aria-pressed={ativo}
-              className={`rounded-xl border px-2 py-2.5 text-center transition ${ativo ? "border-[#0a8f35] bg-[#e7f7ec] text-[#0a8f35]" : "border-[#e6ebe8] bg-white text-[#0c111d] hover:border-[#c9d6ce]"}`}>
+              className={`lc-brilho lc-brilho--borda rounded-xl border px-2 py-2.5 text-center transition ${ativo ? "border-[#0a8f35] bg-[#e7f7ec] text-[#0a8f35]" : "border-[#e6ebe8] bg-white text-[#0c111d] hover:border-[#c9d6ce]"}`}>
               <div className="text-[14px] font-bold tabular-nums">{reais(v, 0)}</div>
               <div className={`text-[11.5px] ${ativo ? "text-[#0a8f35]/80" : "text-[#667085]"}`}>{n != null ? `≈ ${inteiro(n)} ${n === 1 ? "lead" : "leads"}` : "—"}</div>
             </button>

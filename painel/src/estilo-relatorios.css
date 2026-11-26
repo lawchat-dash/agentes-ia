@@ -11,9 +11,7 @@
   box-shadow: 0 4px 12px -6px rgba(21, 191, 65, .32);
   transition: background-position .5s ease, transform .25s ease, box-shadow .3s ease; }
 .btn-lawchat:hover:not(:disabled) { background-position: 100% 50%; transform: translateY(-1px); box-shadow: 0 7px 16px -7px rgba(21, 191, 65, .4); }
-.btn-lawchat::after { content: ""; position: absolute; inset: 0; transform: translateX(-130%); transition: transform .8s ease;
-  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, .35) 50%, transparent 80%); }
-.btn-lawchat:hover:not(:disabled)::after { transform: translateX(130%); }
+/* a faixa que corria no hover virou o brilho que segue o cursor (estilo-brilho.css) */
 .btn-lawchat:disabled { opacity: .6; cursor: not-allowed; }
 
 /* aceno da saudação */

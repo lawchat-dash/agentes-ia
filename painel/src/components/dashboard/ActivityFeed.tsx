@@ -39,7 +39,7 @@ export function ActivityFeed({ items, onRefresh, atualizando, verTodas, classNam
           </div>
         </div>
         {onRefresh && (
-          <button onClick={onRefresh} disabled={atualizando} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] hover:border-[#cbd5e1] transition-colors shrink-0 disabled:opacity-60">
+          <button onClick={onRefresh} disabled={atualizando} className="lc-brilho lc-brilho--borda inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] hover:border-[#cbd5e1] transition-colors shrink-0 disabled:opacity-60">
             <RefreshCw className={`size-3.5 ${atualizando ? "animate-spin" : ""}`} /> Atualizar <span className="size-1.5 rounded-full bg-[#22c55e]" />
           </button>
         )}
@@ -83,7 +83,7 @@ export function ActivityFeed({ items, onRefresh, atualizando, verTodas, classNam
       )}
 
       {verTodas && (
-        <Link to={verTodas} className="mt-3 inline-flex items-center justify-center gap-2 h-10 rounded-xl border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] hover:border-[#cbd5e1] transition-colors">
+        <Link to={verTodas} className="lc-brilho lc-brilho--borda mt-3 inline-flex items-center justify-center gap-2 h-10 rounded-xl border border-[#E2E8F0] bg-white text-[12px] font-semibold text-[#344054] hover:text-[#101828] hover:border-[#cbd5e1] transition-colors">
           <List className="size-4 text-[#98A2B3]" /> Ver agentes <ChevronRight className="size-3.5" />
         </Link>
       )}

@@ -927,7 +927,7 @@ const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => {
           <nav aria-label={`Abrir ${a.nome}`} className="px-3 pb-2.5 pt-1 flex flex-wrap gap-1">
             {ABAS_DO_AGENTE.map((atalho) => (
               <AtalhoDoAgente key={atalho.chave} atalho={atalho} idAgente={a.id} aoHistorico={() => setHistorico({ id: a.id, nome: a.nome })} aoAutomacoes={() => setAutomacoes({ id: a.id, nome: a.nome })}
-                className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors">
+                className="lc-brilho lc-brilho--borda [--brilho-raio:48px] inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors">
                 <atalho.Icone className="size-3 shrink-0" aria-hidden />{atalho.rotulo}
               </AtalhoDoAgente>
             ))}

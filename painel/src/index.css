@@ -531,21 +531,8 @@
 .lc-pay-btn:hover { transform: translateY(-2px); box-shadow: 0 18px 40px -8px rgba(0,188,51,.55); filter: brightness(1.04); }
 .lc-pay-btn:active { transform: translateY(0); }
 
-/* Glow de gradiente nos botões (técnica ButtonColorful) — verde por padrão,
-   cor sobrescrevível via --btn-glow (ex.: botões por categoria). */
-.btn-glow, .lc-pay-btn { position: relative; overflow: hidden; isolation: isolate; }
-.btn-glow::before, .lc-pay-btn::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  z-index: -1;
-  background: var(--btn-glow, linear-gradient(90deg, #34e06b, #00d23a, #14b8a6));
-  filter: blur(10px);
-  opacity: 0.32;
-  transition: opacity 0.5s ease;
-}
-.btn-glow:hover::before, .lc-pay-btn:hover::before { opacity: 0.78; }
-.btn-glow:disabled::before { opacity: 0.12; }
+/* O antigo glow de gradiente (.btn-glow) saiu: o brilho dos botões agora é o de estilo-brilho.css
+   (faixa de luz na borda seguindo o cursor), carregado por lib/brilhoBotoes.ts. */
 .lc-notif { transition: all .2s ease; border-radius: 14px; }
 .lc-notif:hover { background: #f8fafc; transform: translateX(4px); }
 .link-arrow svg { transition: transform .2s ease; }

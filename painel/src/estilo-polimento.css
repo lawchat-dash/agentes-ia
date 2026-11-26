@@ -1,0 +1,141 @@
+/* =========================================================================
+   Acabamento geral do painel (só visual). Carrega depois de estilo.css e estilo-navegacao.css (via Estrutura.tsx).
+   1. Fundo com profundidade: luz verde bem leve no alto e uma trama de pontos que some ao descer.
+   2. Menu do topo: item aberto mais marcado (pílula com relevo + traço verde aceso embaixo).
+   3. Cartões: borda e sombra mais finas, e elevação ao passar o mouse nos que são clicáveis.
+   4. Cabeçalho das telas: título mais forte e um fio verde→cinza separando do conteúdo.
+   5. Estados vazios com ilustração (ícone num selo com halos).
+   A entrada das telas (fade curto subindo) está em Estrutura.tsx.
+   Tudo no verde LawChat e no tema claro, sem cores novas.
+   ========================================================================= */
+
+/* ------------------------------------------------------------ 1. fundo */
+.lc-casca {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(1100px 520px at 6% -12%, rgb(0 188 51 / .085), transparent 62%),
+    radial-gradient(900px 460px at 100% -14%, rgb(16 185 129 / .055), transparent 60%),
+    linear-gradient(180deg, #F4F7FA 0%, var(--bg, #F1F5F9) 420px);
+}
+.lc-casca::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 560px;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgb(15 23 42 / .085) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  background-position: 11px 6px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / .55) 35%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / .55) 35%, transparent 100%);
+}
+
+/* ------------------------------------------------------------ 2. menu do topo */
+@media (min-width: 821px) {
+  .lc-casca .lc-topo {
+    border-color: rgb(226 232 240 / .9);
+    background: linear-gradient(180deg, rgb(255 255 255 / .92), rgb(255 255 255 / .8));
+    box-shadow: 0 1px 0 rgb(255 255 255 / .9) inset, 0 1px 2px rgb(16 24 40 / .04);
+  }
+  .lc-casca .lc-menu-topo > .lc-mt-item, .lc-casca .lc-mt-grupo > button { position: relative; }
+  .lc-casca .lc-menu-topo > .lc-mt-item svg.i, .lc-casca .lc-mt-grupo > button svg.i { transition: transform .2s cubic-bezier(.34, 1.56, .64, 1), color .15s; }
+  .lc-casca .lc-menu-topo > .lc-mt-item:hover svg.i, .lc-casca .lc-mt-grupo > button:hover svg.i { transform: translateY(-1px) scale(1.06); }
+  .lc-casca .lc-menu-topo > .lc-mt-item.on, .lc-casca .lc-mt-grupo > button.on {
+    background: linear-gradient(180deg, #F2FCF4 0%, #DDF6E4 100%);
+    color: #05662A;
+    box-shadow: inset 0 0 0 1px rgb(0 163 44 / .18), inset 0 1px 0 #fff, 0 1px 2px rgb(16 24 40 / .06), 0 6px 14px -10px rgb(0 163 44 / .55);
+  }
+  .lc-casca .lc-menu-topo > .lc-mt-item.on::after, .lc-casca .lc-mt-grupo > button.on::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -9px;
+    width: 26px;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: linear-gradient(90deg, #3BE062, #00A32C);
+    box-shadow: 0 -2px 10px rgb(0 188 51 / .55);
+    transform: translateX(-50%);
+    animation: lc-traco-entra .35s cubic-bezier(.22, 1, .36, 1) both;
+  }
+}
+@keyframes lc-traco-entra { from { width: 0; opacity: 0; } to { width: 26px; opacity: 1; } }
+/* Gaveta do celular: o item aberto ganha o mesmo relevo. */
+.lc-casca .lc-nav .lc-item.active { box-shadow: inset 0 0 0 1px rgb(0 163 44 / .14), 0 6px 14px -10px rgb(0 163 44 / .5); }
+
+/* ------------------------------------------------------------ 3. cartões */
+.lc-casca .panel, .lc-casca .kpi, .lc-casca .lst {
+  border-color: #E4E9F0;
+  box-shadow: 0 1px 2px rgb(16 24 40 / .04), 0 10px 28px -22px rgb(16 24 40 / .22);
+}
+.lc-casca .panel { transition: box-shadow .25s ease, border-color .25s ease, transform .25s cubic-bezier(.22, 1, .36, 1); }
+.lc-casca .panel:hover { border-color: #DCE3EB; box-shadow: 0 1px 2px rgb(16 24 40 / .05), 0 16px 36px -22px rgb(16 24 40 / .3); }
+.lc-casca .kpi:hover { box-shadow: 0 1px 2px rgb(16 24 40 / .05), 0 18px 36px -20px rgb(0 120 40 / .3); border-color: rgb(0 163 44 / .25); }
+/* Cartões soltos das telas novas (Tailwind): mesma sombra fina; os que são link sobem um pouco no hover. */
+.lc-casca .page :is(div, section, article, li):is(.bg-white, .bg-card):is(.rounded-xl, .rounded-2xl, .rounded-\[18px\], .rounded-\[20px\]).border:not(.shadow-none) {
+  box-shadow: 0 1px 2px rgb(16 24 40 / .04), 0 10px 28px -24px rgb(16 24 40 / .25);
+}
+.lc-casca .page a:is(.bg-white, .bg-card):is(.rounded-xl, .rounded-2xl).border,
+.lc-casca .page :is(.hub-cartao) {
+  transition: transform .25s cubic-bezier(.22, 1, .36, 1), box-shadow .25s ease, border-color .25s ease;
+}
+.lc-casca .page a:is(.bg-white, .bg-card):is(.rounded-xl, .rounded-2xl).border:hover {
+  transform: translateY(-2px);
+  border-color: rgb(0 163 44 / .28);
+  box-shadow: 0 1px 2px rgb(16 24 40 / .05), 0 18px 36px -20px rgb(0 120 40 / .3);
+}
+
+/* ------------------------------------------------------------ 4. cabeçalho das telas */
+.lc-casca .ph {
+  position: relative;
+  padding-bottom: 18px;
+  margin-bottom: 24px;
+}
+.lc-casca .ph::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgb(0 188 51 / .55) 0, rgb(0 188 51 / .18) 120px, #E2E8F0 260px, rgb(226 232 240 / 0) 100%);
+}
+.lc-casca .ph h1 { font-size: clamp(24px, 2.1vw, 30px); font-weight: 750; letter-spacing: -.028em; color: #0B1324; }
+.lc-casca .ph p { color: #52607A; font-size: 14.5px; }
+
+/* ------------------------------------------------------------ 5. estados vazios */
+.lc-casca .vazio { padding: 40px 20px 36px; color: #667085; }
+.lc-casca .vazio > svg:first-child {
+  box-sizing: content-box;
+  width: 26px;
+  height: 26px;
+  padding: 15px;
+  margin-bottom: 14px;
+  border-radius: 18px;
+  color: #00A32C;
+  background: radial-gradient(circle at 30% 22%, #FFFFFF 0%, #E9F9EE 70%);
+  box-shadow:
+    inset 0 0 0 1px rgb(0 163 44 / .16),
+    0 0 0 9px rgb(0 188 51 / .055),
+    0 0 0 18px rgb(0 188 51 / .03),
+    0 14px 26px -14px rgb(0 150 42 / .55);
+  animation: lc-selo-flutua 4.5s ease-in-out infinite;
+}
+.lc-casca .vazio.carregando > svg:first-child { animation: none; }
+.lc-casca .cv-vazio .size-12.rounded-2xl {
+  box-shadow: 0 0 0 9px rgb(0 188 51 / .05), 0 0 0 18px rgb(0 188 51 / .028), 0 14px 26px -14px rgb(0 150 42 / .45);
+  animation: lc-selo-flutua 4.5s ease-in-out infinite;
+}
+.lc-casca .cv-vazio {
+  background-image: radial-gradient(rgb(15 23 42 / .06) 1px, transparent 1.4px);
+  background-size: 20px 20px;
+}
+@keyframes lc-selo-flutua { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-casca .vazio > svg:first-child, .lc-casca .cv-vazio .size-12.rounded-2xl,
+  .lc-casca .lc-menu-topo > .lc-mt-item.on::after, .lc-casca .lc-mt-grupo > button.on::after { animation: none; }
+  .lc-casca .page a:is(.bg-white, .bg-card):is(.rounded-xl, .rounded-2xl).border:hover { transform: none; }
+}

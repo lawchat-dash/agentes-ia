@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import AnimatedList from "@/components/reactbits/AnimatedList";
 import { NomeDoEscritorio } from "./nomeEscritorio";
 import { PAGINAS_CONFIG, PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
@@ -23,6 +23,10 @@ import { Modal, useCarregar } from "./ui";
 import { AvisoSaldo } from "./AvisoSaldo";
 import { SaldoTopo } from "./SaldoTopo";
 import { CentralNotificacoes } from "./CentralNotificacoes";
+// Visual: brilho dos botões (um ouvinte só) e o acabamento geral (fundo, cartões, cabeçalhos, estados vazios).
+import "@/lib/brilhoBotoes";
+import "../estilo-polimento.css";
+import { GuiaRealce } from "./GuiaRealce";
 
 /*
  * Casca do painel: menu lateral, barra do topo e gaveta do celular.
@@ -114,6 +118,17 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
 
   useEffect(() => { setAbertos(false); }, [local.pathname]);
   useEffect(() => { if (!celular) setAbertos(false); }, [celular]);
+  // Troca de tela: o conteúdo entra com um fade curto subindo (só visual; não remonta nada).
+  const refPagina = useRef<HTMLElement>(null);
+  const primeiraTela = useRef(true);
+  const chaveTela = local.pathname.split("/").filter((p) => p && !/^[0-9a-f-]{20,}$/i.test(p)).slice(0, 2).join("/");
+  useEffect(() => {
+    if (primeiraTela.current) { primeiraTela.current = false; return; }
+    const el = refPagina.current;
+    if (!el || telaLawChat || typeof el.animate !== "function") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    el.animate([{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], { duration: 300, easing: "cubic-bezier(.22, 1, .36, 1)" });
+  }, [chaveTela]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     document.body.classList.toggle("nav-aberta", abertos);
     return () => document.body.classList.remove("nav-aberta");
@@ -339,7 +354,8 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             </div>
           )}
           {escritorio && <AvisoSaldo escritorio={escritorio} podeGerir={podeGerir} />}
-          <div className="scroll"><main className={`page${telaLawChat ? " page-lawchat" : ""}`} key={`${escritorio}-${visao}`}>{children}</main></div>
+          <div className="scroll"><main ref={refPagina} className={`page${telaLawChat ? " page-lawchat" : ""}`} key={`${escritorio}-${visao}`}>{children}</main></div>
+          <GuiaRealce />
           {/* Atalhos num Dock (React Bits) no rodapé da área de conteúdo; aparece com o mouse perto da borda de baixo. */}
         </div>
 

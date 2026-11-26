@@ -51,7 +51,7 @@ export function ImpersonationBanner({ nomeEscritorio }: { nomeEscritorio: string
         type="button"
         onClick={handleReturn}
         disabled={returning}
-        className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-amber-400/50 bg-white/70 px-2.5 text-[12.5px] font-medium text-amber-900 shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-150 hover:border-amber-500/70 hover:bg-white hover:shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 active:scale-[.97] disabled:opacity-60 dark:bg-amber-500/10 dark:text-amber-100 dark:hover:bg-amber-500/20"
+        className="lc-brilho lc-brilho--borda [--brilho-cor:178_107_0] inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-amber-400/50 bg-white/70 px-2.5 text-[12.5px] font-medium text-amber-900 shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-150 hover:border-amber-500/70 hover:bg-white hover:shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 active:scale-[.97] disabled:opacity-60 dark:bg-amber-500/10 dark:text-amber-100 dark:hover:bg-amber-500/20"
       >
         <ArrowLeft className="size-3.5" />
         <span className="max-sm:hidden">{returning ? "Voltando..." : "Voltar para admin"}</span>
