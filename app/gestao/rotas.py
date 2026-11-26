@@ -2457,6 +2457,7 @@ PAGINAS_DE_AJUSTES = {
     "integracoes": "/integration",
     "contatos": "/contacts",
     "paineis": "/panels",
+    "chatbots": "/chatbots/list",
 }
 
 

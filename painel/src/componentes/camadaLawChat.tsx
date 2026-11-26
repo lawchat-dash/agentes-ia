@@ -76,7 +76,7 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
 
   const abrir = (codigo: string, titulo: string, estilo: CSSProperties) => {
     setQuadros((q) => ({ ...q, [codigo]: { codigo, titulo, estilo, url: null, erro: null, pronto: false, vez: (q[codigo]?.vez ?? 0) + 1 } }));
-    linkDaHelena(undefined, codigo)
+    linkDaHelena(undefined, codigo === "atendimento" ? undefined : codigo)
       .then((url) => setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], url } } : q)))
       .catch((e) => setQuadros((q) => (q[codigo] ? { ...q, [codigo]: { ...q[codigo], erro: (e as Error).message, pronto: true } } : q)));
   };
@@ -113,15 +113,18 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
       {Object.values(quadros).map((q) => {
         const visivel = !escondida && atual?.codigo === q.codigo && caixa && caixa.width > 0;
         const posicao: CSSProperties = visivel
-          ? { position: "fixed", left: caixa.left, top: caixa.top, width: caixa.width, height: caixa.height, zIndex: 45 }
+          ? { position: "fixed", left: caixa.left, top: caixa.top, width: caixa.width, height: caixa.height, zIndex: 25 }
           : { position: "fixed", left: -10000, top: 0, width: 1200, height: 800, visibility: "hidden", pointerEvents: "none" };
         return (
           <div key={q.codigo} className="lc-quadro-lawchat" style={posicao} aria-hidden={!visivel}>
             {q.url && !q.erro && (
               <iframe key={`${q.vez}`} title={q.titulo} src={q.url} className="border-0" style={q.estilo}
                 onLoad={() => window.setTimeout(() => setQuadros((s) => (s[q.codigo] ? { ...s, [q.codigo]: { ...s[q.codigo], pronto: true } } : s)), 1200)}
-                allow="clipboard-read; clipboard-write" referrerPolicy="no-referrer" />
+                allow="clipboard-read; clipboard-write; microphone; camera" referrerPolicy="no-referrer" />
             )}
+            {/* Central: a faixa verde "Ative as notificações na web" fica no topo da lista de conversas (400px); dentro do
+                painel o navegador não deixa ativar notificação, então ela nunca sairia. Fica coberta. */}
+            {q.codigo === "atendimento" && <div aria-hidden className="absolute left-0 top-0 z-[5] bg-white" style={{ width: 400, height: 34 }} />}
             {!q.pronto && <TelaEntrando titulo={`Abrindo ${q.titulo}`} />}
             {q.erro && (
               <div className="absolute inset-0 grid place-items-center p-6 bg-[var(--lc-fundo-lawchat)]">

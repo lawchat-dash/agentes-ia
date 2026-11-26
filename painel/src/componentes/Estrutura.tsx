@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AcoesDoTopo, NomeDoEscritorio, guardarTelaDoPainel } from "./nomeEscritorio";
+import { NomeDoEscritorio } from "./nomeEscritorio";
 import { PAGINAS_CONFIG, PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
 import { CamadaLawChat, preabrirLawChat } from "./camadaLawChat";
-import { TelaAtendimento, estiloDoQuadro, estiloDoQuadroConfig } from "../telas/Atendimento";
+import { estiloDaCentral, estiloDoQuadro, estiloDoQuadroConfig } from "../telas/Atendimento";
 import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig, motion } from "framer-motion";
 import {
-  Workflow, Activity, AlertOctagon, Headset, Bell, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, CircleHelp, History, Home, LayoutGrid, Library,
+  Cpu, Workflow, Activity, AlertOctagon, Headset, Bell, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, CircleHelp, History, Home, LayoutGrid, Library,
   CreditCard, LogOut, Menu, MessagesSquare, Package, ShieldCheck, Wrench, PanelLeftClose, PanelLeftOpen, PlugZap, Search, Settings, Users, Wallet, X,
 } from "lucide-react";
 import { NOME_PAPEL, type Agente } from "../api";
@@ -32,7 +32,7 @@ import { SaldoTopo } from "./SaldoTopo";
 
 export { NomeDoEscritorio } from "./nomeEscritorio";
 
-interface Item { para: string; rotulo: string; icone: ReactNode; contador?: number; grupo?: string }
+interface Item { para: string; rotulo: string; icone: ReactNode; contador?: number; grupo?: string; selo?: string }
 const CHAVE_RECOLHIDO = "agentesia_menu_recolhido";
 const CELULAR = "(max-width: 820px)";
 
@@ -68,19 +68,18 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
   const { eu, admin, lawchat, podeGerir, escritorio, escritorioLawchat, trocarEscritorio, trocarVisao, visao, sair } = useSessao();
   const local = useLocation();
   // Central de Atendimento (LawChat embutida): ocupa a tela inteira.
-  const telaCheia = local.pathname.startsWith("/atendimento");
-  // Minha Conta: também em tela cheia, como a Central (as configurações da conta, com o menu delas e o "Voltar").
-  const telaConta = /^\/(minha-conta|crm)(\/|$)/.test(local.pathname);
-  const [visitou, setVisitou] = useState(false);
+  // Telas da LawChat (Central, CRM, Ajustes): abrem embaixo do menu do topo, ocupando a altura toda.
+  const telaLawChat = /^\/(atendimento|crm|minha-conta|chatbots)(\/|$)/.test(local.pathname);
   // Ao abrir o sistema, as telas da LawChat entram por trás, uma de cada vez (Central primeiro), e ficam montadas:
   // ao clicar, já estão prontas. Atualizar a página (F5) faz de novo.
   const { podeGerir: gestorDaConta } = useSessao();
   useEffect(() => {
     if (!escritorio) return;
     const t = window.setTimeout(() => {
-      setVisitou(true);
+      preabrirLawChat([{ codigo: "atendimento", titulo: "Central de Atendimento", estilo: estiloDaCentral }]);
       if (!gestorDaConta) return;
       preabrirLawChat([
+        { codigo: "chatbots", titulo: "Chatbots", estilo: estiloDoQuadro },
         ...PAGINAS_CRM.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })),
         ...PAGINAS_CONTA.filter((p) => p.codigo !== "ia" && p.codigo !== "conta").map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })),
         ...PAGINAS_CONFIG.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadroConfig })),
@@ -88,9 +87,6 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
     }, 2500);
     return () => window.clearTimeout(t);
   }, [escritorio, gestorDaConta]);
-  useEffect(() => { if (telaCheia) setVisitou(true); }, [telaCheia]);
-  useEffect(() => { if (!telaCheia && !telaConta) guardarTelaDoPainel(local.pathname + local.search); }, [telaCheia, telaConta, local.pathname, local.search]);
-  const atendimentoVisitado = visitou || telaCheia;
   const celular = useCelular();
   const [abertos, setAbertos] = useState(false);
   const [recolhido, setRecolhido] = useState(lerRecolhido());
@@ -165,18 +161,13 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
     const itens: Item[] = [];
     if (escritorio) {
       itens.push({ para: "/", rotulo: "Dashboard", icone: <Home className="i" /> });
-      // Um só caminho para os agentes: "Meus agentes" (os produtos ativados) com o "+ Novo a partir da Biblioteca".
-      // A Biblioteca fica como página de escolha; /agentes leva para cá e o agente aberto vira submenu deste item.
-      if (podeGerir) itens.push(
-        { para: "/meus-produtos", rotulo: "Meus agentes", icone: <Bot className="i" /> },
-        { para: "/biblioteca", rotulo: "Biblioteca", icone: <Library className="i" /> },
-      );
-      itens.push({ para: "/atendimento", rotulo: "Central de Atendimento", icone: <Headset className="i" /> });
+      itens.push({ para: "/atendimento", rotulo: "Atendimento", icone: <Headset className="i" /> });
       itens.push({ para: "/crm/paineis", rotulo: "CRM", icone: <Workflow className="i" /> });
+      // Apps (selo NOVO): Meus agentes, Biblioteca e Ferramentas numa lista só (os agentes de IA ficam aqui dentro).
       if (podeGerir) itens.push(
-        { para: "/ferramentas", rotulo: "Ferramentas", icone: <Wrench className="i" /> },
+        { para: "/meus-produtos", rotulo: "Apps", icone: <LayoutGrid className="i" />, selo: "NOVO" },
         { para: "/consumo", rotulo: "Créditos", icone: <Wallet className="i" /> },
-        { para: "/minha-conta/usuarios", rotulo: "Minha Conta", icone: <Settings className="i" /> },
+        { para: "/minha-conta/usuarios", rotulo: "Ajustes", icone: <Settings className="i" /> },
       );
     }
     grupos.push({ titulo: "Menu", itens });
@@ -205,20 +196,8 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
     </>
   );
 
-  // Central de Atendimento: tela própria, sem menu lateral, barra do topo nem atalhos (a tela traz o "Voltar").
-  // A Central de Atendimento fica montada depois da 1ª visita (só escondida quando você sai): voltar para ela
-  // mantém a conversa aberta. Recomeça só ao trocar de escritório ou fechar a aba do navegador.
-  const atendimento = atendimentoVisitado && escritorio ? (
-    <NomeDoEscritorio.Provider value={nomeEscritorio}>
-      <div className="lc-modo-atendimento" key={`${escritorio}-${visao}`} style={telaCheia ? undefined : { display: "none" }} aria-hidden={!telaCheia}>
-        <TelaAtendimento acoes={acoesTopo} />
-      </div>
-    </NomeDoEscritorio.Provider>
-  ) : null;
-
   return (<>
-    {atendimento}
-    <CamadaLawChat escritorio={escritorio || null} escondida={telaCheia} />
+    <CamadaLawChat escritorio={escritorio || null} escondida={false} />
         {busca && createPortal(<BuscaRapida itens={todosItens} aoFechar={() => setBusca(false)} />, document.body)}
         {ajuda && (
           <Modal titulo="Ajuda rápida" aoFechar={() => setAjuda(false)} rodape={<><span className="sp" /><button className="btn pri" onClick={() => setAjuda(false)}>Entendi</button></>}>
@@ -229,13 +208,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             </div>
           </Modal>
         )}
-    {telaCheia ? (escritorio ? null : children) : telaConta && escritorio ? (
-      <NomeDoEscritorio.Provider value={nomeEscritorio}>
-        <AcoesDoTopo.Provider value={acoesTopo}>
-          <div className="lc-modo-atendimento lc-modo-conta" key={`${escritorio}-${visao}`}>{children}</div>
-        </AcoesDoTopo.Provider>
-      </NomeDoEscritorio.Provider>
-    ) : (
+    {(
     <MotionConfig reducedMotion="user">
       <div className={`lc-casca${compacto ? " recolhido" : ""}${abertos ? " gaveta-aberta" : ""}`}>
         {/* Degradê verde usado pelos ícones ativos (stroke: url(#lc-grad-icone)). */}
@@ -275,24 +248,10 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
                 <ul className="lc-lista">
                   {g.itens.map((i) => (
                     <li key={i.para}>
-                      <ItemMenu item={i} compacto={compacto} end={i.para === "/"} ativo={i.para === "/meus-produtos" && Boolean(idAgente)} />
-                      {i.para === "/crm" && local.pathname.startsWith("/crm") && !compacto && (
-                        <div className="lc-sub">
-                          <div className="lc-sub-itens">
-                            {PAGINAS_CRM.map((p) => (
-                              <NavLink key={p.codigo} to={`/crm/${p.codigo}`}><p.icone size={14} /><span>{p.rotulo}</span></NavLink>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {i.para === "/minha-conta" && local.pathname.startsWith("/minha-conta") && !compacto && (
-                        <div className="lc-sub">
-                          <div className="lc-sub-itens">
-                            {PAGINAS_CONTA.map((p) => (
-                              <NavLink key={p.codigo} to={`/minha-conta/${p.codigo}`}><p.icone size={14} /><span>{p.rotulo}</span></NavLink>
-                            ))}
-                          </div>
-                        </div>
+                      {GRUPOS_DO_MENU[i.para] && !compacto ? (
+                        <GrupoMenu item={i} grupo={GRUPOS_DO_MENU[i.para]} />
+                      ) : (
+                        <ItemMenu item={i} compacto={compacto} end={i.para === "/"} ativo={i.para === "/meus-produtos" && Boolean(idAgente)} />
                       )}
                       {i.para === "/meus-produtos" && idAgente && agenteAberto.dados && !compacto && (
                         <div className="lc-sub">
@@ -353,6 +312,8 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             <button type="button" className="lc-topo-menu" onClick={() => setAbertos(true)} aria-label="Abrir menu" aria-expanded={abertos} aria-controls="lc-menu">
               <Menu />
             </button>
+            <Link to="/" className="lc-topo-marca" title="Início"><img src={iconeLawChat} alt="" width={30} height={31} /><b>LawChat IA</b></Link>
+            <MenuDoTopo itens={todosItens} />
             <nav className="lc-crumb" aria-label="Você está em">
               <span className="lc-crumb-esc">{escritorio ? nomeEscritorio : "LawChat"}</span>
               <ChevronRight className="lc-crumb-sep" aria-hidden />
@@ -362,6 +323,15 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             {escritorio && podeGerir && !modoAdmin && <SaldoTopo escritorio={escritorio} />}
             {acoesTopo}
           </header>
+          {idAgente && agenteAberto.dados && (
+            <nav className="lc-abas-agente" aria-label={`Agente ${agenteAberto.dados.nome}`}>
+              <span className="lc-abas-agente-nome"><span className="lc-sub-ponto" data-ativo={agenteAberto.dados.situacao === "ativo"} />{agenteAberto.dados.nome}</span>
+              <NavLink to={`/agentes/${idAgente}`} end><LayoutGrid size={14} /><span>Visão geral</span></NavLink>
+              {secoesDo(agenteAberto.dados.tipo_produto === "proprio").map((s) => (
+                <NavLink key={s.chave} to={`/agentes/${idAgente}/${s.chave}`}>{s.icone(14)}<span>{s.rotulo}</span></NavLink>
+              ))}
+            </nav>
+          )}
           <ImpersonationBanner nomeEscritorio={nomeEscritorio} />
           {modoAdmin && (
             <div className="lc-faixa-superadmin" role="status">
@@ -371,13 +341,114 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
             </div>
           )}
           {escritorio && <AvisoSaldo escritorio={escritorio} podeGerir={podeGerir} />}
-          <div className="scroll"><main className="page" key={`${escritorio}-${visao}`}>{children}</main></div>
+          <div className="scroll"><main className={`page${telaLawChat ? " page-lawchat" : ""}`} key={`${escritorio}-${visao}`}>{children}</main></div>
         </div>
 
       </div>
     </MotionConfig>
     )}
   </>);
+}
+
+/** Menu no topo (como o da LawChat, com as nossas cores): itens lado a lado; CRM e Ajustes abrem uma lista embaixo. */
+function MenuDoTopo({ itens }: { itens: Item[] }) {
+  const local = useLocation();
+  const [aberto, setAberto] = useState<string | null>(null);
+  useEffect(() => { setAberto(null); }, [local.pathname, local.search]);
+  useEffect(() => {
+    if (!aberto) return;
+    const fechar = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest?.(".lc-mt-item")) setAberto(null); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setAberto(null); };
+    document.addEventListener("mousedown", fechar);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", fechar); document.removeEventListener("keydown", esc); };
+  }, [aberto]);
+  const caminho = local.pathname;
+  const ativo = (para: string) => {
+    const base = para.split("?")[0];
+    if (base === "/") return caminho === "/";
+    if (base === "/meus-produtos") return caminho.startsWith("/meus-produtos") || caminho.startsWith("/agentes");
+    return caminho === base || caminho.startsWith(base + "/");
+  };
+  return (
+    <nav className="lc-menu-topo" aria-label="Menu">
+      {itens.map((i) => {
+        const grupo = GRUPOS_DO_MENU[i.para];
+        if (!grupo) {
+          return (
+            <Link key={i.para} to={i.para} className={`lc-mt-item${ativo(i.para) ? " on" : ""}`} aria-current={ativo(i.para) ? "page" : undefined}>
+              {i.icone}<span>{i.rotulo}</span>
+              {i.contador ? <em className="num">{i.contador > 99 ? "99+" : i.contador}</em> : null}
+            </Link>
+          );
+        }
+        const dentro = dentroDo(grupo, caminho);
+        return (
+          <div key={i.para} className="lc-mt-item lc-mt-grupo">
+            <button type="button" className={`lc-mt-item${dentro ? " on" : ""}${aberto === i.para ? " aberto" : ""}`}
+              onClick={() => setAberto(aberto === i.para ? null : i.para)} aria-expanded={aberto === i.para} aria-haspopup="menu">
+              {i.icone}<span>{i.rotulo}</span>{i.selo && <b className="lc-mt-selo">{i.selo}</b>}<ChevronDown size={14} className="lc-mt-seta" aria-hidden />
+            </button>
+            {aberto === i.para && (
+              <div className="lc-mt-lista" role="menu">
+                {grupo.filhos.map((f) => (
+                  <NavLink key={f.para} to={f.para} role="menuitem" className={({ isActive }) => (isActive ? "on" : "")}>
+                    {f.icone}<span>{f.rotulo}</span>
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** CRM e Minha Conta abrem uma lista no próprio menu: clica e vai direto para a tela. */
+interface GrupoDoMenu { prefixo: string | string[]; filhos: { para: string; rotulo: string; icone: ReactNode }[] }
+const dentroDo = (g: GrupoDoMenu, caminho: string) => (Array.isArray(g.prefixo) ? g.prefixo : [g.prefixo]).some((p) => caminho.startsWith(p));
+const GRUPOS_DO_MENU: Record<string, GrupoDoMenu> = {
+  "/meus-produtos": {
+    prefixo: ["/meus-produtos", "/agentes", "/biblioteca", "/ferramentas", "/ativar", "/produtos", "/chatbots"],
+    filhos: [
+      { para: "/meus-produtos", rotulo: "Agentes Inteligentes", icone: <Bot size={16} /> },
+      { para: "/biblioteca", rotulo: "Biblioteca", icone: <Library size={16} /> },
+      { para: "/ferramentas", rotulo: "Ferramentas", icone: <Wrench size={16} /> },
+      { para: "/chatbots", rotulo: "Chatbots", icone: <Cpu size={16} /> },
+    ],
+  },
+  "/crm/paineis": { prefixo: "/crm", filhos: PAGINAS_CRM.map((p) => ({ para: `/crm/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })) },
+  "/minha-conta/usuarios": {
+    prefixo: "/minha-conta",
+    filhos: PAGINAS_CONTA.map((p) => ({ para: `/minha-conta/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })),
+  },
+};
+
+function GrupoMenu({ item, grupo }: { item: Item; grupo: GrupoDoMenu }) {
+  const local = useLocation();
+  const dentro = dentroDo(grupo, local.pathname);
+  const [aberto, setAberto] = useState(dentro);
+  useEffect(() => { if (dentro) setAberto(true); }, [dentro]);
+  return (
+    <>
+      <button type="button" className={`lc-item lc-item-grupo${dentro ? " active" : ""}`} onClick={() => setAberto(!aberto)} aria-expanded={aberto}>
+        {dentro && <span className="lc-item-ativo" />}
+        <span className="lc-item-icone">{item.icone}</span>
+        <span className="lc-item-rot">{item.rotulo}</span>
+        <ChevronDown size={15} className={`lc-grupo-seta${aberto ? " aberta" : ""}`} aria-hidden />
+      </button>
+      {aberto && (
+        <div className="lc-sub">
+          <div className="lc-sub-itens">
+            {grupo.filhos.map((f) => (
+              <NavLink key={f.para} to={f.para}>{f.icone}<span>{f.rotulo}</span></NavLink>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 /** Um item do menu. A seleção é um único fundo (layoutId) que desliza de um item para o outro. */

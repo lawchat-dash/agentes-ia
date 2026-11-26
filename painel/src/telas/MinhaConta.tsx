@@ -4,7 +4,7 @@ import { ArrowLeft, Settings, Workflow, ArrowRight, Blocks, Building2, Clock, Co
 import type { LucideIcon } from "lucide-react";
 import { Alerta } from "../componentes/ui";
 import { TelaIntegracoes } from "./Integracoes";
-import { estiloDoQuadro, estiloDoQuadroConfig } from "./Atendimento";
+import { estiloDaCentral, estiloDoQuadro, estiloDoQuadroConfig } from "./Atendimento";
 import { abrirEmJanela, preabrirLawChat, recarregarLawChat, useVagaLawChat } from "../componentes/camadaLawChat";
 import { AcoesDoTopo, NomeDoEscritorio, telaDoPainel } from "../componentes/nomeEscritorio";
 
@@ -36,41 +36,29 @@ export function TelaCrm() {
 /** CRM em tela cheia, igual à Minha Conta: faixa com "Voltar", Contatos e Painéis no seletor escuro e a tela da
  *  LawChat ocupando o resto (as duas abrem juntas: trocar é instantâneo). */
 function CrmTelaCheia({ atual }: { atual: PaginaConta }) {
-  const navegar = useNavigate();
-  const nomeEscritorio = useContext(NomeDoEscritorio);
-  const acoes = useContext(AcoesDoTopo);
-  const [erro, setErro] = useState<string | null>(null);
   useEffect(() => {
     preabrirLawChat(PAGINAS_CRM.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })));
   }, []);
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[#eef1f5] bg-[#fafbfc] px-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <button type="button" className="lc-btn-voltar" onClick={() => navegar(telaDoPainel())}><ArrowLeft size={15} /> Voltar ao painel</button>
-          <span className="inline-flex items-center gap-1.5 truncate text-[13px] font-semibold text-[#101828]">
-            <Workflow size={15} className="shrink-0 text-[#00bc33]" /> CRM
-            {nomeEscritorio && <span className="truncate font-normal text-[#667085]">· {nomeEscritorio}</span>}
-          </span>
-        </div>
-        <nav className="lc-conta-seletor" aria-label="CRM">
-          {PAGINAS_CRM.map((c) => (
-            <Link key={c.codigo} to={`/crm/${c.codigo}`} aria-current={c.codigo === atual.codigo ? "page" : undefined}
-              className={c.codigo === atual.codigo ? "on" : ""}><c.icone size={14} />{c.rotulo}</Link>
-          ))}
-        </nav>
-        <span className="flex shrink-0 items-center gap-1">
-          {acoes && <span className="lc-acoes-central">{acoes}</span>}
-          <button type="button" className="btn ghost sm" onClick={() => recarregarLawChat(atual.codigo)} title="Recarregar esta tela"><RefreshCw size={14} /></button>
-          <button type="button" className="btn ghost sm" onClick={() => abrirEmJanela(atual.codigo).catch((e) => setErro((e as Error).message))} title="Use se a tela ficar em branco ou pedir login"><ExternalLink size={14} /> Janela separada</button>
-        </span>
-      </div>
-      <main className="relative min-h-0 flex-1 bg-[var(--lc-fundo-lawchat)]">
-        {erro && <div className="absolute left-4 right-4 top-4 z-30"><Alerta tipo="bad">{erro}</Alerta></div>}
-        <VagaDaConta key={atual.codigo} pagina={atual} estilo={estiloDoQuadro} />
-      </main>
+    <div className="lc-tela-lawchat-cheia">
+      <VagaDaConta key={atual.codigo} pagina={atual} estilo={estiloDoQuadro} />
     </div>
   );
+}
+
+/** Apps › Chatbots: a lista de chatbots da conta na LawChat, embaixo do menu do topo (mantém o menu dela, que tem as
+ *  duas opções: atendimento e automação). */
+export function TelaChatbots() {
+  const vaga = useRef<HTMLDivElement>(null);
+  useVagaLawChat(vaga, "chatbots", "Chatbots", estiloDoQuadro);
+  return <div className="lc-tela-lawchat-cheia"><div ref={vaga} className="absolute inset-0" /></div>;
+}
+
+/** Central de Atendimento: a tela de conversas da LawChat embaixo do menu do topo (fica montada o tempo todo). */
+export function TelaCentral() {
+  const vaga = useRef<HTMLDivElement>(null);
+  useVagaLawChat(vaga, "atendimento", "Central de Atendimento", estiloDaCentral);
+  return <div className="lc-tela-lawchat-cheia"><div ref={vaga} className="absolute inset-0" /></div>;
 }
 
 /** Dentro de "Conta": as telas de Configurações da conta na LawChat, como abas (o menu lateral delas sai). */
@@ -115,25 +103,7 @@ function ContaTelaCheia({ atual }: { atual: PaginaConta }) {
     </Link>
   );
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[#eef1f5] bg-[#fafbfc] px-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <button type="button" className="lc-btn-voltar" onClick={() => navegar(telaDoPainel())}><ArrowLeft size={15} /> Voltar ao painel</button>
-          <span className="inline-flex items-center gap-1.5 truncate text-[13px] font-semibold text-[#101828]">
-            <Settings size={15} className="shrink-0 text-[#00bc33]" /> Minha Conta
-            {nomeEscritorio && <span className="truncate font-normal text-[#667085]">· {nomeEscritorio}</span>}
-          </span>
-        </div>
-        <span className="flex shrink-0 items-center gap-1">
-          {acoes && <span className="lc-acoes-central">{acoes}</span>}
-          {atual.codigo !== "ia" && (
-            <>
-              <button type="button" className="btn ghost sm" onClick={() => recarregarLawChat(atual.codigo)} title="Recarregar esta tela"><RefreshCw size={14} /></button>
-              <button type="button" className="btn ghost sm" onClick={() => abrirEmJanela(atual.codigo).catch((e) => setErro((e as Error).message))} title="Use se a tela ficar em branco ou pedir login"><ExternalLink size={14} /> Janela separada</button>
-            </>
-          )}
-        </span>
-      </div>
+    <div className="lc-tela-lawchat-cheia flex">
       <div className="flex min-h-0 flex-1">
         <aside className="lc-conta-menu" aria-label="Configurações">
           {ehConfig ? (

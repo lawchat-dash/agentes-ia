@@ -24,6 +24,8 @@ const TelaRoteiro = lazy(() => import("./telas/Roteiros").then((m) => ({ default
 const TelaRoteiros = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiros })));
 const TelaMinhaConta = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaMinhaConta })));
 const TelaCrm = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCrm })));
+const TelaCentral = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCentral })));
+const TelaChatbots = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaChatbots })));
 const TelaErros = lazy(() => import("./telas/Erros").then((m) => ({ default: m.TelaErros })));
 const TelaHistorico = lazy(() => import("./telas/Historico").then((m) => ({ default: m.TelaHistorico })));
 const TelaInicio = lazy(() => import("./telas/Inicio").then((m) => ({ default: m.TelaInicio })));
@@ -46,7 +48,7 @@ const TITULOS: [RegExp, string][] = [
   [/^\/$/, "Início"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
   [/^\/erros/, "Erros"], [/^\/conversas/, "Conversas"], [/^\/atendimento/, "Central de Atendimento"],
   [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus agentes"],
-  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos à equipe"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
+  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos à equipe"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
   [/^\/admin\/escritorios/, "LawChat › Escritórios"], [/^\/admin\/equipe/, "LawChat › Equipe"], [/^\/admin\/modelos/, "LawChat › Modelos de agente"],
   [/^\/admin\/produtos\/./, "LawChat › Produtos › Editar"], [/^\/admin\/produtos/, "LawChat › Produtos (catálogo)"], [/^\/admin\/erros/, "LawChat › Erros"], [/^\/admin\/followup/, "LawChat › Follow-up"],
 ];
@@ -108,7 +110,8 @@ function ComEstrutura() {
         <Route path="/" element={<TelaInicio />} />
         {/* Conversas: todos os papéis do escritório (o atendente pausa e devolve a IA por aqui). */}
         <Route path="/conversas/:id?" element={precisaEscritorio(<TelaConversas />)} />
-        <Route path="/atendimento" element={escritorio ? null : precisaEscritorio(<span />)} />
+        <Route path="/atendimento" element={precisaEscritorio(<TelaCentral />)} />
+        <Route path="/chatbots" element={precisaEscritorio(<TelaChatbots />)} />
         {podeGerir && <>
           <Route path="/agentes" element={<Navigate to="/meus-produtos" replace />} />
           {/* ↑ "Meus agentes" é a lista única (Meus Produtos + Agentes): o /agentes antigo leva para lá. */}

@@ -475,3 +475,81 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 .lc-conta-voltar { display: inline-flex; align-items: center; gap: 6px; margin: 18px 24px 0; padding: 6px 12px 6px 10px; border-radius: 9px; background: #111827; color: #fff; font-size: 12.5px; font-weight: 600; }
 .lc-conta-voltar:hover { background: #1f2937; }
 .lc-conta-voltar + .lc-conta-menu-tit { padding-top: 14px; }
+
+/* Grupos do menu (CRM, Minha Conta): o item abre a lista ali mesmo. */
+.lc-item-grupo { width: 100%; border: 0; background: transparent; cursor: pointer; text-align: left; font-family: inherit; }
+.lc-grupo-seta { flex: none; color: var(--nav-texto-3); transform: rotate(-90deg); transition: transform .2s var(--nav-suave); }
+.lc-grupo-seta.aberta { transform: none; }
+
+/* Abas no estilo da LawChat (CRM): texto simples e um traço verde embaixo da aberta. */
+.lc-abas-lawchat { display: flex; align-self: stretch; align-items: stretch; gap: 22px; }
+.lc-abas-lawchat a { display: inline-flex; align-items: center; gap: 7px; padding: 0 2px; border-bottom: 2px solid transparent; font-size: 14px; font-weight: 500; color: #64748b; transition: color .15s, border-color .15s; }
+.lc-abas-lawchat a:hover { color: #0f172a; }
+.lc-abas-lawchat a.on { color: #15803d; border-bottom-color: #16a34a; font-weight: 600; }
+
+/* ============================================================ menu no topo (computador)
+   O menu lateral só existe no celular (gaveta). No computador os itens ficam no topo, como na LawChat, com as
+   nossas cores: tela aberta em verde-claro; CRM e Ajustes abrem uma lista embaixo. */
+.lc-topo-marca, .lc-menu-topo { display: none; }
+@media (min-width: 821px) {
+  .lc-casca, .lc-casca.recolhido { grid-template-columns: minmax(0, 1fr); }
+  .lc-casca > .lc-menu, .lc-casca > .lc-veu { display: none; }
+  .lc-conteudo { grid-column: 1; }
+  .lc-topo { margin: 10px 16px 0; padding: 8px 10px 8px 14px; gap: 6px; }
+  .lc-topo .lc-crumb { display: none; }
+  .lc-topo-marca { display: inline-flex; align-items: center; gap: 8px; flex: none; margin-right: 10px; color: #101828; font-size: 15px; letter-spacing: -.01em; }
+  .lc-topo-marca img { width: 30px; height: 31px; }
+  .lc-menu-topo { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; overflow: visible; }
+  .lc-mt-item { position: relative; }
+  .lc-menu-topo > .lc-mt-item, .lc-mt-grupo > button {
+    display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 12px; border: 0; border-radius: 10px;
+    background: transparent; color: #475467; font: 500 14px/1 inherit; white-space: nowrap; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .lc-menu-topo svg.i, .lc-mt-grupo > button svg.i { width: 18px; height: 18px; stroke-width: 1.8; }
+  .lc-menu-topo > .lc-mt-item:hover, .lc-mt-grupo > button:hover, .lc-mt-grupo > button.aberto { background: #f2f4f7; color: #101828; }
+  .lc-menu-topo > .lc-mt-item.on, .lc-mt-grupo > button.on { background: #e3f7e8; color: #067a2b; font-weight: 600; }
+  .lc-menu-topo > .lc-mt-item.on svg, .lc-mt-grupo > button.on svg { color: #00a32c; }
+  .lc-menu-topo em { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: #ef4444; color: #fff; }
+  .lc-mt-grupo { display: inline-flex; padding: 0; height: auto; }
+  .lc-mt-seta { color: #98a2b3; transition: transform .2s; }
+  .lc-mt-grupo > button.aberto .lc-mt-seta { transform: rotate(180deg); }
+  .lc-mt-lista {
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 80; min-width: 236px; padding: 6px;
+    border: 1px solid #eef1f5; border-radius: 14px; background: #fff;
+    box-shadow: 0 18px 40px -12px rgba(16, 24, 40, .28); animation: lc-mt-abre .16s ease-out both;
+  }
+  @keyframes lc-mt-abre { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .lc-mt-lista a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: #344054; font-size: 14px; white-space: nowrap; }
+  .lc-mt-lista a svg { color: #667085; flex: none; }
+  .lc-mt-lista a:hover { background: #f2f4f7; color: #101828; }
+  .lc-mt-lista a.on { background: #e3f7e8; color: #067a2b; font-weight: 600; }
+  .lc-mt-lista a.on svg { color: #00a32c; }
+  /* Topo estreito: tira os textos menos importantes para caber. */
+  .lc-topo .lc-busca span, .lc-topo .lc-busca kbd { display: none; }
+  .lc-topo .lc-busca { width: 40px; padding: 0; justify-content: center; }
+}
+@media (min-width: 821px) and (max-width: 1360px) {
+  .lc-topo-marca b, .lc-saldo-rot, .lc-saldo-barra { display: none; }
+  .lc-menu-topo > .lc-mt-item, .lc-mt-grupo > button { padding: 0 9px; font-size: 13.5px; }
+}
+@media (min-width: 821px) and (max-width: 1180px) {
+  .lc-menu-topo > .lc-mt-item span, .lc-mt-grupo > button span { display: none; }
+}
+
+/* Agente aberto: as seções dele em abas logo abaixo do topo. */
+.lc-abas-agente { display: flex; align-items: center; gap: 4px; margin: 8px 16px 0; padding: 6px 8px; overflow-x: auto;
+  border: 1px solid var(--nav-borda); border-radius: 14px; background: #fff; }
+.lc-abas-agente-nome { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 6px; margin-right: 4px; border-right: 1px solid #eef1f5; font-size: 13.5px; font-weight: 700; color: #101828; white-space: nowrap; }
+.lc-abas-agente a { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; color: #475467; font-size: 13px; white-space: nowrap; }
+.lc-abas-agente a:hover { background: #f2f4f7; color: #101828; }
+.lc-abas-agente a.active { background: #e3f7e8; color: #067a2b; font-weight: 600; }
+@media (max-width: 820px) { .lc-abas-agente { display: none; } }
+
+.lc-mt-selo { margin-left: 2px; padding: 2px 7px; border-radius: 99px; background: #00a32c; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: .03em; line-height: 1.2; }
+
+/* Telas da LawChat embaixo do menu do topo: sem o recuo da página, ocupando a altura que sobra. */
+.page.page-lawchat { max-width: none; padding: 10px 16px 12px; animation: none; }
+.lc-tela-lawchat-cheia { position: relative; height: calc(100dvh - 92px); min-height: 460px; overflow: hidden;
+  border: 1px solid var(--nav-borda); border-radius: 16px; background: var(--lc-fundo-lawchat); }
+.lc-quadro-lawchat { border-radius: 16px; }
