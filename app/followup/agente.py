@@ -150,18 +150,26 @@ def instrucao_do_passo(config: regras.Config, passo: int, total: int) -> str:
 
 
 # ------------------------------------------------------------------ sistemas
-def sistema_do_decisor(lead: dict[str, Any], config: regras.Config, passo: int, total: int, agora_txt: str) -> str:
+def sistema_do_decisor(lead: dict[str, Any], config: regras.Config) -> str:
+    """Só o que é fixo por agente e etapa: o mesmo prefixo para todo lead da etapa (cache do provedor). A hora e a
+    tentativa mudam a cada chamada e vão no fim do conteúdo (`conteudo_do_decisor`)."""
     geral, da_etapa = _prompts_do_followup(lead, config)
     etapa = lead.get("etapa") or "conversa"
     return "\n\n".join(filter(None, [
         f"Você é o agente de follow-up do escritório {lead.get('escritorio') or ''}. A pessoa parou de responder na etapa "
         f"\"{etapa}\". Você decide o que fazer agora; quem escreve a mensagem é o agente da conversa "
         f"({lead.get('nome_agente') or 'a atendente'}).",
-        f"Agora: {agora_txt}. {instrucao_do_passo(config, passo, total)}",
         "# PROMPT DE FOLLOW-UP\n" + geral if geral else "",
         "# FOLLOW-UP DESTA ETAPA\n" + da_etapa if da_etapa else "",
         GUIA_DAS_FUNCOES,
     ]))
+
+
+def conteudo_do_decisor(historico: list[dict[str, Any]], config: regras.Config, passo: int, total: int,
+                        agora_txt: str) -> str:
+    """A conversa (mais antiga primeiro) e, por último, a hora e a tentativa: o que muda entre chamadas fica no fim."""
+    return ("Conversa até aqui (mais antiga primeiro):\n" + (conversa_em_texto(historico) or "(vazia)")
+            + f"\n\nAgora: {agora_txt}. {instrucao_do_passo(config, passo, total)}")
 
 
 def sistema_do_agente_do_lead(lead: dict[str, Any], config: regras.Config, passo: int, total: int,

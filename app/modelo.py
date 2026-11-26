@@ -168,6 +168,42 @@ def custo_por_minuto_transcricao(modelo: str, segundos: float) -> float:
     return round(max(0.0, float(segundos)) / 60 * USD_POR_MINUTO_TRANSCRICAO.get(base or "", 0.0), 6)
 
 
+# Caracteres do começo do sistema que identificam o agente e o papel na chave do cache (o resto do sistema pode ter o
+# que muda por lead, como os FATOS DO SISTEMA no fim).
+PREFIXO_DA_CHAVE = 6000
+
+
+def chave_de_cache(papel: str, modelo: str, sistema: str) -> str:
+    """`prompt_cache_key` estável por agente + papel: o papel e um resumo (hash) do começo do sistema, que é o roteiro e as
+    regras fixas do agente. Sem id de lead nem nada que mude entre chamadas. Curta (a OpenAI limita o tamanho)."""
+    import hashlib
+
+    resumo = hashlib.sha256(f"{modelo}\n{sistema[:PREFIXO_DA_CHAVE]}".encode("utf-8")).hexdigest()[:16]
+    return f"lc-{re.sub(r'[^a-z0-9_]+', '', papel.lower())[:24]}-{resumo}"
+
+
+_COMO_PASSAR_A_CHAVE: dict[type, str | None] = {}
+
+
+def _como_passar_a_chave(cliente: Any) -> str | None:
+    """Como mandar o prompt_cache_key: "parametro" (SDK com o parâmetro, ou cliente falso com **kwargs), "corpo"
+    (SDK antigo: vai em extra_body) ou None (cliente que não aceita nenhum dos dois)."""
+    import inspect
+
+    completions = getattr(getattr(cliente, "chat", None), "completions", None)
+    tipo = type(completions)
+    if tipo not in _COMO_PASSAR_A_CHAVE:
+        try:
+            parametros = inspect.signature(completions.create).parameters
+        except (TypeError, ValueError, AttributeError):
+            parametros = {}
+        if "prompt_cache_key" in parametros or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parametros.values()):
+            _COMO_PASSAR_A_CHAVE[tipo] = "parametro"
+        else:
+            _COMO_PASSAR_A_CHAVE[tipo] = "corpo" if "extra_body" in parametros else None
+    return _COMO_PASSAR_A_CHAVE[tipo]
+
+
 class Modelo(Protocol):
     async def gerar(
         self,
@@ -374,6 +410,13 @@ class ModeloOpenAI:
             },
             max_completion_tokens=max_tokens or MAX_TOKENS_OPENAI,
         )
+        # Chave do cache da OpenAI: pedidos com a mesma chave vão para a mesma máquina e reaproveitam o prefixo (inclusive
+        # entre leads diferentes do mesmo agente). SDK antigo sem o parâmetro: vai pelo corpo do pedido.
+        como = _como_passar_a_chave(self._cliente)
+        if como == "parametro":
+            parametros["prompt_cache_key"] = chave_de_cache(papel, modelo, sistema)
+        elif como == "corpo":
+            parametros["extra_body"] = {"prompt_cache_key": chave_de_cache(papel, modelo, sistema)}
         if modelo.startswith("gpt-4"):
             # Temperatura baixa: zero para extrair fatos, um pouco de variação para conversar.
             parametros["temperature"] = 0 if papel == "extrator" else (0.4 if temperatura is None else max(0.0, min(float(temperatura), 2.0)))

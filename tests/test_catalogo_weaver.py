@@ -53,11 +53,12 @@ async def test_data_de_hoje_no_conteudo_do_catalogo_e_do_extrator():
     modelo = ModeloFalso({"extrator": extrai(), "etapa": resposta()})
     saida = await turno.processar(modelo, entrada(["oi"]))
     pedido_extrator, pedido_etapa = modelo.pedidos
-    assert pedido_etapa["conteudo"].startswith(HOJE)                      # no conteúdo do agente do catálogo
+    # No conteúdo do agente do catálogo e do extrator, logo depois da conversa (a conversa vem primeiro: cache).
+    assert "\n\n" + HOJE in pedido_etapa["conteudo"] and pedido_etapa["conteudo"].startswith("CONVERSA ATÉ AQUI")
     assert "Hoje é" not in pedido_etapa["sistema"]                        # o sistema fica igual entre turnos (cache)
-    assert pedido_extrator["conteudo"].startswith(HOJE)                   # e no conteúdo do extrator
+    assert "\n\n" + HOJE in pedido_extrator["conteudo"] and pedido_extrator["conteudo"].startswith("CONVERSA ANTERIOR")
     assert saida.contexto["extrator"]["conteudo"] == pedido_extrator["conteudo"]
-    assert "converta usando a data de hoje que vem no começo do conteúdo" in pedido_extrator["sistema"]
+    assert 'converta usando a data de hoje que vem no conteúdo (linha "Hoje é")' in pedido_extrator["sistema"]
 
 
 async def test_data_de_hoje_no_conteudo_do_agente_auxilio_acidente():
@@ -65,8 +66,9 @@ async def test_data_de_hoje_no_conteudo_do_agente_auxilio_acidente():
                           "etapa": {"mensagens": [{"tipo": "texto", "texto": "Me conta o que aconteceu?", "chave": ""}]}})
     await turno.processar(modelo, turno.Entrada(escritorio="Escritório Teste", agente="Júlia", etapa="sdr",
                                                 novas=["oi"], agora=AGORA))
-    assert all(p["conteudo"].startswith(HOJE) for p in modelo.pedidos)    # extrator e agente da etapa
-    assert extrator.montar_conteudo({}, [], ["oi"], AGORA).startswith(HOJE)
+    assert all("\n\n" + HOJE in p["conteudo"] for p in modelo.pedidos)  # extrator e agente da etapa, depois da conversa
+    assert extrator.montar_conteudo({}, [], ["oi"], AGORA).startswith(
+        "CONVERSA ANTERIOR (mais antiga primeiro):\n(nenhuma)\n\n" + HOJE)
 
 
 # ---------------------------------------------------------------------------- objeções

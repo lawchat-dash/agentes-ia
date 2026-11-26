@@ -48,10 +48,15 @@ def test_o_agente_do_lead_fala_com_a_voz_da_etapa_sem_ferramentas_e_com_as_regra
 
 def test_o_agente_de_followup_recebe_o_prompt_e_as_funcoes():
     c = regras.Config.de({"prompt": "Seja gentil, {{ Nome do Escritório }}.", "por_etapa": {"sdr": "Foque na qualificação."}})
-    sistema = agente.sistema_do_decisor(_lead(), c, 2, 4, "quarta-feira, 26/11/2026, 10:00")
-    assert "agente de follow-up do escritório Souza Advocacia" in sistema and "Tentativa 3 de 4" in sistema
+    sistema = agente.sistema_do_decisor(_lead(), c)
+    assert "agente de follow-up do escritório Souza Advocacia" in sistema
     assert "Seja gentil, Souza Advocacia." in sistema and "Foque na qualificação." in sistema
-    assert all(f in sistema for f in agente.FUNCOES) and "26/11/2026" in sistema
+    assert all(f in sistema for f in agente.FUNCOES)
+    # A hora e a tentativa mudam a cada chamada: vão no fim do conteúdo, não no sistema (cache do provedor).
+    conteudo = agente.conteudo_do_decisor([{"autor": "lead", "texto": "oi"}], c, 2, 4, "quarta-feira, 26/11/2026, 10:00")
+    assert "Tentativa 3 de 4" not in sistema and "26/11/2026" not in sistema
+    assert conteudo.startswith("Conversa até aqui (mais antiga primeiro):\nlead: oi")
+    assert conteudo.endswith("Agora: quarta-feira, 26/11/2026, 10:00. " + agente.instrucao_do_passo(c, 2, 4))
     assert agente.ESQUEMA_DECISAO["properties"]["funcao"]["enum"] == list(agente.FUNCOES)
 
 

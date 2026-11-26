@@ -308,11 +308,11 @@ class Disparador:
                        historico: list[dict[str, Any]]) -> agente_fu.Decisao:
         """Roda o agente de follow-up. Sem resposta dele (erro, saída estranha), segue enviando como antes."""
         from app.cerebro import contexto
-        sistema = agente_fu.sistema_do_decisor(lead, config, f["passo"], total, contexto.linha_de_hoje())
+        sistema = agente_fu.sistema_do_decisor(lead, config)
         try:
             resultado = await self._modelo.gerar(
                 papel="followup_decisor", sistema=sistema, esquema=agente_fu.ESQUEMA_DECISAO,
-                conteudo="Conversa até aqui (mais antiga primeiro):\n" + (agente_fu.conversa_em_texto(historico) or "(vazia)"),
+                conteudo=agente_fu.conteudo_do_decisor(historico, config, f["passo"], total, contexto.linha_de_hoje()),
                 modelo=self._nome_modelo(lead, config), esforco="low")
         except ErroModelo as erro:
             await self._gravar_chamadas(lead, getattr(erro, "chamadas", []))     # a tentativa que falhou também foi paga

@@ -35,6 +35,7 @@ INTENCOES = {
 def _secoes(conteudo: str) -> tuple[str, str]:
     """(texto das mensagens novas do lead, última mensagem da IA no histórico)."""
     anterior, _, novas = conteudo.partition("\nMENSAGENS NOVAS DO LEAD:\n")
+    anterior = anterior.split("\n\nHoje é ")[0]          # depois da conversa vêm a data e os fatos conhecidos
     novas_texto = "\n".join(re.sub(r"^\[lead\] ", "", linha) for linha in novas.splitlines())
     ultima = ""
     for bloco in re.split(r"\n(?=\[[^\]\n]+\] )", anterior):

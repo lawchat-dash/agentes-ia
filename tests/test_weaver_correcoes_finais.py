@@ -197,8 +197,10 @@ async def test_sistema_do_catalogo_igual_em_minutos_diferentes():
         sistemas.append(modelo.pedidos[1]["sistema"])
         conteudos.append(modelo.pedidos[1]["conteudo"])
     assert sistemas[0] == sistemas[1] and "14:30" not in sistemas[0]
-    assert conteudos[0].startswith("Hoje é 24/11/2026 (terça-feira), horário de Brasília 14:30.")
-    assert conteudos[1].startswith("Hoje é 24/11/2026 (terça-feira), horário de Brasília 14:37.")
+    # A data vem logo depois da conversa (que vem primeiro, para o prefixo do conteúdo também entrar no cache).
+    assert "\n\nHoje é 24/11/2026 (terça-feira), horário de Brasília 14:30." in conteudos[0]
+    assert "\n\nHoje é 24/11/2026 (terça-feira), horário de Brasília 14:37." in conteudos[1]
+    assert conteudos[0].startswith("CONVERSA ATÉ AQUI") and conteudos[1].startswith("CONVERSA ATÉ AQUI")
 
 
 # ----------------------------------------------------------------------------- 7. zapsign sem a função de contrato

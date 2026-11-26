@@ -201,7 +201,14 @@ def montar_conteudo(
         from app.cerebro.produto import AuxilioAcidente
         produto = AuxilioAcidente()
     terminais = {e.codigo for e in produto.etapas if e.tipo == "terminal"}
-    partes: list[str] = [linha_de_hoje(agora), "", "O QUE JÁ SABEMOS (dito pelo lead):"]
+    # A conversa vem primeiro: de um turno para o outro ela só cresce no fim e entra no cache do provedor (prefixo
+    # idêntico). O que muda a cada turno (a hora, os fatos, o que perguntar, a base, as novas) vem depois dela.
+    partes: list[str] = ["CONVERSA ATÉ AQUI (mais antiga primeiro):"]
+    if historico:
+        partes.extend(f"[{m['autor']}] {m['texto']}" for m in historico)
+    else:
+        partes.append("(começo da conversa)")
+    partes += ["", linha_de_hoje(agora), "", "O QUE JÁ SABEMOS (dito pelo lead):"]
     partes.append(json.dumps(fatos, ensure_ascii=False, sort_keys=True) if fatos else "(nada ainda)")
 
     if faltam:
@@ -223,11 +230,6 @@ def montar_conteudo(
     if fatos_sistema:
         partes.append("\nFATOS DO SISTEMA (vêm do cadastro; nunca contrarie, e não leia em voz alta o que não for perguntado):")
         partes.extend(f"- {chave}: {valor}" for chave, valor in fatos_sistema.items() if valor not in (None, ""))
-    partes.append("\nCONVERSA ATÉ AQUI (mais antiga primeiro):")
-    if historico:
-        partes.extend(f"[{m['autor']}] {m['texto']}" for m in historico)
-    else:
-        partes.append("(começo da conversa)")
     if base:
         partes.append("\n" + base)
     partes.append("\nMENSAGENS NOVAS DO LEAD:")
