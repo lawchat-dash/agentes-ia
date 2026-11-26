@@ -7,7 +7,7 @@ import {
   Receipt, Sparkles, Target, Trophy, TrendingUp, Users, Wallet, XCircle, AlertTriangle,
 } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import walletImg from "@/assets/wallet-finance.png";
+import walletImg from "@/assets/credits-hero.png";
 import { quando } from "../api";
 import { useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
@@ -134,7 +134,7 @@ function Topo({ p, aoRecarregar }: { p: PainelConsumo | null; aoRecarregar: () =
   return (
     <header className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-4">
-        <img src={walletImg} alt="" className="size-16 shrink-0 object-contain drop-shadow-[0_10px_18px_rgba(0,188,51,.3)] md:size-20" />
+        <img src={walletImg} alt="" className="size-20 shrink-0 select-none object-contain drop-shadow-md md:size-[88px]" />
         <div className="min-w-0">
           <span className="inline-block rounded-md bg-[#e8f9ee] px-2 py-0.5 text-[10px] font-bold tracking-[.12em] text-[#00a02b]">CRÉDITOS</span>
           <h1 className="mt-1 text-[26px] font-bold leading-tight tracking-tight text-[#101828] md:text-[30px]">Créditos &amp; Consumo</h1>
