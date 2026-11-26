@@ -506,21 +506,34 @@ class RepositorioGestao:
         return {"etapas": _linhas(etapas), "totais": _linha(totais) or {}, "origens": _linhas(origens)}
 
     async def eventos(self, id_escritorio: str | None, *, abertos: bool, limite: int = 200) -> list[dict[str, Any]]:
+        # O mesmo erro do mesmo lead (ex.: o turno tentou de novo e falhou outra vez) aparece UMA vez, com "repeticoes";
+        # sem isso, resolver um deixava o gêmeo na lista e parecia que "voltou".
         return _linhas(await self.pool.fetch(
-            """select v.id, v.id_escritorio, e.nome as escritorio, v.id_lead, v.id_turno, v.tipo, v.gravidade,
-                      v.responsavel, v.descricao, v.detalhe, v.criado_em, v.resolvido_em
-               from agentesia_eventos v left join agentesia_escritorios e on e.id = v.id_escritorio
-               where ($1::uuid is null or v.id_escritorio = $1::uuid)
-                 and (not $2 or v.resolvido_em is null)
-                 and v.gravidade <> 'info'          -- "Etapa do lead: sdr → closer" é registro, não erro
-               order by v.criado_em desc limit $3""", id_escritorio, abertos, limite))
+            """select * from (
+                 select v.id, v.id_escritorio, e.nome as escritorio, v.id_lead, v.id_turno, v.tipo, v.gravidade,
+                        v.responsavel, v.descricao, v.detalhe, v.criado_em, v.resolvido_em,
+                        count(*) over g as repeticoes,
+                        row_number() over (g order by v.criado_em desc) as n
+                 from agentesia_eventos v left join agentesia_escritorios e on e.id = v.id_escritorio
+                 where ($1::uuid is null or v.id_escritorio = $1::uuid)
+                   and (not $2 or v.resolvido_em is null)
+                   and v.gravidade <> 'info'          -- "Etapa do lead: sdr → closer" é registro, não erro
+                 window g as (partition by v.id_escritorio, coalesce(v.id_lead::text, v.id::text), v.tipo,
+                                           (v.resolvido_em is null))
+               ) x where n = 1
+               order by criado_em desc limit $3""", id_escritorio, abertos, limite))
 
     async def resolver_evento(self, id_evento: str, id_escritorio: str | None, id_usuario: str) -> bool:
+        """Resolve o erro e as repetições abertas dele (mesmo escritório, lead e tipo)."""
         resultado = await self.pool.execute(
-            """update agentesia_eventos set resolvido_em = now(), resolvido_por = $3::uuid
-               where id = $1::uuid and ($2::uuid is null or id_escritorio = $2::uuid) and resolvido_em is null""",
+            """update agentesia_eventos v set resolvido_em = now(), resolvido_por = $3::uuid
+               from agentesia_eventos alvo
+               where alvo.id = $1::uuid and ($2::uuid is null or alvo.id_escritorio = $2::uuid)
+                 and v.resolvido_em is null and v.tipo = alvo.tipo
+                 and v.id_escritorio is not distinct from alvo.id_escritorio
+                 and (v.id = alvo.id or (alvo.id_lead is not null and v.id_lead = alvo.id_lead))""",
             id_evento, id_escritorio, id_usuario)
-        return resultado.endswith("1")
+        return not resultado.endswith(" 0")
 
     async def conversas(self, id_escritorio: str, busca: str = "", limite: int = 100,
                         id_agente: str | None = None) -> list[dict[str, Any]]:

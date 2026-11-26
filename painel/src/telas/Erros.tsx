@@ -7,7 +7,7 @@ import { useSessao } from "../sessao";
 
 interface Evento {
   id: string; escritorio: string | null; id_lead: string | null; tipo: string; gravidade: string;
-  responsavel: string | null; descricao: string; criado_em: string; resolvido_em: string | null;
+  responsavel: string | null; descricao: string; criado_em: string; resolvido_em: string | null; repeticoes?: number;
 }
 
 const RESPONSAVEIS: Record<string, [string, string]> = {
@@ -60,7 +60,7 @@ function ListaDeErros({ todos }: { todos: boolean }) {
               {todos && <td>{e.escritorio ?? "—"}</td>}
               <td><Situacao valor={e.gravidade} /></td>
               <td><span className={`chip ${RESPONSAVEIS[e.responsavel ?? ""]?.[0] ?? ""}`}>{e.responsavel ?? "—"}</span></td>
-              <td>{e.descricao}<div className="s mono">{e.tipo}</div></td>
+              <td>{e.descricao}<div className="s mono">{e.tipo}{(e.repeticoes ?? 1) > 1 ? ` · repetiu ${e.repeticoes}×` : ""}</div></td>
               <td>{!e.resolvido_em ? <button className="btn sm" disabled={ocupado} onClick={() => executar(async () => { await api(`/eventos/${e.id}/resolver`, { metodo: "POST" }); await recarregar(); }, "Marcado como resolvido.")}>Resolvido</button>
                 : <span className="chip ok">resolvido</span>}</td>
             </tr>

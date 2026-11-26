@@ -29,7 +29,7 @@ export function MenuFlutuante() {
     atalhos.push({ para: "/", rotulo: "Início", icone: <Home /> });
     if (podeGerir) atalhos.push({ para: "/agentes", rotulo: "Agentes", icone: <Bot /> });
     if (podeGerir) {
-      if (lawchat) atalhos.push({ para: "/erros", rotulo: "Erros", icone: <AlertOctagon /> });
+      if (lawchat && admin) atalhos.push({ para: "/erros", rotulo: "Erros", icone: <AlertOctagon /> });
       atalhos.push({ para: "/integracoes", rotulo: "Integrações", icone: <PlugZap /> });
       atalhos.push({ para: "/avisos", rotulo: "Avisos à equipe", icone: <BellRing /> });
     }

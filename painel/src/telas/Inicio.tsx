@@ -191,12 +191,8 @@ export function TelaInicio() {
       acao: { rotulo: "Conectar webhook", para: "/integracoes" },
       nota: `Última mensagem recebida: ${quando(dadosInicio.resumo.ultimo_webhook)}`,
     });
-    if (dadosInicio.resumo.erros_abertos > 0 && lawchat) alertas.push({   // erros: só a equipe LawChat
-      chave: "erros", tom: "atencao", icone: Bug,
-      titulo: dadosInicio.resumo.erros_abertos === 1 ? "1 erro aberto no atendimento" : `${dadosInicio.resumo.erros_abertos} erros abertos no atendimento`,
-      texto: `Veja o que travou e quem precisa agir. Nas últimas 24 h, ${dadosInicio.resumo.turnos_com_erro_24h} ${dadosInicio.resumo.turnos_com_erro_24h === 1 ? "resposta falhou" : "respostas falharam"}.`,
-      acao: { rotulo: "Ver erros", para: "/erros" },
-    });
+    // Erros NÃO aparecem no Início do escritório (nem quando a equipe LawChat entra na conta): ficam só no sino e em
+    // Erros da IA, na área da equipe LawChat.
     if (podeGerir && dadosInicio.agentes.length > 0 && !dadosInicio.agentes.some((a) => a.situacao === "ativo")) alertas.push({
       chave: "agentes", tom: "info", icone: BotOff, titulo: "Nenhum agente ativo",
       texto: <>Os leads ainda não estão sendo atendidos pela IA. Em <b>Meus agentes</b>, ligue o agente (ou abra e use <b>“Ativar em teste”</b>).</>,

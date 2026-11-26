@@ -190,7 +190,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
           <Search /><span>Buscar em tudo</span><kbd>Ctrl K</kbd>
         </button>
         <div className="lc-pilula">
-          {lawchat && escritorio && (
+          {lawchat && escritorio && !impersonando && (   // na visão de cliente, nada de erros
             <Link to="/admin/erros" className="lc-ico" aria-label={erros ? `${erros} erros abertos` : "Erros"} title="Erros abertos">
               <Bell className="lc-sino" />{erros > 0 && <span className="lc-badge num">{erros > 9 ? "9+" : erros}</span>}
             </Link>
