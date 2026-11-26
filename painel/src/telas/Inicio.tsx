@@ -25,6 +25,7 @@ import { TEXTO_FOLLOWUP_DESLIGADO, ligarFollowupComPadrao } from "@/components/f
 import { BellOff } from "lucide-react";
 import { conectarAvisoAssinatura } from "@/hooks/useZapsign";
 import { toast } from "sonner";
+import { PrimeirosPassos, type PrimeirosPassosDados } from "@/components/dashboard/PrimeirosPassos";
 import "../estilo-inicio.css";
 
 /* ---------- dados da API ---------- */
@@ -130,6 +131,7 @@ export function TelaInicio() {
   const inicio = useCarregar<Inicio>(escritorio ? "/inicio" : null, [escritorio]);
   const metricas = useCarregar<Metricas>(escritorio ? `/inicio/metricas?dias=${DIAS}` : null, [escritorio]);
   const carteira = useCarregar<CarteiraResumo>(escritorio && podeGerir ? "/carteira" : null, [escritorio]);
+  const passos = useCarregar<PrimeirosPassosDados>(escritorio && podeGerir ? "/inicio/primeiros-passos" : null, [escritorio]);
   const rootRef = useRef<HTMLDivElement>(null);
   const reduzirMovimento = useReducedMotion();
   const [verTodosAlertas, setVerTodosAlertas] = useState(false);
@@ -158,22 +160,23 @@ export function TelaInicio() {
   const dadosInicio = inicio.dados;
   if (inicio.erro && podeGerir) alertas.push({
     chave: "inicio-erro", tom: "atencao", icone: CloudOff, titulo: "Não foi possível checar as integrações agora",
-    texto: "Os números abaixo estão em dia, mas não deu para conferir a Helena, o webhook e os erros abertos. Tente de novo em instantes.",
+    texto: "Os números abaixo estão em dia, mas não deu para conferir a LawChat, o webhook e os erros abertos. Tente de novo em instantes.",
     acao: { rotulo: inicio.carregando ? "Checando…" : "Tentar de novo", aoClicar: () => { inicio.recarregar(); }, icone: RefreshCw },
   });
   if (dadosInicio) {
     const helena = dadosInicio.integracoes.helena;
     const semHelena = !helena || helena.situacao !== "ok";
     const semWebhook = !semHelena && !(helena.config as any)?.webhook_conectado;
+    // Quem conecta a conta e habilita a IA é a equipe LawChat (função de agente no superadmin), não o cliente.
     if (semHelena && podeGerir) alertas.push({
-      chave: "helena", tom: "critico", icone: PlugZap, titulo: "Conecte a Helena para começar",
-      texto: "Sem o token da Helena, a IA não lê os números do escritório nem recebe as mensagens dos leads.",
-      passos: ["Copie o token na Helena", "Cole em Integrações", "Escolha o número do agente"],
-      acao: { rotulo: "Conectar a Helena", para: "/integracoes" },
+      chave: "helena", tom: "critico", icone: PlugZap, titulo: "A conta ainda não está habilitada para a IA",
+      texto: "Sem a conta habilitada, a IA não lê os números do escritório nem recebe as mensagens dos leads. Fale com a equipe LawChat para habilitar.",
+      acao: admin ? { rotulo: "Abrir Contas", para: "/admin/escritorios" } : null,
+      nota: admin ? undefined : "Fale com a equipe LawChat para habilitar",
     });
     if (semWebhook && podeGerir) alertas.push({
       chave: "webhook", tom: "atencao", icone: Webhook, titulo: "Falta ligar o recebimento de mensagens",
-      texto: <>A Helena está conectada, mas as mensagens ainda não chegam à IA. Em Integrações, use <b>“Conectar webhook”</b>.</>,
+      texto: <>A LawChat está conectada, mas as mensagens ainda não chegam à IA. Em Integrações, use <b>“Conectar webhook”</b>.</>,
       acao: { rotulo: "Conectar webhook", para: "/integracoes" },
       nota: `Última mensagem recebida: ${quando(dadosInicio.resumo.ultimo_webhook)}`,
     });
@@ -185,8 +188,8 @@ export function TelaInicio() {
     });
     if (podeGerir && dadosInicio.agentes.length > 0 && !dadosInicio.agentes.some((a) => a.situacao === "ativo")) alertas.push({
       chave: "agentes", tom: "info", icone: BotOff, titulo: "Nenhum agente ativo",
-      texto: <>Os leads ainda não estão sendo atendidos pela IA. Abra um agente e use <b>“Ativar em teste”</b>.</>,
-      acao: { rotulo: "Abrir agentes", para: "/agentes" },
+      texto: <>Os leads ainda não estão sendo atendidos pela IA. Em <b>Meus agentes</b>, ligue o agente (ou abra e use <b>“Ativar em teste”</b>).</>,
+      acao: { rotulo: "Abrir Meus agentes", para: "/meus-produtos" },
     });
     const semFollowup = dadosInicio.followup_desligado ?? [];
     if (podeGerir && semFollowup.length > 0) alertas.push({
@@ -214,7 +217,7 @@ export function TelaInicio() {
   const consumo = admin ? v.consumo : null;
   if (consumo?.bloqueado) alertas.push({
     chave: "consumo", tom: "critico", icone: Ban, titulo: "A IA está pausada: o limite de consumo do mês acabou",
-    texto: <>Gasto de <b>{formatUSD(consumo.gasto_usd)}</b> de {formatUSD(consumo.limite_usd)}. As mensagens seguem chegando na Helena para a equipe; a IA volta no dia 1º ou quando o limite subir.</>,
+    texto: <>Gasto de <b>{formatUSD(consumo.gasto_usd)}</b> de {formatUSD(consumo.limite_usd)}. As mensagens seguem chegando na LawChat para a equipe; a IA volta no dia 1º ou quando o limite subir.</>,
     progresso: consumo.percentual, acao: admin ? { rotulo: "Ajustar limite", para: "/admin/escritorios" } : null,
     nota: admin ? undefined : "Fale com a LawChat para aumentar o limite",
   });
@@ -295,7 +298,7 @@ export function TelaInicio() {
           <p className="text-[#667085] mt-0.5 text-[13px]">Aqui está o desempenho de hoje<span className="ml-1.5 text-[11px] text-[#98A2B3]">· {APP_VERSION}</span></p>
         </div>
         {podeGerir && (
-          <Link to="/biblioteca" className="lc-pay-btn inline-flex items-center gap-1.5 h-10 px-4 rounded-xl text-white font-bold text-[13px]"><Plus className="size-4" /> Criar agente</Link>
+          <Link to="/biblioteca" className="lc-pay-btn inline-flex items-center gap-1.5 h-10 px-4 rounded-xl text-white font-bold text-[13px]"><Plus className="size-4" /> Novo a partir da Biblioteca</Link>
         )}
       </motion.div>
 
@@ -322,6 +325,9 @@ export function TelaInicio() {
           </button>
         )}
       </section>
+
+      {/* Primeiros passos: marcam-se sozinhos e o cartão some quando tudo está feito */}
+      {podeGerir && passos.dados && <PrimeirosPassos dados={passos.dados} />}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -404,8 +410,8 @@ export function TelaInicio() {
         {/* Atividades recentes — coluna à direita */}
         <div className="lg:col-span-4 flex flex-col gap-3">
           {!carteira.dados && <StatusPanel total={totalConv} donutDelta={v.conversas_variacao} items={statusItems} ops={ops} countKey={`${escritorio}-status`} />}
-          <ActivityFeed className="flex-1" items={activities} onRefresh={() => { metricas.recarregar(); inicio.recarregar(); }} atualizando={metricas.carregando}
-            verTodas={podeGerir ? "/agentes" : null} />
+          <ActivityFeed className="flex-1" items={activities} onRefresh={() => { metricas.recarregar(); inicio.recarregar(); passos.recarregar(); }} atualizando={metricas.carregando}
+            verTodas={podeGerir ? "/meus-produtos" : null} />
         </div>
       </div>
 
@@ -423,7 +429,7 @@ export function TelaInicio() {
           {/* Ranking + Banner */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1">
             <Tile className="lg:col-span-7 p-5 flex flex-col" delay={0.2}>
-              <PanelHead title="Desempenho dos Agentes" icon={Trophy} iconColor="#d97706" action={podeGerir ? "Ver agentes" : undefined} to="/agentes" />
+              <PanelHead title="Desempenho dos Agentes" icon={Trophy} iconColor="#d97706" action={podeGerir ? "Ver agentes" : undefined} to="/meus-produtos" />
               {v.ranking_agentes.filter((a) => a.conversas > 0).length === 0 ? (
                 <div className="text-[12px] text-[#98A2B3] py-5">{v.agentes_total === 0 ? "Nenhum agente criado ainda." : `Nenhuma conversa nos últimos ${v.dias} dias.`}</div>
               ) : (

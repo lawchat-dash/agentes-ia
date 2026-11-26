@@ -50,8 +50,27 @@ def variacao(atual: float, anterior: float) -> int | None:
     return round((atual - anterior) / anterior * 100)
 
 
+# O Início faz ~20 consultas seguidas para estes números. Quem volta ao Início (ou recarrega) dentro de METRICAS_CACHE_S
+# recebe a mesma resposta, sem ir ao banco de novo. A chave inclui escritório, período e papel (o atendente não vê consumo).
+METRICAS_CACHE_S = 20.0
+_METRICAS_CACHE: dict[tuple[str, int, str], tuple[float, dict[str, Any]]] = {}
+
+
 @api.get("/inicio/metricas")
 async def metricas(pedido: Request, dias: int = 30, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
+    import time
+    chave = (f"{id(pedido.app)}:{ctx.escritorio()}", max(1, min(int(dias), 365)), ctx.papel)
+    guardado = _METRICAS_CACHE.get(chave)
+    if guardado and time.monotonic() - guardado[0] < METRICAS_CACHE_S:
+        return guardado[1]
+    resposta = await _calcular_metricas(pedido, dias, ctx)
+    if len(_METRICAS_CACHE) > 500:
+        _METRICAS_CACHE.clear()
+    _METRICAS_CACHE[chave] = (time.monotonic(), resposta)
+    return resposta
+
+
+async def _calcular_metricas(pedido: Request, dias: int, ctx: Contexto) -> dict[str, Any]:
     from app import consumo
 
     repo = _repo(pedido)

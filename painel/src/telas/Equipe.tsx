@@ -93,7 +93,7 @@ function NovoMembro({ aoFechar, aoCriar }: { aoFechar: () => void; aoCriar: () =
     setSenha(r.senha_provisoria); aoCriar();
   }, "Pessoa adicionada.");
   return (
-    <Modal titulo="Adicionar à equipe LawChat" texto="Para quem é da LawChat. Clientes entram pela Helena ou pelo gestor do escritório." aoFechar={aoFechar}
+    <Modal titulo="Adicionar à equipe LawChat" texto="Para quem é da LawChat. Clientes entram pela LawChat ou pelo gestor do escritório." aoFechar={aoFechar}
       rodape={senha ? <><span className="sp" /><button className="btn pri" onClick={aoFechar}>Pronto</button></> : <>
         <span className="sp" /><button className="btn" onClick={aoFechar}>Cancelar</button>
         <button className="btn pri" disabled={ocupado || form.nome.trim().length < 2 || !form.email.includes("@")} onClick={criar}>Adicionar</button></>}>

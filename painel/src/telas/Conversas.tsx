@@ -32,7 +32,7 @@ function prazoLegivel(minutos: number): string {
 const CONFIRMACOES: Record<AcaoIa, { titulo: string; texto: (nome: string, minutos: number) => string; confirmar: string; perigo?: boolean; feito: string }> = {
   desativar: {
     titulo: "Desativar a IA nesta conversa?",
-    texto: (nome, minutos) => `A IA para de responder ${nome} ${prazoLegivel(minutos)}, os follow-ups pendentes são cancelados e a etiqueta "🤖 IA Desativada" vai para o contato na Helena, com uma nota no chat.`
+    texto: (nome, minutos) => `A IA para de responder ${nome} ${prazoLegivel(minutos)}, os follow-ups pendentes são cancelados e a etiqueta "🤖 IA Desativada" vai para o contato na LawChat, com uma nota no chat.`
       + (minutos ? " Depois do prazo ela volta sozinha, sem mandar mensagem; se o lead escrever no meio tempo, ela responde quando voltar." : ""),
     confirmar: "Desativar IA", feito: "IA desativada nesta conversa.",
   },

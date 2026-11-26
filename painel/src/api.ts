@@ -48,6 +48,36 @@ export function escolherVisao(v: Visao): void {
   }
 }
 
+/**
+ * GETs iguais viram um pedido só: o topo (saldo, aviso de saldo, submenu do agente) e a tela pediam a mesma coisa
+ * juntos ou um logo depois do outro (a tela abre quando o arquivo dela chega). Junta o pedido em andamento e reaproveita
+ * a resposta por REAPROVEITAR_MS; qualquer POST/PUT/DELETE apaga tudo (depois de salvar, o próximo GET vai ao servidor).
+ * Cada chamador lê o JSON de novo (ninguém mexe no objeto do outro).
+ */
+const REAPROVEITAR_MS = 2000;
+const recentes = new Map<string, Promise<{ status: number; ok: boolean; texto: string }>>();
+
+function pedirUmaVez(caminho: string, metodo: string, cabecalhos: Record<string, string>, corpo: unknown) {
+  const fazer = () => fetch(`/api${caminho}`, {
+    method: metodo,
+    headers: cabecalhos,
+    credentials: "same-origin",
+    body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
+  }).then(async (r) => ({ status: r.status, ok: r.ok, texto: await r.text() }));
+  if (metodo !== "GET") {
+    recentes.clear();
+    return fazer();
+  }
+  const chave = `${caminho}|${cabecalhos["X-Escritorio"] ?? ""}|${cabecalhos["X-Visao"] ?? ""}`;
+  const existente = recentes.get(chave);
+  if (existente) return existente;
+  const promessa = fazer();
+  recentes.set(chave, promessa);
+  const esquecer = () => { if (recentes.get(chave) === promessa) recentes.delete(chave); };
+  promessa.then((r) => { if (r.ok) window.setTimeout(esquecer, REAPROVEITAR_MS); else esquecer(); }, esquecer);
+  return promessa;
+}
+
 export async function api<T = any>(caminho: string, opcoes: { metodo?: string; corpo?: unknown } = {}): Promise<T> {
   const cabecalhos: Record<string, string> = { Accept: "application/json" };
   if (opcoes.corpo !== undefined) cabecalhos["Content-Type"] = "application/json";
@@ -56,23 +86,18 @@ export async function api<T = any>(caminho: string, opcoes: { metodo?: string; c
   const visao = visaoEscolhida();
   // A visão do cliente vale para as telas do escritório; as rotas da LawChat (/admin) seguem como LawChat.
   if (escritorio && visao !== "lawchat" && !caminho.startsWith("/admin")) cabecalhos["X-Visao"] = visao;
-  const resposta = await fetch(`/api${caminho}`, {
-    method: opcoes.metodo ?? (opcoes.corpo !== undefined ? "POST" : "GET"),
-    headers: cabecalhos,
-    credentials: "same-origin",
-    body: opcoes.corpo !== undefined ? JSON.stringify(opcoes.corpo) : undefined,
-  });
-  if (resposta.status === 401 && !caminho.startsWith("/entrar")) {
+  const metodo = opcoes.metodo ?? (opcoes.corpo !== undefined ? "POST" : "GET");
+  const { status, ok, texto } = await pedirUmaVez(caminho, metodo, cabecalhos, opcoes.corpo);
+  if (status === 401 && !caminho.startsWith("/entrar")) {
     window.dispatchEvent(new Event("agentesia:sair"));
   }
-  const texto = await resposta.text();
   const dados = texto ? (() => { try { return JSON.parse(texto); } catch { return texto; } })() : null;
-  if (!resposta.ok) {
+  if (!ok) {
     const detalhe = dados && typeof dados === "object" ? (dados as any).detail : null;
     const mensagem = typeof detalhe === "string" ? detalhe
       : Array.isArray(detalhe) ? "Algum campo está inválido: " + detalhe.map((d: any) => d.loc?.slice(-1)[0]).join(", ")
-      : `Erro ${resposta.status}`;
-    throw new ErroApi(resposta.status, mensagem);
+      : `Erro ${status}`;
+    throw new ErroApi(status, mensagem);
   }
   return dados as T;
 }

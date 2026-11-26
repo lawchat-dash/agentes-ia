@@ -21,7 +21,7 @@ from typing import Any
 
 from app.cerebro import catalogo
 from tests.test_e2e_helena import (CPF_FICTICIO, FRASE_CLOSER, Cenario, _linha_propria, banco_local, e2e,  # noqa: F401
-                                   extrai, responde)
+                                   extrai, qualificar, responde)
 
 ETIQUETAS = {"sdr": "📞 SDR", "closer": "🛒 Comercial", "contratos": "📝 Contrato", "assinatura": "✍️ Assinatura",
              "contrato_assinado": "✅ Assinado", "desqualificado": "❌ Desqualificado"}
@@ -122,6 +122,7 @@ async def test_a_ia_leva_o_lead_do_sdr_ao_contrato_assinado(e2e: Cenario):
 
     e2e.ia.etapa = etapa
     await e2e.chega(e2e.do_lead("oi, sofri um acidente"))
+    await qualificar(e2e)                                   # leva 1: fatos do portão
     assert list(e2e.helena.cards.values()) == [COLUNAS["sdr"]] and _tem(e2e, "InsertIfNotExists", ETIQUETAS["sdr"])
 
     # SDR -> Closer
@@ -181,6 +182,9 @@ async def test_a_ia_desqualifica_e_o_agente_desqualificado_assume(e2e: Cenario):
         return responde("Oi, Carla! Você recebe alguma aposentadoria hoje?")
 
     e2e.ia.etapa = etapa
+    # Leva 1 (B4): desqualificar só com o motivo comprovado por fato do lead (aqui, a aposentadoria com o trecho).
+    e2e.ia.extrator = lambda _s, c: extrai([("aposentado", "sim", "sou aposentado")]) \
+        if "sou aposentado" in c.split("MENSAGENS NOVAS")[-1] else extrai()
     await e2e.chega(e2e.do_lead("oi"))
     await e2e.chega(e2e.do_lead("sou aposentado por idade desde 2019"))
     assert (await e2e.lead())["etapa"] == "desqualificado"
@@ -346,6 +350,7 @@ async def test_e_chip_transferencia_cru_vira_destino_e_nunca_vaza(e2e: Cenario):
     e2e.ia.etapa = lambda _s, c: responde("Que bom que me contou.", FRASE_CLOSER, transferir_para="closer") \
         if "sequela" in c.split("MENSAGENS NOVAS")[-1] else responde("Oi! Como foi o acidente?")
     await e2e.chega(e2e.do_lead("oi"))
+    await qualificar(e2e)                                   # leva 1: fatos do portão
     pedido = e2e.pedidos("etapa")[0]
     assert pedido["esquema"]["properties"]["transferir_para"]["enum"] == ["", "closer"]
     assert "@Transferência" not in pedido["sistema"] and f'"{FRASE_CLOSER}"' in pedido["sistema"]
@@ -409,6 +414,7 @@ async def test_f_aviso_atrasado_do_card_que_a_lawchat_moveu_nao_volta_o_lead(e2e
     e2e.ia.etapa = lambda _s, c: responde("Entendi.", FRASE_CLOSER, transferir_para="closer") \
         if "sequela" in c.split("MENSAGENS NOVAS")[-1] else responde("Oi!")
     await e2e.chega(e2e.do_lead("oi"))
+    await qualificar(e2e)                                   # leva 1: fatos do portão
     await e2e.chega(e2e.do_lead("fiquei com sequela"))
     assert (await e2e.lead())["etapa"] == "closer"
     eco = _card_movido(e2e, COLUNAS["closer"])
@@ -456,6 +462,7 @@ async def test_f_uma_resposta_da_ia_so_pede_um_destino(e2e: Cenario):
 
     e2e.ia.etapa = etapa
     await e2e.chega(e2e.do_lead("oi"))
+    await qualificar(e2e)                                   # leva 1: fatos do portão
     assert e2e.pedidos("etapa")[0]["esquema"]["properties"]["transferir_para"]["type"] == "string"
     await e2e.chega(e2e.do_lead("fiquei com sequela"))
     assert (await e2e.lead())["etapa"] == "closer"

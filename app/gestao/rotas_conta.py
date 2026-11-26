@@ -26,7 +26,7 @@ from pydantic import BaseModel
 
 from app.canal.helena_conta import ErroHelenaApi, HelenaParceiro
 from app.gestao import onboarding, sincronizar_conta
-from app.gestao.rotas import ADMIN, GESTAO, Contexto, _erro_helena, _helena_do_escritorio, _repo, _salvar_token_helena
+from app.gestao.rotas import ADMIN, GESTAO, Contexto, _erro_helena, _esquecer_helena, _helena_do_escritorio, _repo, _salvar_token_helena
 
 api = APIRouter(prefix="/api")
 
@@ -36,6 +36,7 @@ class Avancar(BaseModel):
     id_painel: str | None = None
     titulo_painel: str | None = None
     etapas_por_tipo: dict[str, str] | None = None     # {"SDR": "<id da coluna>", ...}: vence o palpite pelo nome
+    criar_equipe_ia: bool = False                     # "🤖 Comercial IA" vira a equipe PADRÃO da conta: só se marcado
 
 
 async def _escritorio_existe(repo: Any, id_escritorio: str) -> dict[str, Any]:
@@ -81,16 +82,20 @@ async def _onboarding(pedido: Request, ctx: Contexto, id_escritorio: str, *, apl
             etapas_por_tipo=dados.etapas_por_tipo, parceiro=_parceiro(pedido),
             id_conta=str(escritorio.get("id_conta_helena") or "") or None,
             guardar_token=_guardar_token(pedido, repo, id_escritorio),
-            http=getattr(pedido.app.state, "http_ativacao", None))
+            http=getattr(pedido.app.state, "http_ativacao", None), criar_equipe_ia=dados.criar_equipe_ia)
     except Exception as erro:
         if aplicar:
             await repo.registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=id_escritorio, tabela="agentesia_escritorios",
                 id_registro=id_escritorio, acao="onboarding", resumo=f"Onboarding de {escritorio['nome']}",
-                situacao="erro", erro=f"{type(erro).__name__}: {erro}")
+                situacao="erro", erro=onboarding._inesperado(erro))
         if isinstance(erro, ErroHelenaApi):
             raise _erro_helena(erro) from erro
-        raise
+        if isinstance(erro, HTTPException):
+            raise
+        # Nunca um 500 cru ("Internal Server Error" virava "Erro 500" na tela): texto legível, sem segredo.
+        raise HTTPException(500, ("Não deu para avançar o onboarding: " if aplicar else "Não deu para conferir: ")
+                            + onboarding._inesperado(erro) + ". O erro ficou no histórico da conta.") from erro
     if aplicar:
         feitos = [p["titulo"] for p in resultado["passos"] if p["situacao"] == "feito"]
         erros = [f"{p['titulo']}: {p['detalhe']}" for p in resultado["passos"] if p["situacao"] == "erro"]
@@ -129,13 +134,14 @@ async def avancar_onboarding(id_escritorio: str, pedido: Request, dados: Avancar
 
 
 async def _sincronizar(pedido: Request, ctx: Contexto, id_escritorio: str) -> dict[str, Any]:
+    _esquecer_helena(id_escritorio)          # etiquetas/equipes do painel voltam a ser lidas da Helena
     repo = _repo(pedido)
     escritorio = await _escritorio_existe(repo, id_escritorio)
 
     async def falhou(erro: str) -> None:
         await repo.registrar_alteracao(
             id_usuario=ctx.id_usuario, id_escritorio=id_escritorio, tabela="agentesia_helena_recursos",
-            id_registro=id_escritorio, acao="sincronizou", resumo=f"Sincronizar conta da Helena ({escritorio['nome']})",
+            id_registro=id_escritorio, acao="sincronizou", resumo=f"Sincronizar conta da LawChat ({escritorio['nome']})",
             situacao="erro", erro=erro)
 
     try:
@@ -149,10 +155,13 @@ async def _sincronizar(pedido: Request, ctx: Contexto, id_escritorio: str) -> di
             id_conta=str(escritorio.get("id_conta_helena") or "") or None)
     except asyncpg.UndefinedTableError as erro:
         await falhou("banco sem a migração 006")
-        raise HTTPException(503, "O banco ainda não tem a migração 006 (cópia da conta da Helena).") from erro
+        raise HTTPException(503, "O banco ainda não tem a migração 006 (cópia da conta da LawChat).") from erro
     except ErroHelenaApi as erro:
         await falhou(f"{erro.motivo}: {erro.detalhe}")
         raise _erro_helena(erro) from erro
+    except Exception as erro:
+        await falhou(onboarding._inesperado(erro))
+        raise HTTPException(500, "Não deu para sincronizar a conta: " + onboarding._inesperado(erro)) from erro
     if not feita["tipos"]:                          # nada foi lido: token recusado, Helena fora...
         motivo = next(iter(feita["erros"].values()), "sem_conexao")
         await falhou("nada foi lido: " + ", ".join(f"{t} ({m})" for t, m in feita["erros"].items()))
@@ -161,7 +170,7 @@ async def _sincronizar(pedido: Request, ctx: Contexto, id_escritorio: str) -> di
                        + (f" ({v['sumiram']} sumiram)" if v["sumiram"] else "") for t, v in feita["tipos"].items())
     await repo.registrar_alteracao(
         id_usuario=ctx.id_usuario, id_escritorio=id_escritorio, tabela="agentesia_helena_recursos",
-        id_registro=id_escritorio, acao="sincronizou", resumo=f"Conta da Helena sincronizada: {resumo}",
+        id_registro=id_escritorio, acao="sincronizou", resumo=f"Conta da LawChat sincronizada: {resumo}",
         depois=feita["tipos"], situacao="erro" if feita["erros"] else "ok",
         erro=("falhou: " + ", ".join(f"{t} ({m})" for t, m in feita["erros"].items())) if feita["erros"] else None)
     return feita
@@ -226,7 +235,7 @@ async def sincronizar_uma_com_lawchat(id_escritorio: str, pedido: Request, ctx: 
             resumo=f"Sincronizar com LawChat: {escritorio['nome']}", situacao=situacao, erro=erro)
 
     if not escritorio.get("id_conta_helena"):
-        await registrar("erro", "conta sem id da Helena")
+        await registrar("erro", "conta sem id da LawChat")
         raise HTTPException(409, "Esta conta não tem o id da conta no LawChat.")
     try:
         empresa = await sincronizar_conta.empresa_bruta(_parceiro_ou_409(pedido), str(escritorio["id_conta_helena"]))
@@ -255,6 +264,7 @@ async def habilitar_agente(pedido: Request, ctx: Contexto, id_escritorio: str, *
     onboarding/avançar): gera o token "IA LawChat" pelo parceiro (se ainda não há token), salva no cofre e testa,
     lê os números, cria as etiquetas padrão que faltam e conecta o webhook. A equipe da IA só com criar_equipe_ia.
     Marca config.criar_agente.habilitado quando o token ficou de pé. Tudo fica em agentesia_alteracoes."""
+    _esquecer_helena(id_escritorio)
     repo = _repo(pedido)
     escritorio = await _escritorio_existe(repo, id_escritorio)
 
@@ -267,7 +277,7 @@ async def habilitar_agente(pedido: Request, ctx: Contexto, id_escritorio: str, *
     id_conta = str(escritorio.get("id_conta_helena") or "")
     # A conta da própria LawChat também pode receber o agente (é onde a equipe testa a IA de verdade).
     if not id_conta:
-        await falhou("conta sem id da Helena")
+        await falhou("conta sem id da LawChat")
         raise HTTPException(409, "Esta conta não tem o id da conta no LawChat. Sincronize com o LawChat antes.")
     tem_token = bool(((await repo.integracoes(id_escritorio)).get("helena") or {}).get("tem_segredo"))
     if not tem_token and _parceiro(pedido) is None:

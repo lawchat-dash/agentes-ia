@@ -1,11 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Bell, FileText, Library, Lock, Send } from "lucide-react";
+import { ArrowRight, Bell, FileText, Library, Lock, Mic, Send } from "lucide-react";
 import type { Agente } from "../api";
 import { Cabecalho, Carregando, Modal, Vazio, useCarregar } from "../componentes/ui";
 import { MediaLibrary } from "@/components/agent/MediaLibrary";
+import "../estilo-ferramentas.css";
 
-/** Ferramentas: recursos extras dos agentes num lugar só (como no painel antigo). */
+/** Ferramentas: recursos extras dos agentes num lugar só. */
 export function TelaFerramentas() {
   const navegar = useNavigate();
   const [followup, setFollowup] = useState(false);
@@ -13,15 +14,17 @@ export function TelaFerramentas() {
   return (
     <>
       <Cabecalho eyebrow="Recursos extras" titulo="Ferramentas"
-        texto="Recursos extras para potencializar seus agentes: follow-up, avisos, mídias e contratos num só lugar." />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
-        <Cartao icone={<Send />} titulo="Follow-Up" disponivel onClick={() => setFollowup(true)}
+        texto="Recursos extras para potencializar seus agentes: follow-up, avisos, mídias, roteiros de áudio e contratos num só lugar." />
+      <div className="fer-grade">
+        <Cartao icone={<Send />} cor="#DB2777" titulo="Follow-Up" onClick={() => setFollowup(true)}
           texto="Cadências automáticas de reengajamento por etapa do funil: recupere leads parados sem esforço manual." />
-        <Cartao icone={<Bell />} titulo="Avisos no WhatsApp" disponivel onClick={() => navegar("/avisos")}
+        <Cartao icone={<Bell />} cor="#2563EB" titulo="Avisos no WhatsApp" onClick={() => navegar("/avisos")}
           texto="Seja avisado no WhatsApp quando algo importante acontecer com um cliente: novos leads, contratos assinados e mais." />
-        <Cartao icone={<Library />} titulo="Biblioteca de Mídia" disponivel onClick={() => setMidia(true)}
-          texto="Áudios, vídeos, documentos e imagens num só lugar, para usar nos roteiros dos agentes." />
-        <Cartao icone={<FileText />} titulo="Resumo de Contratos"
+        <Cartao icone={<Library />} cor="#7C3AED" titulo="Biblioteca de Mídia" onClick={() => setMidia(true)}
+          texto="Áudios, vídeos e imagens num só lugar, prontos para inserir nos prompts dos agentes." />
+        <Cartao icone={<Mic />} cor="#0891B2" titulo="Roteiros" novo onClick={() => navegar("/ferramentas/roteiros")}
+          texto="Escreva o texto que a equipe vai gravar, grave direto pelo navegador e use o áudio nos prompts." />
+        <Cartao icone={<FileText />} cor="#B26B00" titulo="Resumo de Contratos" emBreve
           texto="Visão consolidada dos contratos: status de assinatura e o resumo da conversa de cada cliente." />
       </div>
       {followup && <EscolherAgenteFollowup aoFechar={() => setFollowup(false)} />}
@@ -30,20 +33,22 @@ export function TelaFerramentas() {
   );
 }
 
-function Cartao({ icone, titulo, texto, disponivel = false, onClick }: { icone: ReactNode; titulo: string; texto: string; disponivel?: boolean; onClick?: () => void }) {
+function Cartao({ icone, cor, titulo, texto, emBreve = false, novo = false, onClick }: {
+  icone: ReactNode; cor: string; titulo: string; texto: string; emBreve?: boolean; novo?: boolean; onClick?: () => void;
+}) {
   return (
-    <button type="button" className="panel" disabled={!disponivel} onClick={onClick}
-      style={{ textAlign: "left", padding: 20, display: "flex", flexDirection: "column", gap: 10, cursor: disponivel ? "pointer" : "default", opacity: disponivel ? 1 : 0.6, minHeight: 200 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ width: 42, height: 42, borderRadius: 12, display: "grid", placeItems: "center", border: "1px solid #eef1f5", background: "#fafbfc" }}>{icone}</span>
-        {disponivel
-          ? <span className="chip ac">● Disponível</span>
-          : <span className="chip"><Lock size={11} /> Em breve</span>}
+    <button type="button" className="fer-card" disabled={emBreve} onClick={onClick} style={{ "--fer-cor": cor } as CSSProperties}>
+      <div className="fer-topo">
+        <span className="fer-ic" aria-hidden>{icone}</span>
+        {emBreve ? <span className="chip"><Lock size={11} /> Em breve</span>
+          : novo ? <span className="chip fer-novo">Novo</span>
+          : <span className="chip ok"><span className="d" /> Disponível</span>}
       </div>
-      <b style={{ fontSize: 15 }}>{titulo}</b>
-      <span className="muted" style={{ fontSize: 13, lineHeight: 1.5, flex: 1 }}>{texto}</span>
-      <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontWeight: 600 }}>
-        {disponivel ? "Abrir" : "Em breve"}{disponivel && <ArrowRight size={15} />}
+      <b>{titulo}</b>
+      <p>{texto}</p>
+      <span className="fer-rodape">
+        {emBreve ? "Em breve" : "Abrir"}
+        {!emBreve && <ArrowRight aria-hidden />}
       </span>
     </button>
   );
@@ -58,7 +63,7 @@ function EscolherAgenteFollowup({ aoFechar }: { aoFechar: () => void }) {
       rodape={<><span className="sp" /><button className="btn" onClick={aoFechar}>Fechar</button></>}>
       {!dados ? <Carregando erro={erro} /> : dados.length === 0 ? <Vazio>Nenhum agente ainda. Ative um produto na Biblioteca.</Vazio> : (
         <div className="lst"><table><tbody>{dados.map((a) => (
-          <tr key={a.id} style={{ cursor: "pointer" }} onClick={() => navegar(`/agentes/${a.id}/followup`)}>
+          <tr key={a.id} className="click" onClick={() => navegar(`/agentes/${a.id}/followup`)}>
             <td className="t">{a.nome}</td>
             <td className="s">{a.situacao === "ativo" ? "ativo" : "pausado"}</td>
             <td style={{ textAlign: "right" }}><ArrowRight size={15} /></td>

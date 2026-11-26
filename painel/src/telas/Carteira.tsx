@@ -44,7 +44,7 @@ export function TelaCarteira() {
       <Cabecalho eyebrow="Acompanhar" titulo="Consumo e saldo"
         texto="Cada resposta da IA consome do bônus do mês e, depois, do saldo. Quando o saldo acaba, a IA pausa e volta sozinha assim que o crédito entrar."
         acoes={<button className="btn pri" onClick={() => setPedir(true)}><PlusCircle />Pedir recarga</button>} />
-      {c.bloqueado && <Alerta tipo="bad" titulo="A IA está pausada: o saldo acabou">As mensagens novas ficam com a equipe na Helena. Peça uma recarga: assim que ela for confirmada, a IA volta a responder (sem responder de uma vez o que chegou durante a pausa).</Alerta>}
+      {c.bloqueado && <Alerta tipo="bad" titulo="A IA está pausada: o saldo acabou">As mensagens novas ficam com a equipe na LawChat. Peça uma recarga: assim que ela for confirmada, a IA volta a responder (sem responder de uma vez o que chegou durante a pausa).</Alerta>}
       {c.modo === "so_registrar" && <Alerta tipo="info">Este escritório ainda não está no pré-pago: o consumo é registrado, mas a IA não pausa por saldo.</Alerta>}
       <div className="grid2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: 16 }}>
         <Indicador rotulo="Disponível agora" valor={reais(c.disponivel_brl)} destaque={c.bloqueado ? "bad" : undefined} nota="saldo + bônus − consumo em processamento" />

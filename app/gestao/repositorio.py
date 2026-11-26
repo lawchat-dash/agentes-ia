@@ -34,9 +34,23 @@ def _j(valor: Any) -> str:
     return json.dumps(valor, ensure_ascii=False, default=str)
 
 
+# Quem fez o pedido é lido a cada requisição do painel (rotas.contexto). Uma tela abre 5 a 10 pedidos de uma vez:
+# guardar o usuário por alguns segundos poupa uma ida ao banco por pedido. Toda alteração de usuário feita por este
+# repositório apaga a cópia na hora; o que mudar por fora (SQL manual) vale em até USUARIO_TTL_S.
+USUARIO_TTL_S = 10.0
+
+
 class RepositorioGestao:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
+        self._usuarios: dict[str, tuple[float, dict[str, Any] | None]] = {}
+
+    def esquecer_usuario(self, id_usuario: str | None = None) -> None:
+        """Apaga a cópia do usuário (ou de todos) guardada por usuario()."""
+        if id_usuario is None:
+            self._usuarios.clear()
+        else:
+            self._usuarios.pop(str(id_usuario), None)
 
     # ------------------------------------------------------------------ cofre
     async def guardar_segredo(self, nome: str, valor: str, id_existente: str | None) -> str:
@@ -56,9 +70,18 @@ class RepositorioGestao:
         return _linha(await self.pool.fetchrow("select * from agentesia_usuarios where email = $1", email.lower()))
 
     async def usuario(self, id_usuario: str) -> dict[str, Any] | None:
-        return _linha(await self.pool.fetchrow(
+        import time
+        agora = time.monotonic()
+        guardado = self._usuarios.get(str(id_usuario))
+        if guardado and agora - guardado[0] < USUARIO_TTL_S:
+            return dict(guardado[1]) if guardado[1] else None
+        linha = _linha(await self.pool.fetchrow(
             """select u.*, e.nome as nome_escritorio from agentesia_usuarios u
                left join agentesia_escritorios e on e.id = u.id_escritorio where u.id = $1::uuid""", id_usuario))
+        if len(self._usuarios) > 2000:
+            self._usuarios.clear()
+        self._usuarios[str(id_usuario)] = (agora, linha)
+        return dict(linha) if linha else None
 
     async def criar_usuario(self, *, email: str, nome: str, senha_hash: str, papel: str,
                             id_escritorio: str | None) -> dict[str, Any]:
@@ -84,6 +107,7 @@ class RepositorioGestao:
             email.lower(), nome, senha_hash, papel, id_escritorio, id_usuario_helena))  # type: ignore[return-value]
 
     async def vincular_usuario_helena(self, id_usuario: str, id_usuario_helena: str, nome: str) -> None:
+        self.esquecer_usuario(id_usuario)
         await self.pool.execute(
             "update agentesia_usuarios set id_usuario_helena = $2, nome = $3 where id = $1::uuid",
             id_usuario, id_usuario_helena, nome)
@@ -97,12 +121,14 @@ class RepositorioGestao:
         await self.pool.execute("update agentesia_usuarios set ultimo_acesso_em = now() where id = $1::uuid", id_usuario)
 
     async def trocar_senha(self, id_usuario: str, senha_hash: str) -> None:
+        self.esquecer_usuario(id_usuario)
         await self.pool.execute(
             "update agentesia_usuarios set senha_hash = $2, trocar_senha = false where id = $1::uuid",
             id_usuario, senha_hash)
 
     async def alterar_usuario(self, id_usuario: str, id_escritorio: str, *, ativo: bool | None = None,
                               papel: str | None = None) -> None:
+        self.esquecer_usuario(id_usuario)
         await self.pool.execute(
             """update agentesia_usuarios set ativo = coalesce($3, ativo), papel = coalesce($4, papel)
                where id = $1::uuid and id_escritorio = $2::uuid""", id_usuario, id_escritorio, ativo, papel)
@@ -125,6 +151,7 @@ class RepositorioGestao:
 
     async def alterar_membro_lawchat(self, id_usuario: str, *, nome: str | None = None, papel: str | None = None,
                                      ativo: bool | None = None) -> dict[str, Any] | None:
+        self.esquecer_usuario(id_usuario)
         return _linha(await self.pool.fetchrow(
             """update agentesia_usuarios set nome = coalesce($2, nome), papel = coalesce($3, papel),
                       ativo = coalesce($4, ativo), atualizado_em = now()
@@ -132,6 +159,7 @@ class RepositorioGestao:
                returning id, email, nome, papel, ativo""", id_usuario, nome, papel, ativo))
 
     async def redefinir_senha(self, id_usuario: str, senha_hash: str) -> None:
+        self.esquecer_usuario(id_usuario)
         await self.pool.execute(
             "update agentesia_usuarios set senha_hash = $2, trocar_senha = true where id = $1::uuid",
             id_usuario, senha_hash)
@@ -254,15 +282,38 @@ class RepositorioGestao:
 
     # ------------------------------------------------------------------ canais
     async def sincronizar_canais(self, id_escritorio: str, canais: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # Um registro por número (unique id_escritorio + numero_normalizado). A Helena lista também canais sem número
+        # (Instagram, Messenger...) e o mesmo número duas vezes (reconectado): sem este filtro o insert estourava
+        # UniqueViolation e o "Avançar"/"Sincronizar conta" virava erro 500.
+        por_numero: dict[str, dict[str, Any]] = {}
+        for canal in canais:
+            numero = str(canal.get("numero_normalizado") or "").strip()
+            if not canal.get("id") or not numero:
+                continue
+            atual = por_numero.get(numero)
+            if atual is None or (canal.get("ativo") and not atual.get("ativo")):
+                por_numero[numero] = {**canal, "numero_normalizado": numero}
+        canais = list(por_numero.values())
         async with self.pool.acquire() as conexao, conexao.transaction():
             for canal in canais:
-                await conexao.execute(
-                    """insert into agentesia_canais (id_escritorio, id_canal_helena, numero_normalizado, tipo, ativo)
-                       values ($1::uuid, $2, $3, $4, $5)
-                       on conflict (id_canal_helena) do update set
-                         numero_normalizado = excluded.numero_normalizado, tipo = excluded.tipo, ativo = excluded.ativo
-                       where agentesia_canais.id_escritorio = excluded.id_escritorio""",
-                    id_escritorio, canal["id"], canal["numero_normalizado"], canal["tipo"], canal["ativo"])
+                try:
+                    async with conexao.transaction():          # savepoint: um canal ruim não derruba os outros
+                        # Mesmo número com outro id de canal (reconectado na Helena): o registro passa para o id novo.
+                        await conexao.execute(
+                            """update agentesia_canais set id_canal_helena = $3
+                               where id_escritorio = $1::uuid and numero_normalizado = $2
+                                 and id_canal_helena is distinct from $3
+                                 and not exists (select 1 from agentesia_canais o where o.id_canal_helena = $3)""",
+                            id_escritorio, canal["numero_normalizado"], canal["id"])
+                        await conexao.execute(
+                            """insert into agentesia_canais (id_escritorio, id_canal_helena, numero_normalizado, tipo, ativo)
+                               values ($1::uuid, $2, $3, $4, $5)
+                               on conflict (id_canal_helena) do update set
+                                 numero_normalizado = excluded.numero_normalizado, tipo = excluded.tipo, ativo = excluded.ativo
+                               where agentesia_canais.id_escritorio = excluded.id_escritorio""",
+                            id_escritorio, canal["id"], canal["numero_normalizado"], canal["tipo"], canal["ativo"])
+                except asyncpg.UniqueViolationError:
+                    continue
             ids = [c["id"] for c in canais]
             await conexao.execute(
                 """update agentesia_canais set ativo = false
@@ -498,22 +549,35 @@ class RepositorioGestao:
                where l.id = $1::uuid and l.id_escritorio = $2::uuid""", id_lead, id_escritorio))
         if not lead:
             return None
-        lead["mensagens"] = _linhas(await self.pool.fetch(
-            """select id, autor, tipo, texto, texto_extraido, url_midia, enviada_em, situacao_envio, erro, id_turno
-               from agentesia_mensagens where id_lead = $1::uuid order by enviada_em, registrada_em""", id_lead))
-        # Ficha de memória da conversa (feita pela IA quando a conversa fica longa); None enquanto não existe.
-        lead["memoria"] = _linha(await self.pool.fetchrow(
-            """select resumo, mensagens_resumidas, atualizado_em from agentesia_lead_resumo
-               where id_lead = $1::uuid and id_escritorio = $2::uuid""", id_lead, id_escritorio))
-        lead["fatos"] = _linhas(await self.pool.fetch(
-            """select chave, valor, trecho, fonte, criado_em, substituido_em from agentesia_lead_fatos
-               where id_lead = $1::uuid order by criado_em""", id_lead))
-        lead["turnos"] = _linhas(await self.pool.fetch(
-            """select id, modo, etapa_antes, etapa_depois, situacao, motivo, resposta, iniciado_em, concluido_em
-               from agentesia_turnos where id_lead = $1::uuid order by iniciado_em desc limit 50""", id_lead))
-        lead["eventos"] = _linhas(await self.pool.fetch(
-            """select tipo, gravidade, responsavel, descricao, criado_em from agentesia_eventos
-               where id_lead = $1::uuid order by criado_em desc limit 50""", id_lead))
+        import asyncio
+        # As partes da conversa são independentes: em paralelo (a tela aberta repete este pedido a cada 8 s).
+        mensagens, memoria, fatos, turnos, eventos = await asyncio.gather(
+            self.pool.fetch(
+                """select id, autor, tipo, texto, texto_extraido, url_midia, enviada_em, situacao_envio, erro, id_turno
+                   from agentesia_mensagens where id_lead = $1::uuid order by enviada_em, registrada_em""", id_lead),
+            # Ficha de memória da conversa (feita pela IA quando a conversa fica longa); None enquanto não existe.
+            self.pool.fetchrow(
+                """select resumo, mensagens_resumidas, atualizado_em from agentesia_lead_resumo
+                   where id_lead = $1::uuid and id_escritorio = $2::uuid""", id_lead, id_escritorio),
+            self.pool.fetch(
+                """select chave, valor, trecho, fonte, criado_em, substituido_em from agentesia_lead_fatos
+                   where id_lead = $1::uuid order by criado_em""", id_lead),
+            self.pool.fetch(
+                """select id, modo, etapa_antes, etapa_depois, situacao, motivo, resposta, iniciado_em, concluido_em
+                   from agentesia_turnos where id_lead = $1::uuid order by iniciado_em desc limit 50""", id_lead),
+            self.pool.fetch(
+                """select tipo, gravidade, responsavel, descricao, criado_em from agentesia_eventos
+                   where id_lead = $1::uuid order by criado_em desc limit 50""", id_lead))
+        lead["mensagens"], lead["memoria"], lead["fatos"] = _linhas(mensagens), _linha(memoria), _linhas(fatos)
+        lead["turnos"], lead["eventos"] = _linhas(turnos), _linhas(eventos)
+        # Aba "Rastro" (B11): o funil com a etapa ativa e a linha do tempo das passagens, recusas, barreiras e pausas.
+        from app.gestao import rastro
+        try:
+            lead["funil"], lead["rastro"] = await rastro.montar(self.pool, lead)
+        except Exception:                               # o rastro nunca derruba a conversa aberta
+            import logging
+            logging.getLogger("agentesia").exception("falha ao montar o rastro do lead %s", id_lead)
+            lead["funil"], lead["rastro"] = None, []
         return lead
 
     async def mudar_estado_lead(self, id_escritorio: str, id_lead: str, estado: str, motivo: str) -> bool:

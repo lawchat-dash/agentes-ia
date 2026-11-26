@@ -92,7 +92,9 @@ async def test_conversa_completa_no_postgres():
 
         pool = repo._pool
         lead = await pool.fetchrow("select * from agentesia_leads where id_escritorio = $1::uuid", id_escritorio)
-        assert await repo.fatos_vigentes(str(lead["id"])) == {"acidente_descricao": "caí da moto", "acidente_ano": 2022}
+        fatos = await repo.fatos_vigentes(str(lead["id"]))
+        assert {k: v for k, v in fatos.items() if not k.startswith("_")} == {"acidente_descricao": "caí da moto", "acidente_ano": 2022}
+        assert fatos["_temperatura"]["faixa"] == "frio"      # a nota do lead (fato de controle) sai depois do turno
 
         # Eco da própria IA é reconhecido pelo id devolvido no envio.
         eco = chega("Poxa...", de=numero_canal, direcao="TO_HUB", origem="API", evento="MESSAGE_SENT", id_msg=helena.ids[0])

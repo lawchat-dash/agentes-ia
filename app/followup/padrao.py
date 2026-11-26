@@ -8,6 +8,9 @@ vêm do produto da biblioteca (agentesia_biblioteca_produtos.padrao_followup, ed
      "agentes": {"sdr": {"nome_agente": "...", "prompt": "...", "habilitado_padrao": true, "ordem": 0}, ...}}
 
 Cada "delay" conta a partir da última mensagem da IA (não é cumulativo), igual a regras.Passo.apos_horas.
+Regras da OAB e da Meta (a partir de 25/11/2026, só para quem ativa ou liga com o padrão daqui em diante): no máximo
+4 toques (os 4 primeiros da cadência do produto; sem cadência no produto, 1 h, 24 h, 72 h e 7 dias), no máximo 2 para
+quem nunca respondeu à IA e o penúltimo toque oferece parar (config.followup.limites, ver regras.py).
 Etapas do CRM do catálogo -> etapas do agente: sdr -> sdr e periododegraca (o Weaver espelhava, migração 0126),
 closer -> closer, contrato -> contratos, assinatura -> assinatura. Desqualificado e contrato assinado nunca recebem.
 Nada aqui liga follow-up sozinho: quem chama é a ativação, o botão "Ligar com o padrão", o admin ou o script.
@@ -74,10 +77,27 @@ def cadencia_do_produto(padrao_followup: Any) -> list[float]:
     return sorted(horas)[:12]
 
 
-def config_do_produto(catalogo: dict[str, Any] | None, *, ativo: bool) -> dict[str, Any]:
-    """config.followup do agente a partir do padrão do produto (já validada por regras.validar)."""
+def horas_escolhidas(bruto: Any) -> list[float]:
+    """Cadência escolhida na ativação: 1 a 4 tempos (15 min a 30 dias), em ordem crescente e sem repetir.
+    Lista inválida → ValueError com a mensagem para a tela."""
+    if not isinstance(bruto, list) or not 1 <= len(bruto) <= regras.MAX_TOQUES_PADRAO:
+        raise ValueError(f"Escolha de 1 a {regras.MAX_TOQUES_PADRAO} tentativas de follow-up.")
+    try:
+        horas = [round(float(h), 4) for h in bruto]
+    except (TypeError, ValueError):
+        raise ValueError("Tempo de follow-up inválido.") from None
+    if any(h < 0.25 or h > 720 for h in horas):
+        raise ValueError("Cada tentativa precisa ficar entre 15 minutos e 30 dias.")
+    if any(b <= a for a, b in zip(horas, horas[1:])):
+        raise ValueError("Cada tentativa precisa vir depois da anterior.")
+    return horas
+
+
+def config_do_produto(catalogo: dict[str, Any] | None, *, ativo: bool, horas: list[float] | None = None) -> dict[str, Any]:
+    """config.followup do agente a partir do padrão do produto (já validada por regras.validar). `horas`: a cadência
+    escolhida na ativação (já conferida por horas_escolhidas); sem ela vale a do produto/sistema."""
     padrao = _obj((catalogo or {}).get("padrao_followup"))
-    horas = cadencia_do_produto(padrao) or list(regras.CADENCIA_PADRAO)
+    horas = list(horas) if horas else (cadencia_do_produto(padrao) or list(regras.CADENCIA_PADRAO))[:regras.MAX_TOQUES_PADRAO]
     etapas: list[str] = []
     por_etapa: dict[str, str] = {}
     for estagio, item in sorted((_obj(padrao.get("agentes")) or {}).items(), key=lambda kv: (_obj(kv[1]).get("ordem") or 0)):
@@ -92,6 +112,7 @@ def config_do_produto(catalogo: dict[str, Any] | None, *, ativo: bool) -> dict[s
         "ativo": ativo, "etapas": list(dict.fromkeys(etapas)), "por_etapa": por_etapa,
         "passos": [{"apos_horas": h, "modo": "ia", "instrucao": "", "texto": ""} for h in horas],
         "desistir": {"ativo": False},
+        "limites": dict(regras.LIMITES_PADRAO),
     })
 
 

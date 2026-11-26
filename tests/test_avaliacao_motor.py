@@ -158,9 +158,6 @@ RUINS = [
      {"honorario_divergente", "faltou_obrigatorio", "refeito_pela_trava"}),   # o valor certo (30%) também não foi dito
     ("dado_fora_de_hora", lambda r: r["sdr"].__setitem__(3, passo("Imagino.", "Você já é aposentado? E já me passa o seu CPF.")),
      {"dado_fora_de_hora"}),
-    # Pula a qualificação na 2ª resposta: na 1ª o motor já recusa a troca (tool fantasma, troca_precoce_recusada).
-    ("pula_a_qualificacao", lambda r: r.__setitem__("sdr", [r["sdr"][0], passo("Entendi.", PARA_CLOSER, transferir="closer")]),
-     {"pulou_pergunta"}),
     ("pula_os_honorarios", lambda r: _closer(r, 0, "Nós cuidamos de todo o pedido para você.", "Podemos seguir com o seu caso?"),
      {"faltou_obrigatorio"}),
     ("repete_pergunta", lambda r: r["sdr"].insert(2, passo("Certo.", "Mas na época você trabalhava de carteira assinada?")),
@@ -179,6 +176,27 @@ RUINS = [
 async def test_resposta_ruim_gera_a_falha_certa_e_reprova(nome, ajustar, esperadas):
     conversa = await conversar("01", ajustar)
     assert conversa.codigos() == esperadas, [f.como_dict() for f in conversa.falhas]
+    assert not conversa.aprovada
+
+
+async def test_pular_a_qualificacao_e_barrado_pelo_portao_e_sem_ele_a_checagem_pega():
+    # Pula a qualificação na 2ª resposta (na 1ª o motor já recusa a troca: tool fantasma). Leva 1 (B4): com o portão de
+    # fatos, o motor manda a IA perguntar o que falta (CORRIJA) e o roteirizado obedece; o lead só chega ao Closer
+    # depois de responder aposentadoria, advogado e sequela. Com o portão desligado, a checagem pulou_pergunta pega.
+    def pula(r):
+        r["sdr"] = [r["sdr"][0], passo("Entendi.", PARA_CLOSER, transferir="closer")]
+
+    conversa = await conversar("01", pula)
+    assert any(f.codigo == "refeito_pela_trava" and "Ainda falta perguntar antes de passar" in f.evidencia
+               for f in conversa.falhas), [f.como_dict() for f in conversa.falhas]
+    falas_ia = textos_ia(conversa)
+    antes_do_closer = falas_ia[:next(i for i, t in enumerate(falas_ia) if PARA_CLOSER.rstrip(".") in t)]
+    for pergunta in ("Você já é aposentado(a) por alguma aposentadoria?", "Você já tem advogado cuidando deste caso?"):
+        assert pergunta in antes_do_closer, pergunta
+    snap = caso("01").carregar_agente()
+    snap["agente"]["config"].setdefault("catalogo", {})["portao_de_fatos"] = False
+    conversa = await conversar("01", pula, snapshot=snap)
+    assert conversa.codigos() == {"pulou_pergunta"}, [f.como_dict() for f in conversa.falhas]
     assert not conversa.aprovada
 
 

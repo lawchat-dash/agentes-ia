@@ -52,8 +52,8 @@ def test_config_do_produto_mapeia_etapas_e_prompts():
     # Produto sem padrão: a cadência do sistema, todas as etapas de conversa.
     vazio = padrao.config_do_produto({}, ativo=False)
     assert not vazio["ativo"] and vazio["etapas"] == [] and [p["apos_horas"] for p in vazio["passos"]] == list(regras.CADENCIA_PADRAO)
-    assert padrao.resumo(vazio) == ["1 h", "5 h", "24 h", "72 h", "7 dias", "15 dias", "30 dias"]
-    assert padrao.situacao({}) == {"ligado": False, "configurado": False, "passos": 7, "resumo": padrao.resumo(None)}
+    assert padrao.resumo(vazio) == ["1 h", "24 h", "72 h", "7 dias"]                    # padrão OAB/Meta: 4 toques
+    assert padrao.situacao({}) == {"ligado": False, "configurado": False, "passos": 4, "resumo": padrao.resumo(None)}
     assert padrao.situacao({"followup": c})["ligado"] is True
 
 

@@ -1,0 +1,90 @@
+/* Ferramentas e Roteiros. Só classes fer-* / rot-* (não mexe no estilo das outras telas). */
+
+/* ---------- grade de ferramentas ---------- */
+.fer-grade {
+  display: grid; gap: 16px; align-items: stretch; grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 640px) { .fer-grade { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .fer-grade { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1440px) { .fer-grade { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.fer-card {
+  position: relative; display: flex; flex-direction: column; gap: 12px; margin: 0;
+  text-align: left; padding: 20px; min-height: 216px; height: 100%;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: 0 1px 2px rgba(30, 41, 59, .04);
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  overflow: hidden; isolation: isolate;
+}
+.fer-card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--fer-cor, var(--acento));
+  opacity: 0; transition: opacity .18s ease;
+}
+.fer-card:not(:disabled):hover { border-color: var(--line-2); box-shadow: var(--sombra); transform: translateY(-2px); }
+.fer-card:not(:disabled):hover::before { opacity: 1; }
+.fer-card:disabled { cursor: default; background: var(--surface-2); }
+.fer-card:disabled .fer-ic { filter: grayscale(1); opacity: .6; }
+.fer-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fer-ic {
+  width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; flex: none;
+  color: var(--fer-cor, var(--acento)); background: color-mix(in srgb, var(--fer-cor, var(--acento)) 12%, transparent);
+}
+.fer-ic svg { width: 21px; height: 21px; }
+.fer-card b { font-size: 15.5px; font-weight: 650; color: var(--ink); letter-spacing: -.01em; }
+.fer-card p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); flex: 1; }
+.fer-rodape {
+  display: flex; align-items: center; justify-content: space-between; padding-top: 12px;
+  border-top: 1px solid var(--line); font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+}
+.fer-card:not(:disabled) .fer-rodape { color: var(--fer-cor, var(--acento)); }
+.fer-rodape svg { width: 15px; height: 15px; transition: transform .18s ease; }
+.fer-card:not(:disabled):hover .fer-rodape svg { transform: translateX(3px); }
+.fer-novo { background: var(--info-soft); color: var(--info); }
+
+/* ---------- roteiros ---------- */
+.rot-barra { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.rot-barra .inp { max-width: 320px; }
+.rot-filtros { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.rot-filtros button { border: 0; background: transparent; padding: 5px 11px; border-radius: 7px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.rot-filtros button.on { background: var(--acento-suave); color: var(--acento-texto); }
+.rot-grade { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: stretch; }
+.rot-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 16px; text-align: left; margin: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.rot-card:hover { border-color: var(--line-2); box-shadow: var(--sombra); }
+.rot-card b { font-size: 14.5px; font-weight: 650; }
+.rot-card .rot-trecho {
+  margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.5; flex: 1;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.rot-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.rot-card audio { width: 100%; height: 36px; }
+
+.rot-editor { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .rot-editor { grid-template-columns: 1fr; } }
+.rot-texto textarea { min-height: 320px; font-size: 15px; line-height: 1.7; }
+.rot-dica { font-size: 12px; color: var(--ink-3); }
+
+.rot-gravador { display: flex; flex-direction: column; gap: 14px; align-items: stretch; }
+.rot-mic {
+  width: 84px; height: 84px; border-radius: 50%; border: 0; margin: 4px auto 0; display: grid; place-items: center;
+  background: var(--acento); color: #fff; box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--acento) 70%, transparent);
+  transition: transform .15s ease, background .15s ease;
+}
+.rot-mic:hover:not(:disabled) { transform: scale(1.04); }
+.rot-mic:disabled { opacity: .5; cursor: not-allowed; }
+.rot-mic svg { width: 32px; height: 32px; }
+.rot-mic.gravando { background: var(--bad); animation: rot-pulso 1.6s ease-out infinite; }
+@keyframes rot-pulso {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad) 45%, transparent); }
+  100% { box-shadow: 0 0 0 18px transparent; }
+}
+.rot-tempo { text-align: center; font-family: var(--mono); font-size: 22px; font-variant-numeric: tabular-nums; }
+.rot-nivel { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.rot-nivel > i { display: block; height: 100%; background: var(--acento); transition: width .08s linear; }
+.rot-previa { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); }
+.rot-previa audio { width: 100%; }
+.rot-ou { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12px; }
+.rot-ou::before, .rot-ou::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+@media (prefers-reduced-motion: reduce) { .rot-mic.gravando { animation: none; } .fer-card, .fer-card:hover { transform: none; } }

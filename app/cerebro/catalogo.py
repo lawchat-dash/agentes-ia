@@ -60,7 +60,9 @@ GUIA_DO_CAMPO = {
 
 # Fatos de qualificação que um papel pode exigir antes de transferir (config papeis[x].perguntar_antes_de_transferir).
 # Só entram no extrator do escritório que os configurou: os outros não pagam por campos que não usam.
-FATOS_EXTRAS: dict[str, tuple[str, ...]] = {"acidente_quando_incerto": ("sim", "nao")}
+FATOS_EXTRAS: dict[str, tuple[str, ...]] = {"acidente_quando_incerto": ("sim", "nao"),
+                                            # Portão de Contratos (B4): "não sei", "vou ver", "talvez" = nao_sabe.
+                                            "aceite_honorarios": ("sim", "nao", "nao_sabe")}
 GUIA_DA_QUALIFICACAO = {
     "acidente_ano": "ano do acidente (só o que foi dito; \"até hoje dói\" não é data)",
     "acidente_mes": "mês do acidente (1 a 12), só se o lead disser o mês",
@@ -74,6 +76,8 @@ GUIA_DA_QUALIFICACAO = {
     "aposentado": "sim | nao (já é aposentado, por qualquer aposentadoria)",
     "tem_advogado_no_caso": "sim | nao (só advogado cuidando DESTE caso; advogado de outro assunto não conta)",
     "documentos_rurais": "sim | nao (tem documentos do trabalho na roça)",
+    "aceite_honorarios": "sim | nao | nao_sabe (\"sim\" só quando o lead aceita com clareza a proposta e os honorários; "
+                         "\"não sei\", \"vou ver\", \"vou pensar\", \"talvez\" = nao_sabe)",
 }
 
 
@@ -90,6 +94,118 @@ def perguntar_antes_de_transferir(config_papel: dict[str, Any] | None) -> dict[s
         return {}
     return {str(destino): grupos for destino, valor in bruto.items() if (grupos := _grupos_de_fatos(valor))}
 
+
+# ---------------------------------------------------------------------------- portão de fatos (leva 1, item B4)
+# A IA conduz a conversa; a PASSAGEM para a frente é do código. Para ENTRAR num destino, cada grupo precisa de um fato
+# vigente ("a|b" = alternativa; "fato=valor" = só esse valor conta). Tabela por produto (slug da biblioteca, sem
+# acento e com "_"); o que não estiver aqui usa "previdenciario". O escritório desliga com
+# config.catalogo.portao_de_fatos = false, ou troca a regra de um destino com config.catalogo.portao_de_fatos =
+# {"closer": ["sequela", "aposentado"]}.
+PORTAO_DE_FATOS: dict[str, dict[str, tuple[str, ...]]] = {
+    "previdenciario": {
+        "closer": ("aposentado", "tem_advogado_no_caso", "sequela"),
+        "contratos": ("aceite_honorarios=sim",),
+    },
+    "auxilio_acidente": {
+        "closer": ("aposentado", "tem_advogado_no_caso", "sequela"),
+        "contratos": ("aceite_honorarios=sim",),
+    },
+}
+# Desqualificar só com UM motivo comprovado por fato do lead (fato com trecho, vindo do extrator ou da equipe).
+MOTIVOS_DE_DESQUALIFICAR: dict[str, dict[str, tuple[str, ...]]] = {
+    "previdenciario": {"aposentado": ("sim",), "tem_advogado_no_caso": ("sim",), "sequela": ("nao",),
+                       "vinculo_na_data": ("nunca_trabalhou", "servidor_estatutario"),
+                       # Segurado especial (roça) sem nenhum documento do trabalho rural: não há como provar.
+                       "documentos_rurais": ("nao",)},
+}
+MOTIVOS_DE_DESQUALIFICAR["auxilio_acidente"] = MOTIVOS_DE_DESQUALIFICAR["previdenciario"]
+# BPC/LOAS (assistencial): não há acidente, sequela nem qualidade de segurado. Para o Comercial basta saber que não há
+# advogado no caso; renda, grupo familiar e laudo ficam com a conversa e com a equipe (a IA não desqualifica por renda).
+PORTAO_DE_FATOS["bpc"] = {"closer": ("tem_advogado_no_caso",), "contratos": ("aceite_honorarios=sim",)}
+MOTIVOS_DE_DESQUALIFICAR["bpc"] = {"tem_advogado_no_caso": ("sim",)}
+# Pergunta direta de cada fato do portão: vai na CORRIJA e na mensagem que substitui a frase de passagem segurada.
+PERGUNTA_DO_PORTAO = {
+    "aposentado": "Você já é aposentado(a) por alguma aposentadoria?",
+    "tem_advogado_no_caso": "Você já tem advogado cuidando deste caso?",
+    "sequela": "Depois do acidente, você ficou com alguma sequela ou limitação?",
+    "aceite_honorarios": "Podemos seguir com a contratação nessas condições?",
+}
+ROTULO_DO_PORTAO = {"aposentado": "se já é aposentado", "tem_advogado_no_caso": "se tem advogado no caso",
+                    "sequela": "se ficou com sequela ou limitação", "aceite_honorarios": "o aceite dos honorários",
+                    "motivo_de_desqualificacao": "um motivo de desqualificação dito pelo lead"}
+
+
+def _slug_do_produto(config: dict[str, Any] | None) -> str:
+    catalogo = (config or {}).get("catalogo") or {}
+    bruto = str(catalogo.get("slug") or catalogo.get("nome") or "")
+    sem_acento = "".join(c for c in unicodedata.normalize("NFD", bruto.lower()) if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9]+", "_", sem_acento).strip("_")
+
+
+def _familia_do_produto(tabela: dict[str, Any], config: dict[str, Any] | None) -> str:
+    """Chave da tabela para o produto: o slug exato, senão a família pelo começo do nome (ex.: "bpc_loas_geral_idoso"
+    e "auxilio_acidente_midia" caem em "bpc" e "auxilio_acidente"); senão "previdenciario"."""
+    slug = _slug_do_produto(config)
+    if slug in tabela:
+        return slug
+    for familia in sorted(tabela, key=len, reverse=True):
+        if familia != "previdenciario" and slug.startswith(familia + "_"):
+            return familia
+    return "previdenciario"
+
+
+def portao_ligado(config: dict[str, Any] | None) -> bool:
+    return ((config or {}).get("catalogo") or {}).get("portao_de_fatos", True) is not False
+
+
+def portao_de_fatos(config: dict[str, Any] | None) -> dict[str, list[list[str]]]:
+    """{destino: [[fato, alternativa], ...]} exigidos para entrar no destino. Vazio com o portão desligado."""
+    if not portao_ligado(config):
+        return {}
+    proprio = ((config or {}).get("catalogo") or {}).get("portao_de_fatos")
+    tabela = PORTAO_DE_FATOS[_familia_do_produto(PORTAO_DE_FATOS, config)]
+    regras = {d: list(v) for d, v in tabela.items()}
+    if isinstance(proprio, dict):
+        regras.update({str(d): (v if isinstance(v, list) else [v]) for d, v in proprio.items()})
+    return {d: grupos for d, v in regras.items() if (grupos := _grupos_de_fatos(v))}
+
+
+def motivos_de_desqualificar(config: dict[str, Any] | None) -> dict[str, tuple[str, ...]]:
+    return MOTIVOS_DE_DESQUALIFICAR[_familia_do_produto(MOTIVOS_DE_DESQUALIFICAR, config)]
+
+
+def _vale(fatos: dict[str, Any], alternativa: str) -> bool:
+    chave, _, esperado = alternativa.partition("=")
+    valor = fatos.get(chave)
+    if valor in (None, ""):
+        return False
+    return not esperado or str(valor).strip().lower() == esperado.strip().lower()
+
+
+def faltam_para_entrar(config: dict[str, Any] | None, destino: str, fatos: dict[str, Any]) -> list[str]:
+    """Fatos (o primeiro de cada grupo, sem o '=valor') que faltam para o lead entrar no destino. [] = pode entrar."""
+    grupos = portao_de_fatos(config).get(destino) or []
+    return [grupo[0].partition("=")[0] for grupo in grupos if not any(_vale(fatos, alt) for alt in grupo)]
+
+
+def motivo_de_desqualificar(config: dict[str, Any] | None, fatos: dict[str, Any]) -> tuple[str, Any] | None:
+    """(fato, valor) que comprova a desqualificação, ou None."""
+    for chave, valores in motivos_de_desqualificar(config).items():
+        if str(fatos.get(chave) or "").strip().lower() in valores:
+            return chave, fatos.get(chave)
+    return None
+
+
+def fatos_do_portao(config: dict[str, Any] | None, papeis: list[str] | tuple[str, ...]) -> list[str]:
+    """Fatos que o extrator precisa procurar para o portão dos papéis ativos (e para os motivos de desqualificar)."""
+    if not portao_ligado(config):
+        return []
+    vistos = [alt.partition("=")[0] for destino, grupos in portao_de_fatos(config).items() if destino in papeis
+              for grupo in grupos for alt in grupo]
+    if "desqualificado" in papeis:
+        vistos += list(motivos_de_desqualificar(config))
+    return list(dict.fromkeys(vistos))
+
 # Regra fixa das objeções, do prompt dos agentes do n8n (vem antes da lista de objeções do escritório).
 REGRA_OBJECOES = (
     "OBJEÇÕES (quando usar): se o lead apresentar qualquer tipo de objeção, resistência ou hesitação, utilize a resposta "
@@ -102,7 +218,7 @@ REGRA_OBJECOES = (
 
 @dataclass
 class ProdutoCatalogo:
-    """Produto 'catalogo': as etapas são os papéis ativados; o código não decide etapa (o agente do papel decide)."""
+    """Produto 'catalogo': as etapas são os papéis ativados; a IA conduz e o código decide a passagem (portão de fatos)."""
     papeis: list[str] = field(default_factory=lambda: ["sdr", "closer", "contratos", "assinatura", "desqualificado"])
     config: dict[str, Any] = field(default_factory=dict)
     codigo: str = "catalogo"
@@ -158,8 +274,8 @@ class ProdutoCatalogo:
 
     @property
     def fatos_de_qualificacao(self) -> tuple[str, ...]:
-        """Fatos que algum papel exige antes de transferir (perguntar_antes_de_transferir) e que o extrator sabe preencher.
-        Vazio sem essa config: nenhum escritório recebe no extrator campos que não usa."""
+        """Fatos que algum papel exige antes de transferir (perguntar_antes_de_transferir) e os do portão de fatos dos
+        papéis ativos (sempre, salvo portao_de_fatos=false), que o extrator sabe preencher."""
         papeis = (self.config.get("catalogo") or {}).get("papeis") or {}
         conhecidos = set(aa.FATOS) | set(FATOS_EXTRAS)
         contrato = set(cdados.CAMPOS.values()) | {"nome"}
@@ -167,6 +283,8 @@ class ProdutoCatalogo:
         for cfg in papeis.values():
             for grupos in perguntar_antes_de_transferir(cfg if isinstance(cfg, dict) else {}).values():
                 vistos += [f for grupo in grupos for f in grupo]
+        # Portão de fatos (B4): o extrator SEMPRE procura os fatos que o código confere na passagem.
+        vistos += fatos_do_portao(self.config, self.papeis)
         return tuple(f for f in dict.fromkeys(vistos)
                      if f in conhecidos and f not in contrato and f not in self.fatos_do_periodo)
 
@@ -924,3 +1042,42 @@ def transferencia_pela_frase(textos: list[str], destinos: list[str], papeis: dic
         if exata or (parafrase and len(significativas) >= PALAVRAS_PARA_PARAFRASE and tem_frase(textos, frase)):
             candidatos.append((len(_normal(frase)), destino))
     return max(candidatos)[1] if candidatos else None
+
+
+def _frase_normal(texto: str) -> str:
+    """Normalização da frase EXATA: só espaço, caixa e pontuação final (acento e pontuação do meio contam)."""
+    return re.sub(r"[\s.!?…;:,]+$", "", re.sub(r"\s+", " ", str(texto or "")).strip().lower())
+
+
+def tem_frase_exata(textos: list[str], frase: str | None) -> bool:
+    """A frase de passagem está na resposta, letra por letra (fora espaço, caixa e pontuação final)?"""
+    alvo = _frase_normal(frase or "")
+    if len(alvo) < 8:
+        return False
+    return any(alvo in re.sub(r"\s+", " ", str(t or "")).strip().lower() for t in textos)
+
+
+def transferencia_pela_frase_exata(textos: list[str], destinos: list[str], papeis: dict[str, Any]) -> str | None:
+    """Rede de segurança do turno (leva 1, B1): a IA escreveu a frase de passagem EXATA de um destino e deixou
+    transferir_para vazio. Nunca para "desqualificado" (desqualificar exige a decisão marcada e o motivo comprovado).
+    Com mais de um destino casando, vence a frase mais longa."""
+    candidatos = []
+    for destino in destinos:
+        cfg = papeis.get(destino)
+        frase = cfg.get("mensagem_troca") if isinstance(cfg, dict) else None
+        if destino != "desqualificado" and frase and tem_frase_exata(textos, frase):
+            candidatos.append((len(_frase_normal(frase)), destino))
+    return max(candidatos)[1] if candidatos else None
+
+
+def faltam_para_seguir(config: dict[str, Any] | None, etapa: str, fatos: dict[str, Any]) -> list[str]:
+    """O que ainda falta descobrir na etapa para o lead seguir no funil (para a ficha do caso): os fatos do portão dos
+    destinos à frente do papel e os de perguntar_antes_de_transferir."""
+    papeis = ((config or {}).get("catalogo") or {}).get("papeis") or {}
+    cfg = papeis.get(etapa) if isinstance(papeis.get(etapa), dict) else {}
+    faltam: list[str] = []
+    for destino in [d for d in (cfg.get("destinos") or []) if d != "desqualificado"]:
+        faltam += faltam_para_entrar(config, destino, fatos)
+    for grupos in perguntar_antes_de_transferir(cfg).values():
+        faltam += [g[0] for g in grupos if not any(fatos.get(f) not in (None, "") for f in g)]
+    return list(dict.fromkeys(faltam))

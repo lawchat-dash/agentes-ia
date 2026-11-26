@@ -357,13 +357,15 @@ def _produto(papeis=None):
 
 
 HISTORICO = [{"autor": "lead", "texto": "oi"}, {"autor": "você", "texto": "Olá! Me conta o que aconteceu?"}]
+# Leva 1 (B4): o lead já respondeu o que o portão de fatos exige (turnos do meio da conversa).
+QUALIFICADO = {"aposentado": "nao", "tem_advogado_no_caso": "nao", "sequela": "sim", "aceite_honorarios": "sim"}
 
 
 async def _rodar(etapa, resposta, *, instrucoes=None, historico=HISTORICO, fatos=None, papeis=None):
     modelo = ModeloFalso({"extrator": {"fatos": [], "sinais": [], "intencoes": SEM_INTENCAO}, "etapa": resposta})
     entrada = turno.Entrada(escritorio="E", agente="J", etapa=etapa, novas=["certo"], produto=_produto(papeis),
                             instrucoes=instrucoes or {etapa: "Siga o roteiro."}, historico=list(historico),
-                            fatos=dict(fatos or {}))
+                            fatos={**QUALIFICADO, **(fatos or {})})
     return await turno.processar(modelo, entrada), modelo
 
 
@@ -405,10 +407,12 @@ async def test_primeira_resposta_nao_troca_de_papel():  # [14]
     # Liberado no papel, ou depois da primeira resposta: troca normal.
     papeis = json.loads(json.dumps(PAPEIS_FUNIL))
     papeis["sdr"]["transferir_na_primeira_resposta"] = True
+    motivo = {"aposentado": "sim"}                              # leva 1 (B4): desqualificar exige o motivo do lead
     saida, _ = await _rodar("sdr", {"mensagens": [{"texto": "Entendi."}], "transferir_para": "desqualificado", "ferramenta": ""},
-                            historico=[], papeis=papeis)
+                            historico=[], papeis=papeis, fatos=motivo)
     assert saida.etapa_depois == "desqualificado"
-    saida, _ = await _rodar("sdr", {"mensagens": [{"texto": "Entendi."}], "transferir_para": "desqualificado", "ferramenta": ""})
+    saida, _ = await _rodar("sdr", {"mensagens": [{"texto": "Entendi."}], "transferir_para": "desqualificado", "ferramenta": ""},
+                            fatos=motivo)
     assert saida.etapa_depois == "desqualificado"
 
 
@@ -435,13 +439,17 @@ def test_frase_de_passagem_parafraseada_e_a_mais_longa():  # [12]
     assert catalogo.transferencia_pela_frase(ambas, ["closer", "contratos"], papeis) == "contratos"
 
 
-async def test_troca_pela_frase_parafraseada_registra_evento():  # [12] e [13]
-    saida, _ = await _rodar("closer", {"mensagens": [{"texto": "Ótimo! Agora vou te passar para o time de contratos "
-                                                                "que vai pegar todos os seus dados."}],
-                                       "transferir_para": "", "ferramenta": ""})
+async def test_troca_pela_frase_parafraseada_registra_evento():  # [12] e [13]; leva 1 (B1): só a frase exata
+    parafrase = {"mensagens": [{"texto": "Ótimo! Agora vou te passar para o time de contratos que vai pegar todos os "
+                                         "seus dados."}], "transferir_para": "", "ferramenta": ""}
+    saida, _ = await _rodar("closer", parafrase)
+    assert saida.etapa_depois == "closer" and "troca_pela_frase" not in [e["tipo"] for e in saida.eventos]
+    exata = {"mensagens": [{"texto": "Ótimo! Vou te passar para o time de contratos, que vai pegar seus dados."}],
+             "transferir_para": "", "ferramenta": ""}
+    saida, _ = await _rodar("closer", exata)
     assert saida.etapa_depois == "contratos"
     evento = next(e for e in saida.eventos if e["tipo"] == "troca_pela_frase")
-    assert evento["detalhe"]["destino"] == "contratos"
+    assert evento["detalhe"]["destino"] == "contratos" and evento["detalhe"]["exata"] is True
     assert saida.contexto["catalogo"]["origem_destino"] == "frase"
 
 

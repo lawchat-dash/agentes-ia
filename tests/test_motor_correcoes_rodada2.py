@@ -56,9 +56,15 @@ def resposta(texto="Certo!", transferir="", ferramenta=""):
     return {"mensagens": [{"texto": texto}], "transferir_para": transferir, "ferramenta": ferramenta}
 
 
-def entrada(novas, etapa="sdr", prod=None, **extra):
+# Leva 1 (B4): estes turnos são do meio da conversa; o lead já respondeu o que o portão de fatos exige para o Closer e
+# para Contratos (aposentadoria, advogado no caso, sequela e o aceite). Quem testa desqualificar dá o motivo.
+QUALIFICADO = {"aposentado": "nao", "tem_advogado_no_caso": "nao", "sequela": "sim", "aceite_honorarios": "sim"}
+
+
+def entrada(novas, etapa="sdr", prod=None, fatos=None, **extra):
     return turno.Entrada(escritorio="Escritório Teste", agente="Júlia", etapa=etapa, novas=list(novas),
-                         produto=prod or produto(), instrucoes={etapa: "Roteiro do papel."}, agora=AGORA, **extra)
+                         produto=prod or produto(), instrucoes={etapa: "Roteiro do papel."}, agora=AGORA,
+                         fatos={**QUALIFICADO, **(fatos or {})}, **extra)
 
 
 def conteudos(modelo):
@@ -375,7 +381,14 @@ async def test_desqualificar_quem_estava_coberto_ganha_uma_correcao_neutra_e_nao
     modelo = ModeloFalso({"extrator": extrai(), "etapa": [desq, dict(desq)]})
     saida = await turno.processar(modelo, entrada(["não paguei"], etapa="periododegraca", fatos=fatos))
     assert "estava coberta na data do acidente: só desqualifique por outro motivo" in conteudos(modelo)[1]
-    assert saida.etapa_depois == "desqualificado" and saida.estado_lead is None   # a 2ª decide; nunca pausa
+    # Leva 1 (B4): sem motivo comprovado por fato do lead (e coberto pela conta), o portão segura a desqualificação.
+    assert saida.etapa_depois == "periododegraca" and saida.estado_lead is None
+    assert any(e["tipo"] == "troca_barrada_faltam_fatos" for e in saida.eventos)
+    # Com um motivo dito pelo lead, a 2ª resposta decide, como antes (nunca pausa).
+    modelo = ModeloFalso({"extrator": extrai(), "etapa": [desq, dict(desq)]})
+    saida = await turno.processar(modelo, entrada(["não paguei"], etapa="periododegraca",
+                                                  fatos={**fatos, "tem_advogado_no_caso": "sim"}))
+    assert saida.etapa_depois == "desqualificado" and saida.estado_lead is None
 
 
 # ---------------------------------------------------------------------------- [1] [8] [26] pergunta exigida antes de passar
@@ -388,7 +401,12 @@ def test_fatos_exigidos_entram_no_extrator_so_com_a_config():
     sem_periodo = produto(("sdr", "closer", "contratos"),
                           sdr={"perguntar_antes_de_transferir": {"closer": ["acidente_ano|acidente_quando_incerto", "sequela"]}})
     assert {"acidente_ano", "acidente_quando_incerto", "sequela"} <= set(enum(sem_periodo))
-    assert "sequela" not in enum(produto(("sdr", "closer", "contratos")))
+    # Leva 1 (B4): o portão de fatos põe sequela, aposentadoria e advogado no extrator sempre que o Closer existe;
+    # só com o portão desligado o extrator fica sem eles.
+    assert "sequela" in enum(produto(("sdr", "closer", "contratos")))
+    sem_portao = catalogo.carregar({"catalogo": {"papeis": {p: {} for p in ("sdr", "closer", "contratos")},
+                                                 "portao_de_fatos": False}})
+    assert "sequela" not in enum(sem_portao)
     assert sem_periodo.validar_valor("acidente_quando_incerto", "sim") == "sim"
     assert sem_periodo.validar_valor("sequela", "talvez") is None
 
@@ -423,11 +441,12 @@ async def test_frase_de_outro_destino_ganha_correcao_e_nao_pausa():
     errada = resposta(TROCAS["periododegraca"], transferir="desqualificado")
     certa = resposta(TROCAS["desqualificado"], transferir="desqualificado")
     modelo = ModeloFalso({"extrator": extrai(), "etapa": [errada, certa]})
-    saida = await turno.processar(modelo, entrada(["sou mei"]))
+    motivo = {"vinculo_na_data": "nunca_trabalhou"}            # leva 1 (B4): desqualificar exige um motivo comprovado
+    saida = await turno.processar(modelo, entrada(["sou mei"], fatos=motivo))
     assert "mas escreveu a frase de passagem de \"periododegraca\"" in conteudos(modelo)[1]
     assert saida.etapa_depois == "desqualificado" and saida.mensagens[0]["texto"].startswith("Analisei")
     modelo = ModeloFalso({"extrator": extrai(), "etapa": [errada, dict(errada)]})
-    saida = await turno.processar(modelo, entrada(["sou mei"]))
+    saida = await turno.processar(modelo, entrada(["sou mei"], fatos=motivo))
     assert saida.estado_lead is None and any(e["tipo"] == "trava_frase_de_outro_destino" for e in saida.eventos)
 
 
@@ -438,11 +457,12 @@ def test_frase_com_ordem_trocada_conta_como_dita():
 
 async def test_frase_obrigatoria_so_com_a_opcao_no_destino():
     parafrase = resposta("Analisei o seu caso e não dá para seguir.", transferir="desqualificado")
-    modelo = ModeloFalso({"extrator": extrai(), "etapa": parafrase})
+    aposentado = extrai([("aposentado", "sim", "sou aposentado")])     # leva 1 (B4): o motivo vem do lead
+    modelo = ModeloFalso({"extrator": aposentado, "etapa": parafrase})
     saida = await turno.processar(modelo, entrada(["sou aposentado"]))
     assert len(conteudos(modelo)) == 1 and saida.etapa_depois == "desqualificado"
     prod = produto(desqualificado={"exigir_frase_de_troca": True})
-    modelo = ModeloFalso({"extrator": extrai(), "etapa": [parafrase, resposta(TROCAS["desqualificado"], transferir="desqualificado")]})
+    modelo = ModeloFalso({"extrator": aposentado, "etapa": [parafrase, resposta(TROCAS["desqualificado"], transferir="desqualificado")]})
     saida = await turno.processar(modelo, entrada(["sou aposentado"], prod=prod))
     assert f"envie exatamente esta frase: \"{TROCAS['desqualificado']}\"" in conteudos(modelo)[1]
     assert saida.etapa_depois == "desqualificado"

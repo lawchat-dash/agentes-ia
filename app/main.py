@@ -207,6 +207,23 @@ async def _ciclo(app: FastAPI):
 
 
 app = FastAPI(title="LawChat IA", lifespan=_ciclo)
+# Compacta o painel e a API do painel acima de 1 KB (o JS tem ~2,5 MB sem compressão; o JSON das listas encolhe ~80%).
+# Só /assets e /api: a mídia (/midia, áudio com Range) e os webhooks seguem como estão.
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
+
+
+class _GzipDoPainel:
+    def __init__(self, aplicativo: Any) -> None:
+        self._direto = aplicativo
+        self._gzip = GZipMiddleware(aplicativo, minimum_size=1024, compresslevel=6)
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        caminho = scope.get("path", "") if scope["type"] == "http" else ""
+        alvo = self._gzip if caminho.startswith(("/assets/", "/api/")) else self._direto
+        await alvo(scope, receive, send)
+
+
+app.add_middleware(_GzipDoPainel)
 app.include_router(api_gestao)
 from app.gestao.produtos import api as api_produtos, pasta_midia  # noqa: E402
 app.include_router(api_produtos)
@@ -220,6 +237,8 @@ from app.cobranca.rotas import api as api_cobranca  # noqa: E402
 app.include_router(api_cobranca)                      # carteira, recargas, planos, cotação e markup (cobrança em R$)
 from app.gestao.rotas_contrato import api as api_contrato  # noqa: E402
 app.include_router(api_contrato)                      # contratos do lead e prompt do resumo do contrato assinado
+from app.gestao.rotas_rascunho import api as api_rascunho; app.include_router(api_rascunho)  # noqa: E402,E702  testar o rascunho e versões
+from app.gestao.rotas_roteiros import api as api_roteiros; app.include_router(api_roteiros)  # noqa: E402,E702  Ferramentas > Roteiros (áudios)
 if os.environ.get("AGENTESIA_PAINEL_CRM_LIGADO", "").strip() == "1":
     # Painel padrão do CRM pela API interna da Helena (impersonate): desligado por padrão. Se um dia o recebimento de
     # webhooks virar um app separado, este router NÃO entra nele.
@@ -503,8 +522,20 @@ async def mensagem_do_lab(pedido: Request, nova: NovaMensagem) -> dict[str, Any]
 
 # ----------------------------------------------------------------------------- painel (front compilado)
 _PAINEL = Path(__file__).resolve().parent.parent / "painel" / "dist"
+
+
+class _AssetsImutaveis(StaticFiles):
+    """Os arquivos de painel/dist/assets têm o hash no nome: o navegador guarda por 1 ano e não pergunta de novo a cada
+    tela (o index.html continua no-cache e aponta para os nomes novos depois de publicar)."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        resposta = super().file_response(*args, **kwargs)
+        resposta.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resposta
+
+
 if (_PAINEL / "assets").is_dir():
-    app.mount("/assets", StaticFiles(directory=_PAINEL / "assets"), name="assets")
+    app.mount("/assets", _AssetsImutaveis(directory=_PAINEL / "assets"), name="assets")
 
 
 @app.get("/{caminho:path}", include_in_schema=False)

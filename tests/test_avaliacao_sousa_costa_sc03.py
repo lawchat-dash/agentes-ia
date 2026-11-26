@@ -217,7 +217,11 @@ async def test_sc03_roda_no_roteirizado_ate_o_contrato_assinado():
     assert conversa.parada == "contrato_assinado" and conversa.estado_final == "encerrado", conversa.parada
     assert conversa.ferramentas["zapsign"] == 1 and conversa.ferramentas["cep"] >= 1     # o CEP completou a cidade
     assert conversa.aprovada, falhas
-    assert not conversa.codigos() & {"refeito_pela_trava", "honorario_divergente"}, falhas
+    # Leva 1 (B4): o prompt do escritório não pergunta aposentadoria (nem o aceite do jeito que o portão reconhece);
+    # a única correção aceita é a do portão de fatos, que manda perguntar o que falta antes de passar o lead.
+    refeitos = [f for f in conversa.falhas if f.codigo == "refeito_pela_trava"]
+    assert all("Ainda falta perguntar antes de passar" in f.evidencia for f in refeitos), falhas
+    assert "honorario_divergente" not in conversa.codigos(), falhas
     dados = conversa.contratos[-1]["dados"]
     assert dados["nome"] == NOME_CERTO and dados["email"] == EMAIL_NOVO
     assert dados["cidade"] == "Vale Sereno" and dados["bairro"] == "Vila Esperança" and dados["estado"] == "MG"

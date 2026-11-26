@@ -118,11 +118,11 @@ class Fluxo:
             resposta = await self._http.request(metodo, url, headers=headers, params=params, content=content,
                                                 timeout=TIMEOUT_S)
         except httpx.TimeoutException:
-            raise ErroPainelCrm(passo, "a Helena não respondeu a tempo (15 s)", incerto=incerto_no_timeout) from None
+            raise ErroPainelCrm(passo, "a LawChat não respondeu a tempo (15 s)", incerto=incerto_no_timeout) from None
         except httpx.HTTPError as erro:
-            raise ErroPainelCrm(passo, f"não foi possível falar com a Helena ({type(erro).__name__})") from None
+            raise ErroPainelCrm(passo, f"não foi possível falar com a LawChat ({type(erro).__name__})") from None
         if resposta.status_code >= 400:
-            raise ErroPainelCrm(passo, f"a Helena respondeu HTTP {resposta.status_code}", status=resposta.status_code)
+            raise ErroPainelCrm(passo, f"a LawChat respondeu HTTP {resposta.status_code}", status=resposta.status_code)
         try:
             return resposta.json() if resposta.content else None
         except ValueError:
@@ -150,7 +150,7 @@ class Fluxo:
             raise
         acesso = _token(dados)
         if not acesso:
-            raise ErroPainelCrm("login", "a Helena não devolveu o acesso; peça um novo código")
+            raise ErroPainelCrm("login", "a LawChat não devolveu o acesso; peça um novo código")
         self.marcar("login", "ok", "código aceito")
         return acesso
 
@@ -196,7 +196,7 @@ class Fluxo:
             content=json.dumps(corpo).encode())
         na_conta = _token(dados)
         if not na_conta:
-            raise ErroPainelCrm("impersonate", "a Helena não devolveu o acesso à conta do cliente")
+            raise ErroPainelCrm("impersonate", "a LawChat não devolveu o acesso à conta do cliente")
         self.marcar("impersonate", "ok", "acesso à conta do cliente")
         return na_conta
 

@@ -4,6 +4,7 @@ import { api, enviar, formatarTelefone, quando, type Canal } from "../api";
 import { Alerta, Cabecalho, Carregando, Painel, Situacao, Vazio, useAcao, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { IntegracaoZapSign } from "./IntegracaoZapSign";
+import { SeloSaude, TestarConexao, TipoNumero, useSaudeNumeros, type SaudeCanal } from "../componentes/SaudeNumero";
 
 interface Integracao { situacao: string; final_segredo: string | null; config: Record<string, any>; erro: string | null; testado_em: string | null; tem_segredo: boolean; }
 interface Dados { integracoes: Record<string, Integracao>; canais: Canal[]; url_webhook_configurada: boolean; url_webhook_zapsign: string | null; url_botao_ia: string | null; }
@@ -12,13 +13,15 @@ interface PainelCrm { id: string; titulo: string; tipo: string; etapas: { id: st
 export function TelaIntegracoes() {
   const { escritorio } = useSessao();
   const { dados, erro, recarregar } = useCarregar<Dados>("/integracoes", [escritorio]);
+  const saude = useSaudeNumeros(escritorio);
   if (!dados) return <Carregando erro={erro} />;
   const helena = dados.integracoes.helena;
   return (
     <>
       <Cabecalho eyebrow="Configurar" titulo="Integrações" texto="Conexão com o WhatsApp e o CRM da LawChat, e a ZapSign para os contratos. O consumo da IA sai dos Créditos do escritório." />
       <div className="stack">
-        <IntegracaoHelena integracao={helena} canais={dados.canais} webhookPossivel={dados.url_webhook_configurada} aoMudar={recarregar} />
+        <IntegracaoHelena integracao={helena} canais={dados.canais} saude={saude.dados?.canais ?? []} webhookPossivel={dados.url_webhook_configurada}
+          aoMudar={() => { recarregar(); saude.recarregar(); }} />
         {helena?.situacao === "ok" && <IntegracaoCrm integracao={dados.integracoes.crm} aoMudar={recarregar} />}
         {helena?.situacao === "ok" && <DesligarIa url={dados.url_botao_ia} />}
         <IntegracaoZapSign integracao={dados.integracoes.zapsign} urlWebhook={dados.url_webhook_zapsign} aoMudar={recarregar} />
@@ -27,7 +30,8 @@ export function TelaIntegracoes() {
   );
 }
 
-function IntegracaoHelena({ integracao, canais, webhookPossivel, aoMudar }: { integracao?: Integracao; canais: Canal[]; webhookPossivel: boolean; aoMudar: () => void }) {
+function IntegracaoHelena({ integracao, canais, saude, webhookPossivel, aoMudar }: { integracao?: Integracao; canais: Canal[]; saude: SaudeCanal[]; webhookPossivel: boolean; aoMudar: () => void }) {
+  const saudeDo = new Map(saude.map((c) => [c.id, c]));
   const { ocupado, executar } = useAcao();
   const [token, setToken] = useState("");
   const conectada = integracao?.situacao === "ok";
@@ -69,18 +73,23 @@ function IntegracaoHelena({ integracao, canais, webhookPossivel, aoMudar }: { in
           </div>
           {canais.length === 0 ? <Vazio>Nenhum número ainda. Salve o token para buscar.</Vazio> : (
             <div className="lst"><table>
-              <thead><tr><th>Número</th><th>Tipo</th><th>Canal na LawChat</th><th>Agente</th><th>Situação</th></tr></thead>
-              <tbody>{canais.map((c) => (
-                <tr key={c.id}>
-                  <td className="mono">{formatarTelefone(c.numero_normalizado)}</td>
-                  <td><span className={`chip ${c.tipo === "oficial" ? "info" : ""}`}>{c.tipo === "oficial" ? "API oficial" : "não oficial"}</span></td>
-                  <td className="s mono">{c.id_canal_helena}</td>
-                  <td>{c.nome_agente ?? <span className="muted">livre</span>}</td>
-                  <td><Situacao valor={c.ativo ? "ativo" : "encerrado"} texto={c.ativo ? "ativo" : "desligado na LawChat"} /></td>
-                </tr>
-              ))}</tbody>
+              <thead><tr><th>Número</th><th>Tipo</th><th>Mensagens</th><th>Agente</th><th>Situação</th><th aria-label="Testar conexão" /></tr></thead>
+              <tbody>{canais.map((c) => {
+                const s = saudeDo.get(c.id);
+                return (
+                  <tr key={c.id}>
+                    <td className="mono">{formatarTelefone(c.numero_normalizado)}<div className="s mono" style={{ fontSize: 10.5 }}>{c.id_canal_helena}</div></td>
+                    <td><TipoNumero tipo={c.tipo} aviso={s?.aviso_tipo} /></td>
+                    <td>{s ? <SeloSaude selo={s.selo} /> : <span className="muted">—</span>}</td>
+                    <td>{c.nome_agente ?? <span className="muted">livre</span>}</td>
+                    <td><Situacao valor={c.ativo ? "ativo" : "encerrado"} texto={c.ativo ? "ativo" : "desligado na LawChat"} /></td>
+                    <td style={{ textAlign: "right" }}>{conectada && <TestarConexao idCanal={c.id} numero={formatarTelefone(c.numero_normalizado)} />}</td>
+                  </tr>
+                );
+              })}</tbody>
             </table></div>
           )}
+          {saude.find((c) => c.aviso_tipo) && <span className="ajuda" style={{ display: "block", marginTop: 6 }}>{saude.find((c) => c.aviso_tipo)!.aviso_tipo}</span>}
         </div>
         {integracao?.testado_em && <span className="muted" style={{ fontSize: 12 }}>Última conferência: {quando(integracao.testado_em)}</span>}
       </div>

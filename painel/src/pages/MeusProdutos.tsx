@@ -11,7 +11,7 @@ import {
 import {
   Plus, Loader2, Package, CircleDot, CircleDashed, Pause, AlertTriangle,
   Trash2, Search, Settings2, MessageSquare, Sparkles,
-  Workflow, Activity, RotateCcw, RotateCw, X, Phone,
+  Workflow, Activity, RotateCcw, RotateCw, X, Phone, Bot, Send, BookOpen, FlaskConical,
 } from "lucide-react";
 import { useMyProducts, useTrashedProducts, useRetryProductProvisioning, ROLE_META, ROLE_ORDER } from "@/hooks/useProducts";
 import { getCategoryIcon, resolveGradient } from "@/data/categories";
@@ -23,6 +23,16 @@ import folder3d from "@/assets/folder-3d.png";
 import { StatusToggle } from "@/components/ui/status-toggle";
 import { ButtonHoldAndRelease } from "@/components/ui/hold-and-release-button";
 import { AvisoFollowupDesligado } from "@/components/followup/AvisoFollowupDesligado";
+import { SeloSaude, TestarConexao, TipoNumero, useSaudeNumeros, type SaudeAgente } from "@/componentes/SaudeNumero";
+import { useSessao } from "@/sessao";
+
+/** As abas do agente, direto do cartão (as mesmas rotas do submenu /agentes/:id/:secao). */
+const ABAS_DO_AGENTE = [
+  { chave: "instrucoes", rotulo: "Prompt", Icone: Bot },
+  { chave: "followup", rotulo: "Follow-up", Icone: Send },
+  { chave: "conhecimento", rotulo: "Conhecimento", Icone: BookOpen },
+  { chave: "laboratorio", rotulo: "Laboratório", Icone: FlaskConical },
+] as const;
 
 /** Junta os campos de um erro (message/details/hint/code) para diagnóstico. */
 const erroDetalhe = (e: any): string =>
@@ -60,6 +70,16 @@ const MeusProdutos = () => {
   const qc = useQueryClient();
   const retryProduct = useRetryProductProvisioning();
   useProvisioningRealtime();
+  const { escritorio } = useSessao();
+  // Saúde do número de cada agente: selo da última mensagem recebida, tipo do número e o "Testar conexão".
+  const saude = useSaudeNumeros(escritorio);
+  const saudePorAgente = useMemo(() => new Map((saude.dados?.agentes ?? []).map((a) => [a.id, a] as [string, SaudeAgente])), [saude.dados]);
+  // Agentes criados fora da Biblioteca (o "Criar agente" antigo): sem produto ativado, mas são agentes da conta.
+  // Antes apareciam em "Agentes"; com o menu num caminho só, ficam aqui embaixo para não sumirem.
+  const avulsos = useMemo(() => {
+    const dosProdutos = new Set([...(products ?? []), ...(trashed ?? [])].map((p: any) => p.weaver_agent_id).filter(Boolean));
+    return (saude.dados?.agentes ?? []).filter((a) => !dosProdutos.has(a.id));
+  }, [saude.dados, products, trashed]);
   const [deleting, setDeleting] = useState<{ id: string; name: string; weaver_agent_id?: string | null } | null>(null);
   const [purging, setPurging] = useState<{ id: string; name: string; source_template_id: string | null; workspace_id: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -253,14 +273,14 @@ const MeusProdutos = () => {
             <span className="w-px h-3 bg-success/30" />
             <span className="inline-flex items-center gap-1.5"><CircleDot className="size-3.5" /> {stats.active} em operação</span>
           </div>
-          <h1 className="text-3xl lg:text-4xl font-bold tracking-tight mt-4 text-foreground">Meus Produtos</h1>
+          <h1 className="text-3xl lg:text-4xl font-bold tracking-tight mt-4 text-foreground">Meus agentes</h1>
           <div className="h-1 w-12 rounded-full bg-success mt-2.5" />
           <p className="text-sm text-muted-foreground mt-3 max-w-lg leading-relaxed">
-            Pipelines completos de agentes ativados na sua conta. Gerencie status, prompts, integrações e métricas de cada produto.
+            Os agentes ativados na sua conta, cada um com o seu número de WhatsApp. Ligue e pause, veja se o número está recebendo mensagens e abra o prompt, o follow-up, o conhecimento e o Laboratório de cada um.
           </p>
           <div className="flex flex-wrap gap-2 mt-5">
             <Button asChild className="bg-success hover:bg-success/90 text-success-foreground shadow-[0_4px_14px_-4px_hsl(var(--success)/0.45)]">
-              <Link to="/biblioteca"><Plus className="size-4 mr-1.5" />Ativar novo produto</Link>
+              <Link to="/biblioteca"><Plus className="size-4 mr-1.5" />Novo a partir da Biblioteca</Link>
             </Button>
           </div>
         </div>
@@ -331,17 +351,17 @@ const MeusProdutos = () => {
       {/* Lista */}
       {isLoading ? (
         <div className="grid place-items-center py-20"><Loader2 className="size-8 text-primary animate-spin" /></div>
-      ) : filter !== "trash" && (!products || products.length === 0) ? (
+      ) : filter !== "trash" && (!products || products.length === 0) ? (avulsos.length > 0 ? null :
         <Card className="p-12 text-center bg-gradient-card backdrop-blur border-dashed">
           <div className="size-16 rounded-2xl bg-primary/10 grid place-items-center mx-auto mb-4">
             <Package className="size-8 text-primary" />
           </div>
-          <h3 className="text-lg font-bold">Nenhum produto ativado ainda</h3>
+          <h3 className="text-lg font-bold">Nenhum agente ativado ainda</h3>
           <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-            Escolha um produto da biblioteca e ative o pipeline completo de agentes em segundos.
+            Escolha um produto da Biblioteca e ative: o agente fica aqui, com o número, o prompt e o follow-up.
           </p>
           <Button asChild className="mt-6 bg-gradient-primary text-white shadow-glow">
-            <Link to="/biblioteca">Ver biblioteca</Link>
+            <Link to="/biblioteca"><Plus className="size-4 mr-1.5" />Novo a partir da Biblioteca</Link>
           </Button>
         </Card>
       ) : filtered.length === 0 ? (
@@ -602,6 +622,32 @@ const MeusProdutos = () => {
                   </div>
 
 
+                  {/* Saúde do número: selo, tipo (oficial = janela de 24 h) e Testar conexão */}
+                  {!trashed && !building && (() => {
+                    const s = p.weaver_agent_id ? saudePorAgente.get(p.weaver_agent_id) : undefined;
+                    const semNumero = p.precisa_ativar || !p.weaver_agent_id || s?.selo.tipo === "sem_numero";
+                    if (!s && !semNumero) return null;
+                    return (
+                      <div className="px-4 py-2 border-t border-border/60 flex items-center gap-1.5 flex-wrap">
+                        <SeloSaude selo={semNumero ? { tipo: "sem_numero", minutos: null } : s!.selo} />
+                        {!semNumero && <TipoNumero tipo={s!.tipo} aviso={s!.aviso_tipo} />}
+                        {!semNumero && s!.id_canal && <TestarConexao compacto idCanal={s!.id_canal} numero={p.numero_ia ?? undefined} className="ml-auto" />}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Abas do agente (as mesmas do submenu): Prompt, Follow-up, Conhecimento, Laboratório */}
+                  {!trashed && !building && p.weaver_agent_id && (
+                    <nav aria-label={`Abrir ${p.name}`} className="px-3 pb-2.5 pt-1 flex flex-wrap gap-1">
+                      {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
+                        <Link key={chave} to={`/agentes/${p.weaver_agent_id}/${chave}`}
+                          className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors">
+                          <Icone className="size-3 shrink-0" aria-hidden />{rotulo}
+                        </Link>
+                      ))}
+                    </nav>
+                  )}
+
                   {/* Actions */}
                   {p.deleted_at ? (() => {
                     const deletedMs = new Date(p.deleted_at).getTime();
@@ -706,6 +752,8 @@ const MeusProdutos = () => {
         </div>
       )}
 
+      {!isLoading && avulsos.length > 0 && filter !== "trash" && <AgentesAvulsos agentes={avulsos} />}
+
       <AlertDialog open={!!deleting} onOpenChange={(o) => { if (!o) { setDeleting(null); setDeleteConfirm(""); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -787,6 +835,49 @@ const MeusProdutos = () => {
     </div>
   );
 };
+
+/** Agentes da conta que não vieram de um produto da Biblioteca (criados pelo caminho antigo). */
+const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => (
+  <section aria-label="Outros agentes" className="space-y-2.5">
+    <div>
+      <h2 className="text-sm font-bold text-foreground">Outros agentes da conta</h2>
+      <p className="text-xs text-muted-foreground">Criados fora da Biblioteca. Abra para editar, ligar ou pausar.</p>
+    </div>
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {agentes.map((a) => (
+        <Card key={a.id} className="rounded-2xl border bg-card overflow-hidden flex flex-col" style={{ ["--cat" as any]: "#00BC33" }}>
+          <Link to={`/agentes/${a.id}`} className="block p-4 pb-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="size-11 rounded-xl grid place-items-center text-white shrink-0 shadow-sm bg-gradient-to-br from-[#2BD45A] to-[#00852A]"><Bot className="size-[19px]" /></div>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-sm leading-snug truncate">{a.nome}</h3>
+                  <div className="text-[11px] text-muted-foreground mt-0.5 truncate font-mono">{a.numero_normalizado ?? "sem número"}</div>
+                </div>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center gap-1 shrink-0 ${a.situacao === "ativo" ? BADGE.success : BADGE.warning}`}>
+                {a.situacao === "ativo" ? <CircleDot className="size-3" /> : <Pause className="size-3" />}{a.situacao === "ativo" ? "Ativo" : "Pausado"}
+              </span>
+            </div>
+          </Link>
+          <div className="px-4 py-2 border-t border-border/60 flex items-center gap-1.5 flex-wrap">
+            <SeloSaude selo={a.selo} />
+            {a.selo.tipo !== "sem_numero" && <TipoNumero tipo={a.tipo} aviso={a.aviso_tipo} />}
+            {a.id_canal && <TestarConexao compacto idCanal={a.id_canal} numero={a.numero_normalizado ?? undefined} className="ml-auto" />}
+          </div>
+          <nav aria-label={`Abrir ${a.nome}`} className="px-3 pb-2.5 pt-1 flex flex-wrap gap-1">
+            {ABAS_DO_AGENTE.map(({ chave, rotulo, Icone }) => (
+              <Link key={chave} to={`/agentes/${a.id}/${chave}`}
+                className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33] transition-colors">
+                <Icone className="size-3 shrink-0" aria-hidden />{rotulo}
+              </Link>
+            ))}
+          </nav>
+        </Card>
+      ))}
+    </div>
+  </section>
+);
 
 const StatCard = ({
   icon: Icon, label, sub, value, tone,

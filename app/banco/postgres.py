@@ -126,6 +126,21 @@ def _segundos_do_env(nome: str, padrao: float) -> float:
         return padrao
 
 
+async def _sem_reset(_conexao: Any) -> None:
+    """Devolução da conexão ao pool sem a consulta de reset (veja _reset_do_pool)."""
+
+
+def _reset_do_pool() -> Any:
+    """Por padrão o asyncpg roda, a cada conexão devolvida ao pool, `SELECT pg_advisory_unlock_all(); CLOSE ALL;
+    UNLISTEN *; RESET ALL` — mais uma ida e volta ao banco por consulta (pool.fetch* = consulta + reset). Com o pooler
+    do Supabase em modo transação esse estado de sessão nem existe entre transações, e o código só usa estado local da
+    transação (set_config(..., true), pg_advisory_xact_lock). Sem a consulta, cada pool.fetch* é uma ida só; uma
+    transação aberta esquecida continua sendo desfeita (ROLLBACK) pelo próprio asyncpg. AGENTESIA_BANCO_RESET=1 volta
+    ao reset completo."""
+    import os
+    return None if os.environ.get("AGENTESIA_BANCO_RESET", "").strip() == "1" else _sem_reset
+
+
 class RepositorioPostgres:
     def __init__(self, pool: asyncpg.Pool, midia_pendente: bool = False, telefone_chave: bool = False) -> None:
         self._pool = pool
@@ -139,6 +154,7 @@ class RepositorioPostgres:
         ficava preso para sempre. AGENTESIA_BANCO_TIMEOUT_S (padrão 10) e AGENTESIA_BANCO_COMANDO_S (padrão 15).
         conferir=True confere as migrações essenciais e falha na hora se faltar alguma."""
         pool = await asyncpg.create_pool(url, min_size=1, max_size=max_conexoes, statement_cache_size=0,
+                                         reset=_reset_do_pool(),
                                          timeout=_segundos_do_env("AGENTESIA_BANCO_TIMEOUT_S", 10),
                                          command_timeout=_segundos_do_env("AGENTESIA_BANCO_COMANDO_S", 15))
         repo = cls(pool)
@@ -527,6 +543,46 @@ class RepositorioPostgres:
                        values ($1::uuid, $2::uuid, $3, $4::jsonb, $5, $6, $7::uuid)""",
                     lead.id_escritorio, lead.id, fato["chave"], json.dumps(fato["valor"], ensure_ascii=False),
                     fato.get("trecho"), fato.get("fonte") or "extrator", id_turno)
+
+    async def desfazer_turno(self, *, lead, id_turno, id_etapa) -> None:
+        """Leva 1 (B7): o turno quebrou antes de qualquer mensagem chegar ao lead. Numa transação só:
+          * a etapa volta para `id_etapa` (o histórico registra origem 'desfazer', com o id do turno);
+          * os fatos que este turno gravou deixam de valer e cada chave devolve a vigência à versão que ele substituiu
+            (o banco só aceita um fato vigente por chave). Em gravar_fatos a versão antiga recebe substituido_em =
+            now() da mesma transação em que a nova nasce: substituido_em da antiga = criado_em da nova."""
+        async with self._pool.acquire() as conexao, conexao.transaction():
+            await conexao.execute("select set_config('agentesia.origem_etapa', 'desfazer', true), "
+                                  "set_config('agentesia.id_turno', $1::text, true)", str(id_turno))
+            await conexao.execute(
+                "update agentesia_leads set id_etapa = $2::uuid where id = $1::uuid and id_etapa is distinct from $2::uuid",
+                lead.id, id_etapa)
+            novos = await conexao.fetch(
+                """select id, chave, criado_em from agentesia_lead_fatos
+                   where id_lead = $1::uuid and id_turno = $2::uuid and substituido_em is null""", lead.id, id_turno)
+            if not novos:
+                return
+            await conexao.execute(
+                "update agentesia_lead_fatos set substituido_em = now() where id = any($1::uuid[])", [n["id"] for n in novos])
+            for novo in novos:
+                await conexao.execute(
+                    """update agentesia_lead_fatos set substituido_em = null
+                       where id = (select f.id from agentesia_lead_fatos f
+                                   where f.id_lead = $1::uuid and f.chave = $2 and f.id <> $3::uuid
+                                     and f.substituido_em = $4 and f.id_turno is distinct from $5::uuid
+                                   order by f.criado_em desc limit 1)""",
+                    lead.id, novo["chave"], novo["id"], novo["criado_em"], id_turno)
+
+    async def trocas_da_ia(self, id_lead, horas: int = 24) -> int:
+        """Leva 1 (B7): turnos da IA que trocaram a etapa deste lead nas últimas `horas` e ficaram (uma linha só no
+        histórico, com origem 'ia'). Troca desfeita (linha 'desfazer') ou devolvida na hora (troca sem entrega: duas
+        linhas no mesmo turno) não conta; troca da equipe, do contrato ou do sistema também não."""
+        return int(await self._pool.fetchval(
+            """select count(*) from (
+                 select id_turno from agentesia_lead_etapas
+                  where id_lead = $1::uuid and id_turno is not null
+                    and criado_em > now() - make_interval(hours => $2::int)
+                  group by id_turno
+                 having bool_and(origem = 'ia') and count(*) = 1) t""", id_lead, int(horas)) or 0)
 
     # ---- turno, chamadas, eventos ----
     async def abrir_turno(self, *, lead, modo, etapa_antes) -> str:

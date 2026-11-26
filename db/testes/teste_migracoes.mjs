@@ -269,6 +269,64 @@ await deve('007: débito com cotação e markup, bônus primeiro, livro = cartei
   if (mexeu) throw new Error('saldo ou livro alterado por fora do lançamento');
   await db.query(`delete from agentesia_cobranca_config where motivo = 'teste'`);
 });
+// ---------------------------------------------------------------- 008: versões dos prompts do produto
+await deve('aplica 008', () => db.exec(ler('008_agentesia_produto_versoes.sql')));
+await deve('008 aplica duas vezes', () => db.exec(ler('008_agentesia_produto_versoes.sql')));
+await deve('008: RLS na tabela nova', async () => {
+  const t = await um(`select rowsecurity from pg_tables where tablename = 'agentesia_produto_versoes'`);
+  if (!t || !t.rowsecurity) throw new Error(JSON.stringify(t));
+});
+await deve('008: número único por produto, origem conferida e cascata com o produto', async () => {
+  const e8 = (await um(`insert into agentesia_escritorios (nome) values ('Versões Ltda') returning id`)).id;
+  const p8 = (await um(`insert into agentesia_produtos_ativados (id_escritorio, nome) values ($1, 'Produto V') returning id`, [e8])).id;
+  const v1 = await um(`insert into agentesia_produto_versoes (id_escritorio, id_produto_ativado, numero, origem, conteudo) values ($1,$2,1,'ativou','{"agentes":[]}') returning resumo, criado_em`, [e8, p8]);
+  if (JSON.stringify(v1.resumo) !== '[]' || !v1.criado_em) throw new Error(JSON.stringify(v1));
+  let repetido = false;
+  try { await db.query(`insert into agentesia_produto_versoes (id_escritorio, id_produto_ativado, numero, conteudo) values ($1,$2,1,'{}')`, [e8, p8]); repetido = true; } catch (e) {}
+  if (repetido) throw new Error('aceitou o mesmo número duas vezes');
+  let origemRuim = false;
+  try { await db.query(`insert into agentesia_produto_versoes (id_escritorio, id_produto_ativado, numero, origem, conteudo) values ($1,$2,2,'qualquer','{}')`, [e8, p8]); origemRuim = true; } catch (e) {}
+  if (origemRuim) throw new Error('aceitou origem inválida');
+  await db.query(`delete from agentesia_produtos_ativados where id = $1`, [p8]);
+  const n8 = await um(`select count(*)::int n from agentesia_produto_versoes where id_produto_ativado = $1`, [p8]);
+  if (n8.n) throw new Error('versões ficaram sem o produto');
+});
+await deve('desfazer 008 tira a tabela e roda duas vezes', async () => {
+  await db.exec(ler('desfazer_008.sql'));
+  await db.exec(ler('desfazer_008.sql'));
+  const t = await um(`select count(*)::int n from pg_tables where tablename = 'agentesia_produto_versoes'`);
+  if (t.n) throw new Error(JSON.stringify(t));
+});
+await deve('aplica 008 de novo depois de desfazer', () => db.exec(ler('008_agentesia_produto_versoes.sql')));
+// ---------------------------------------------------------------- 009: roteiros de áudio
+await deve('aplica 009', () => db.exec(ler('009_agentesia_roteiros.sql')));
+await deve('009 aplica duas vezes', () => db.exec(ler('009_agentesia_roteiros.sql')));
+await deve('009: RLS na tabela nova', async () => {
+  const t = await um(`select rowsecurity from pg_tables where tablename = 'agentesia_roteiros'`);
+  if (!t || !t.rowsecurity) throw new Error(JSON.stringify(t));
+});
+await deve('009: status conferido, mídia apagada solta o roteiro e escritório apagado leva junto', async () => {
+  const e9 = (await um(`insert into agentesia_escritorios (nome) values ('Roteiros Ltda') returning id`)).id;
+  const m9 = (await um(`insert into agentesia_biblioteca_midia (id_escritorio, nome, tipo, url) values ($1, 'voz', 'audio', 'https://x/voz.ogg') returning id`, [e9])).id;
+  const r9 = await um(`insert into agentesia_roteiros (id_escritorio, titulo, id_midia, status) values ($1, 'Boas-vindas', $2, 'gravado') returning id, texto, atualizado_em`, [e9, m9]);
+  if (r9.texto !== '' || !r9.atualizado_em) throw new Error(JSON.stringify(r9));
+  let ruim = false;
+  try { await db.query(`insert into agentesia_roteiros (id_escritorio, titulo, status) values ($1, 'x', 'qualquer')`, [e9]); ruim = true; } catch (e) {}
+  if (ruim) throw new Error('aceitou status inválido');
+  await db.query(`delete from agentesia_biblioteca_midia where id = $1`, [m9]);
+  const solto = await um(`select id_midia from agentesia_roteiros where id = $1`, [r9.id]);
+  if (solto.id_midia) throw new Error('roteiro ficou com a mídia apagada');
+  await db.query(`delete from agentesia_escritorios where id = $1`, [e9]);
+  const n9 = await um(`select count(*)::int n from agentesia_roteiros where id_escritorio = $1`, [e9]);
+  if (n9.n) throw new Error('roteiros ficaram sem o escritório');
+});
+await deve('desfazer 009 tira a tabela e roda duas vezes', async () => {
+  await db.exec(ler('desfazer_009.sql'));
+  await db.exec(ler('desfazer_009.sql'));
+  const t = await um(`select count(*)::int n from pg_tables where tablename = 'agentesia_roteiros'`);
+  if (t.n) throw new Error(JSON.stringify(t));
+});
+await deve('desfazer 008 antes da 007', () => db.exec(ler('desfazer_008.sql')));
 await deve('desfazer 007 tira tudo e roda duas vezes', async () => {
   await db.exec(ler('desfazer_007.sql'));
   await db.exec(ler('desfazer_007.sql'));

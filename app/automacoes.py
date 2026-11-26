@@ -33,6 +33,8 @@ GATILHOS_FIXOS: dict[str, str] = {
     "contrato_assinado": "O lead assinou o contrato",
     "contrato_falhou": "O contrato não pôde ser gerado",
     "followup_desistiu": "O lead não respondeu a nenhum follow-up (desistência)",
+    "lead_parado": "Lead parado: 3 follow-ups sem resposta (tarefa para a equipe retomar o contato)",
+    "lead_quente": "Lead ficou quente (nota 7 ou mais)",
     "trava": "A IA foi barrada duas vezes e passou a conversa para a equipe",
     "ia_falhou": "A IA não conseguiu responder (provedor fora do ar, sem crédito...)",
 }
@@ -206,6 +208,33 @@ def acoes_do_lead_novo(config_agente: dict[str, Any], config_crm: dict[str, Any]
                             "remover": regra.get("remover_etiquetas", []), "gatilho": "lead_novo",
                             "id_painel": id_painel, "chave_card": f"{chave}:card"}})
     return acoes, problema
+
+
+def acoes_do_lead_parado(config_agente: dict[str, Any], config_crm: dict[str, Any] | None, *, id_lead: str,
+                         id_followup: str, avisos: set[str] | frozenset[str] = frozenset()) -> list[dict[str, Any]]:
+    """Lead parado (3 follow-ups sem resposta) vira tarefa da equipe: a nota "Lead parado: retomar contato" no chat
+    (sempre; é a primeira ação e a chave dela não repete o mesmo ciclo), e o que o escritório configurou no gatilho
+    "lead_parado": etiqueta, coluna do CRM e o aviso por WhatsApp ("Avisos à equipe")."""
+    from app.followup.regras import NOTA_LEAD_PARADO
+
+    regra = dict((config_agente.get("automacoes") or {}).get("lead_parado") or {})
+    nota = str(regra.pop("nota", "") or "").strip() or NOTA_LEAD_PARADO      # a nota configurada troca a padrão (uma só)
+    sem_nota = {**config_agente, "automacoes": {**(config_agente.get("automacoes") or {}), "lead_parado": regra}}
+    acoes = [{"tipo": "nota", "chave_unica": chave_lead_parado(id_lead, id_followup), "dados": {"texto": nota}}]
+    return acoes + montar_acoes(sem_nota, config_crm, ["lead_parado"], id_lead=id_lead,
+                                id_turno=f"lead_parado-{id_followup}", avisos=avisos)
+
+
+def chave_lead_parado(id_lead: str, id_followup: str) -> str:
+    return f"{id_lead}:lead_parado:{id_followup}"
+
+
+async def depois_do_turno(pool: Any, id_lead: str) -> dict[str, Any] | None:
+    """Gancho depois de cada turno (só banco, sem IA): recalcula a nota do lead e avisa a equipe na primeira vez que ele
+    fica quente (app/cerebro/temperatura.py). Hoje é chamado por app/followup/servico.agendar, que o pipeline já chama
+    depois de cada resposta da IA."""
+    from app.cerebro import temperatura
+    return await temperatura.atualizar(pool, id_lead)
 
 
 def titulo_do_card(nome: str | None, telefone: str | None) -> str:

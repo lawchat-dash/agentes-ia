@@ -99,7 +99,7 @@ async def preparar(
     integracoes = await repo.integracoes(id_escritorio)
 
     # 1. Helena
-    p_helena = passo("helena", "Conta da Helena")
+    p_helena = passo("helena", "Conta da LawChat")
     helena: HelenaConta | None = None
     canais_helena: list[dict[str, Any]] = []
     try:
@@ -107,14 +107,14 @@ async def preparar(
         canais_helena = await helena.canais()
         p_helena("ok", f"token aceito; {len(canais_helena)} números na conta")
     except ErroHelenaApi as erro:
-        p_helena("erro", "a Helena recusou o token" if erro.motivo == "token_recusado" else f"a Helena não respondeu ({erro.motivo})")
+        p_helena("erro", "a LawChat recusou o token" if erro.motivo == "token_recusado" else f"a LawChat não respondeu ({erro.motivo})")
     except Exception as erro:                       # sem token no cofre etc.
         p_helena("erro", getattr(erro, "detail", None) or str(erro) or "cadastre o token em Integrações")
 
     # 2. Canal
     p_canal = passo("canal", "Número de WhatsApp")
     if helena is None:
-        p_canal("pulado", "depende da Helena")
+        p_canal("pulado", "depende da LawChat")
     else:
         if aplicar:
             await repo.sincronizar_canais(id_escritorio, [
@@ -122,9 +122,9 @@ async def preparar(
         do_agente = next((c for c in canais_helena if c["id"] == agente.get("id_canal_helena")), None)
         numero = agente.get("numero_canal") or ""
         if not do_agente:
-            p_canal("erro", f"o número {numero} não existe mais nesta conta da Helena; escolha outro número no agente")
+            p_canal("erro", f"o número {numero} não existe mais nesta conta da LawChat; escolha outro número no agente")
         elif not do_agente["ativo"]:
-            p_canal("erro", f"o número {numero} está desconectado na Helena; reconecte o WhatsApp lá e tente de novo")
+            p_canal("erro", f"o número {numero} está desconectado na LawChat; reconecte o WhatsApp lá e tente de novo")
         else:
             tipo = "API oficial" if do_agente["tipo"] == "oficial" else "não oficial"
             p_canal("feito" if aplicar else "ok", f"{do_agente['numero_formatado'] or numero} conectado ({tipo})")
@@ -137,7 +137,7 @@ async def preparar(
     if not url:
         p_webhook("erro", "o servidor não tem endereço público (AGENTESIA_URL_PUBLICA e AGENTESIA_WEBHOOK_SEGREDO)")
     elif helena is None:
-        p_webhook("pulado", "depende da Helena")
+        p_webhook("pulado", "depende da LawChat")
     else:
         try:
             if aplicar:
@@ -145,7 +145,7 @@ async def preparar(
                 await repo.salvar_integracao(id_escritorio, "helena", situacao="ok",
                                              config={"id_assinatura": assinatura["id"], "webhook_conectado": True})
                 p_webhook("ok" if assinatura["acao"] == "ja_estava_certa" else "feito",
-                          {"criada": "assinatura criada na Helena", "corrigida": "assinatura corrigida na Helena",
+                          {"criada": "assinatura criada na LawChat", "corrigida": "assinatura corrigida na LawChat",
                            "ja_estava_certa": "assinatura já estava certa"}[assinatura["acao"]])
             else:
                 atuais = await helena.assinaturas()
@@ -156,7 +156,7 @@ async def preparar(
                 p_webhook("ok" if certa else "aviso",
                           "assinatura certa" if certa else "será criada ou corrigida na ativação")
         except ErroHelenaApi as erro:
-            p_webhook("erro", f"a Helena não aceitou a assinatura ({erro.motivo})")
+            p_webhook("erro", f"a LawChat não aceitou a assinatura ({erro.motivo})")
 
     # 4. Alcance da URL pública
     p_alcance = passo("alcance", "Endereço público responde")
@@ -165,7 +165,7 @@ async def preparar(
     else:
         chegou, detalhe = await _alcance(url, http)
         p_alcance("ok" if chegou else "aviso", detalhe if chegou else
-                  detalhe + ". Se a Helena também não alcançar, as mensagens não chegam.")
+                  detalhe + ". Se a LawChat também não alcançar, as mensagens não chegam.")
 
     # 5. Etapas
     p_etapas = passo("etapas", "Etapas e instruções")
@@ -193,7 +193,7 @@ async def preparar(
         p_modelo("erro", f"sem chave da {'OpenAI' if provedor == 'openai' else 'Anthropic'} para o modelo {modelo}")
 
     # 7. CRM
-    p_crm = passo("crm", "CRM da Helena")
+    p_crm = passo("crm", "CRM da LawChat")
     if not funcoes.get("crm"):
         if ((integracoes.get("crm") or {}).get("config") or {}).get("id_painel"):
             # O escritório escolheu o painel, mas o agente não move card nem troca etiqueta: antes saía "pulado", calado.
@@ -201,7 +201,7 @@ async def preparar(
         else:
             p_crm("pulado", "função desligada")
     elif helena is None:
-        p_crm("pulado", "depende da Helena")
+        p_crm("pulado", "depende da LawChat")
     else:
         crm = (integracoes.get("crm") or {}).get("config") or {}
         if not crm.get("id_painel"):
@@ -213,7 +213,7 @@ async def preparar(
                 painel, _ = None, p_crm("erro", f"não deu para ler os painéis ({erro.motivo})")
             if p_crm.situacao != "erro":
                 if not painel:
-                    p_crm("erro", f"o painel {crm.get('titulo_painel') or ''} não existe mais na Helena")
+                    p_crm("erro", f"o painel {crm.get('titulo_painel') or ''} não existe mais na LawChat")
                 else:
                     colunas = {e["id"] for e in painel["etapas"]}
                     usadas = {g: (regra or {}).get("coluna_crm") for g, regra in (config.get("automacoes") or {}).items()}
@@ -226,14 +226,14 @@ async def preparar(
     if not funcoes.get("transferir_humano"):
         p_equipe("pulado", "função desligada")
     elif not config.get("id_equipe_transferencia"):
-        p_equipe("aviso", "nenhuma equipe escolhida: a conversa vai para a fila geral da Helena")
+        p_equipe("aviso", "nenhuma equipe escolhida: a conversa vai para a fila geral da LawChat")
     elif helena is None:
-        p_equipe("pulado", "depende da Helena")
+        p_equipe("pulado", "depende da LawChat")
     else:
         try:
             equipes = await helena.equipes()
             achada = next((e for e in equipes if e["id"] == config["id_equipe_transferencia"]), None)
-            p_equipe("ok", achada["nome"]) if achada else p_equipe("erro", "a equipe escolhida não existe mais na Helena")
+            p_equipe("ok", achada["nome"]) if achada else p_equipe("erro", "a equipe escolhida não existe mais na LawChat")
         except ErroHelenaApi as erro:
             p_equipe("aviso", f"não deu para conferir as equipes ({erro.motivo})")
 

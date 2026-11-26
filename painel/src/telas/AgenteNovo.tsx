@@ -12,7 +12,7 @@ import { EditorDefinicao } from "./EditorDefinicao";
 const PASSOS = ["Modelo", "Identidade", "Comportamento", "Conteúdo", "Integrações", "Revisão"];
 const ESPERAS = [5, 10, 15, 20, 30, 45];
 const PAUSAS: [string, number | null][] = [["15 min", 15], ["30 min", 30], ["1 hora", 60], ["2 horas", 120], ["Só a equipe religa", null]];
-const NOMES_SUGERIDOS = ["Júlia", "Sofia", "Laura", "Helena", "Ana", "Clara"];
+const NOMES_SUGERIDOS = ["Júlia", "Sofia", "Laura", "LawChat", "Ana", "Clara"];
 
 interface EtapaPrevia { codigo: string; nome: string; tipo: string; instrucao_padrao: string }
 interface Faq { pergunta: string; resposta: string }
@@ -77,11 +77,11 @@ export function TelaAgenteNovo() {
   const numerosLista = numerosTeste.split(/[\n,;]/).map((n) => n.trim()).filter(Boolean);
 
   const sincronizar = () => executar(async () => { await api("/integracoes/helena/canais", { metodo: "POST" }); await integracoes.recarregar(); },
-    "Números sincronizados com a Helena.");
+    "Números sincronizados com a LawChat.");
 
   const checklist: { item: string; ok: boolean; obrigatorio: boolean; detalhe: string }[] = [
     { item: "Identidade", ok: nome.trim().length >= 2 && Boolean(idCanal), obrigatorio: true, detalhe: nome && idCanal ? `${nome} no ${formatarTelefone(canais.find((c) => c.id === idCanal)?.numero_normalizado)}` : "nome e número" },
-    { item: "Helena conectada", ok: helenaOk, obrigatorio: true, detalhe: helenaOk ? "token aceito" : "conecte em Integrações" },
+    { item: "LawChat conectada", ok: helenaOk, obrigatorio: true, detalhe: helenaOk ? "token aceito" : "conecte em Integrações" },
     { item: "Contrato na ZapSign", ok: !funcoes.contrato_zapsign || zapsignPronta, obrigatorio: Boolean(funcoes.contrato_zapsign), detalhe: !funcoes.contrato_zapsign ? "função desligada" : zapsignPronta ? "token e modelo prontos" : "falta token ou modelo em Integrações" },
     { item: "CRM", ok: !funcoes.crm || crmPronto, obrigatorio: false, detalhe: !funcoes.crm ? "função desligada" : crmPronto ? "painel escolhido" : "escolha o painel em Integrações (dá para fazer depois)" },
     { item: "Números de teste", ok: numerosLista.length > 0, obrigatorio: ativarJa, detalhe: numerosLista.length ? `${numerosLista.length} número(s)` : "para ativar em teste agora" },
@@ -125,7 +125,7 @@ export function TelaAgenteNovo() {
         ))}
       </div>
 
-      {!helenaOk && <div style={{ marginBottom: 16 }}><Alerta tipo="warn"><b>A Helena ainda não está conectada.</b> Sem ela não há números. <Link to="/integracoes">Conectar agora</Link></Alerta></div>}
+      {!helenaOk && <div style={{ marginBottom: 16 }}><Alerta tipo="warn"><b>A LawChat ainda não está conectada.</b> Sem ela não há números. <Link to="/integracoes">Conectar agora</Link></Alerta></div>}
 
       <div key={atual} className="passo-corpo">
         {atual === "Modelo" && (
@@ -157,7 +157,7 @@ export function TelaAgenteNovo() {
             </Painel>
             <Painel titulo={<h3 style={{ display: "flex", gap: 8, alignItems: "center" }}>Canal: WhatsApp <span className="chip warn">obrigatório</span></h3>} sem_corpo
               acoes={<button className="btn sm" onClick={sincronizar} disabled={ocupado || !helenaOk}><RefreshCw className={ocupado ? "girando" : ""} />Sincronizar</button>}>
-              {canais.length === 0 ? <Vazio>Nenhum número na Helena. Use "Sincronizar".</Vazio> : (
+              {canais.length === 0 ? <Vazio>Nenhum número na LawChat. Use "Sincronizar".</Vazio> : (
                 <div className="rows">{canais.map((c) => {
                   const emUso = Boolean(c.id_agente);
                   return (
@@ -242,7 +242,7 @@ export function TelaAgenteNovo() {
                   <div><b>Ativar imediatamente (em teste)</b><div className="sec" style={{ fontSize: 13 }}>Desligado, o agente fica como rascunho, pausado.</div></div>
                 </div>
                 {pendencias.length > 0 && ativarJa && <Alerta tipo="warn">Não dá para ativar ainda: {pendencias.map((p) => p.item.toLowerCase()).join(", ")}.</Alerta>}
-                <Alerta tipo="info">Ao ativar, o sistema sincroniza o número, cria o webhook na Helena e confere CRM e chave de IA. Para todos (produção) é na tela do agente, depois de testar.</Alerta>
+                <Alerta tipo="info">Ao ativar, o sistema sincroniza o número, cria o webhook na LawChat e confere CRM e chave de IA. Para todos (produção) é na tela do agente, depois de testar.</Alerta>
               </div>
             </Painel>
           </div>

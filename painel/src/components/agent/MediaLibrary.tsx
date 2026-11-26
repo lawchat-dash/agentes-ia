@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Music, Image as ImageIcon, Video, UploadCloud, Trash2, Plus, Copy, Pencil, RefreshCw, ShieldCheck, Lightbulb } from "lucide-react";
+import {
+  Loader2, Music, Image as ImageIcon, Video, UploadCloud, Trash2, Plus, Copy, Pencil, RefreshCw, Search, Mic, FolderOpen,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -12,17 +14,18 @@ import { usePlanFeatures } from "@/hooks/usePlanFeatures";
 import { toast } from "sonner";
 
 /** Formata bytes em KB/MB legível. */
-const fmtBytes = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+const fmtBytes = (b: number) => (!b ? "0 KB" : b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 /** Data de envio: dd/mm/aaaa às hh:mm. */
 const fmtDate = (iso: string) => {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   return `${d.toLocaleDateString("pt-BR")} às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
 };
-const TYPE_LABEL: Record<string, string> = { audio: "ÁUDIO", video: "VÍDEO", image: "IMAGEM" };
+const TYPE_LABEL: Record<string, string> = { audio: "Áudio", video: "Vídeo", image: "Imagem" };
 const TYPE_BADGE: Record<string, string> = {
-  audio: "bg-violet-500/12 text-violet-600 border-violet-500/25",
-  video: "bg-blue-500/12 text-blue-600 border-blue-500/25",
-  image: "bg-emerald-500/12 text-emerald-600 border-emerald-500/25",
+  audio: "bg-violet-500/10 text-violet-700 border-violet-500/20",
+  video: "bg-blue-500/10 text-blue-700 border-blue-500/20",
+  image: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
 };
 
 export interface MediaItem {
@@ -60,6 +63,8 @@ const rowToItem = (d: any): MediaItem => ({
   webhook_response: d.resposta_webhook,
 } as MediaItem);
 
+type Filtro = "todos" | MediaItem["type"];
+
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -80,9 +85,13 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
   const [items, setItems] = useState<MediaItem[]>([]);
   // Cota informada pelo servidor (GET /midia → usado_bytes / limite_bytes).
   const [cota, setCota] = useState<{ usado: number; limite: number } | null>(null);
+  // Áudios que vieram de um roteiro (Ferramentas > Roteiros): id da mídia → título do roteiro.
+  const [deRoteiro, setDeRoteiro] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [busca, setBusca] = useState("");
+  const [filtro, setFiltro] = useState<Filtro>("todos");
   const fileRef = useRef<HTMLInputElement>(null);
   const autoTriggered = useRef(false);
 
@@ -100,10 +109,16 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
     } finally {
       setLoading(false);
     }
+    // Só um rótulo a mais: se os roteiros não estiverem disponíveis, a biblioteca segue igual.
+    api<{ id_midia: string | null; titulo: string }[]>("/roteiros")
+      .then((rs) => setDeRoteiro(Object.fromEntries((rs ?? []).filter((r) => r.id_midia).map((r) => [r.id_midia as string, r.titulo]))))
+      .catch(() => setDeRoteiro({}));
   };
 
   useEffect(() => {
     if (open) {
+      setBusca("");
+      setFiltro(uploadOnly ?? "todos");
       fetchItems();
       if (uploadOnly && !autoTriggered.current) {
         autoTriggered.current = true;
@@ -112,12 +127,21 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
     } else {
       autoTriggered.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, workspace?.id, uploadOnly]);
+
+  const usedBytes = cota?.usado ?? items.reduce((s, i) => s + (i.size_bytes ?? 0), 0);
+  const limitBytes = cota?.limite ?? Math.max(1, armazenamentoMb) * 1024 * 1024;
+  const freeBytes = Math.max(0, limitBytes - usedBytes);
+  const usoPct = Math.min(100, Math.round((usedBytes / limitBytes) * 100));
+  const quase = usoPct >= 90;
+  const limiteMb = Math.round(limitBytes / 1024 / 1024);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || !workspace) return;
     setUploading(true);
     let running = usedBytes;          // controle de cota durante o lote
+    let enviados = 0;
     try {
       for (const file of Array.from(files)) {
         const ext = file.name.toLowerCase().split(".").pop() ?? "";
@@ -170,12 +194,13 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
         }
 
         running += file.size;
+        enviados += 1;
         if (uploadOnly && onInsert) {
           onInsert(`\n[${type}:${file.name}](${pub.publicUrl})\n`);
           onOpenChange(false);
         }
       }
-      toast.success("Upload concluído");
+      if (enviados) toast.success(enviados > 1 ? `${enviados} arquivos enviados` : "Arquivo enviado");
       await fetchItems();
       invalidarMidia();
     } finally {
@@ -218,158 +243,188 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
       await api(`/midia/${item.id}`, { metodo: "DELETE" });
     } catch (e: any) { toast.error("Erro ao excluir", { description: e?.message }); return; }
     setItems((p) => p.filter((i) => i.id !== item.id));
+    if (item.size_bytes && cota) setCota({ ...cota, usado: Math.max(0, cota.usado - item.size_bytes) });
     invalidarMidia();
     toast.success("Arquivo removido");
   };
 
-  const visibleItems = items.filter((it) => !uploadOnly || it.type === uploadOnly);
-  const usedBytes = cota?.usado ?? items.reduce((s, i) => s + (i.size_bytes ?? 0), 0);
-  const limitBytes = cota?.limite ?? Math.max(1, armazenamentoMb) * 1024 * 1024;
-  const freeBytes = Math.max(0, limitBytes - usedBytes);
-  const usoPct = Math.min(100, Math.round((usedBytes / limitBytes) * 100));
-  const quase = usoPct >= 90;
+  const base = items.filter((it) => !uploadOnly || it.type === uploadOnly);
+  const contagem: Record<Filtro, number> = {
+    todos: base.length,
+    audio: base.filter((i) => i.type === "audio").length,
+    video: base.filter((i) => i.type === "video").length,
+    image: base.filter((i) => i.type === "image").length,
+  };
+  const termo = busca.trim().toLowerCase();
+  const visibleItems = base.filter((it) => (filtro === "todos" || it.type === filtro)
+    && (!termo || it.name.toLowerCase().includes(termo) || (deRoteiro[it.id] ?? "").toLowerCase().includes(termo)));
   const acceptAttr = uploadOnly === "audio" ? ".ogg,.oga,.opus,.mp3,.m4a" : uploadOnly === "video" ? ".mp4" : uploadOnly === "image" ? ".jpg,.jpeg,.png" : ".ogg,.oga,.opus,.mp3,.m4a,.mp4,.jpg,.jpeg,.png";
+  const filtros: { chave: Filtro; rotulo: string }[] = uploadOnly
+    ? [{ chave: uploadOnly, rotulo: TYPE_LABEL[uploadOnly] }]
+    : [{ chave: "todos", rotulo: "Todos" }, { chave: "audio", rotulo: "Áudio" }, { chave: "video", rotulo: "Vídeo" }, { chave: "image", rotulo: "Imagem" }];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[1080px] w-[94vw] max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
-        {/* Cabeçalho */}
-        <DialogHeader className="space-y-0 p-6 pb-4 text-left">
-          <div className="flex items-center gap-3.5">
-            <div className="size-12 rounded-2xl grid place-items-center shrink-0 text-primary shadow-[0_12px_28px_-12px_hsl(var(--primary)/0.5)]" style={{ background: "linear-gradient(135deg, hsl(var(--primary)/0.18), hsl(var(--primary)/0.06))" }}>
-              <ImageIcon className="size-6" />
+      <DialogContent
+        className="max-w-[1000px] w-[94vw] max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        {/* Cabeçalho + espaço usado */}
+        <DialogHeader className="space-y-0 px-6 pt-5 pb-4 text-left border-b border-border">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pr-8">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="size-10 rounded-xl grid place-items-center shrink-0 bg-primary/10 text-primary">
+                <FolderOpen className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-lg font-bold leading-tight">{uploadOnly === "audio" ? "Adicionar áudio" : "Biblioteca de mídia"}</DialogTitle>
+                <DialogDescription className="mt-0.5 text-[13px]">Áudios, vídeos e imagens para usar nos prompts dos agentes.</DialogDescription>
+              </div>
             </div>
-            <div className="min-w-0">
-              <DialogTitle className="text-lg font-bold leading-tight">{uploadOnly === "audio" ? "Adicionar áudio" : "Biblioteca de mídia"}</DialogTitle>
-              <DialogDescription className="mt-0.5">Gerencie arquivos de áudio, vídeo e imagem para usar nos prompts.</DialogDescription>
+            <div className="w-full sm:w-[230px]" title={`${fmtBytes(freeBytes)} disponível`}>
+              <div className="flex items-baseline justify-between text-[11.5px]">
+                <span className="text-muted-foreground">Espaço{planName ? ` · ${planName}` : ""}</span>
+                <span className={`tabular-nums font-semibold ${quase ? "text-amber-600" : "text-foreground"}`}>{fmtBytes(usedBytes)} de {limiteMb} MB</span>
+              </div>
+              <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(usoPct, usedBytes ? 2 : 0)}%`, background: quase ? "#f59e0b" : "hsl(var(--primary))" }} />
+              </div>
             </div>
           </div>
         </DialogHeader>
 
         <input ref={fileRef} type="file" multiple accept={acceptAttr} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
 
-        <div className="flex-1 overflow-y-auto px-6 pb-4 space-y-5">
-          {/* Upload + armazenamento */}
-          <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-              onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFiles(e.dataTransfer.files); }}
-              disabled={uploading}
-              className={`group rounded-2xl border-[1.5px] border-dashed transition-all grid place-items-center text-center px-6 py-7 min-h-[176px] disabled:opacity-70 ${dragActive ? "border-primary bg-primary/10 scale-[1.01]" : "border-border hover:border-primary/60"}`}
-              style={dragActive ? undefined : { background: "radial-gradient(circle at center, hsl(var(--primary)/0.05), transparent 55%)" }}
-            >
-              <div>
-                <div className={`size-12 rounded-2xl grid place-items-center mx-auto mb-2.5 text-primary transition-transform ${dragActive ? "bg-primary/20 scale-110" : "bg-primary/10 group-hover:scale-105"}`}>
-                  {uploading ? <Loader2 className="size-6 animate-spin" /> : <UploadCloud className="size-6" />}
-                </div>
-                <div className="text-sm font-bold text-foreground">{uploading ? "Enviando…" : dragActive ? "Solte para enviar" : "Adicionar arquivo"}</div>
-                <div className="text-xs text-muted-foreground mt-1">Arraste e solte ou <span className="text-primary font-semibold group-hover:underline">clique para selecionar</span></div>
-                <div className="mt-3 inline-flex items-center rounded-lg border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                  {uploadOnly === "audio" ? "OGG/OPUS (voz), MP3, M4A" : "Áudio, vídeo MP4, imagem JPG/PNG"} · máx. 16 MB (imagem 5 MB)
-                </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Área de envio */}
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Enviar arquivo: arraste e solte ou clique para escolher"
+            onClick={() => !uploading && fileRef.current?.click()}
+            onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !uploading) { e.preventDefault(); fileRef.current?.click(); } }}
+            onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+            onDrop={(e) => { e.preventDefault(); setDragActive(false); if (!uploading) handleFiles(e.dataTransfer.files); }}
+            className={`group flex flex-col sm:flex-row items-center gap-4 rounded-xl border border-dashed px-5 py-4 cursor-pointer outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/30 ${dragActive ? "border-primary bg-primary/5" : "border-slate-300 bg-slate-50/60 hover:border-primary/50 hover:bg-primary/[0.03]"} ${uploading ? "opacity-70 cursor-wait" : ""}`}
+          >
+            <div className="size-11 rounded-xl grid place-items-center shrink-0 bg-white border border-border text-primary shadow-sm">
+              {uploading ? <Loader2 className="size-5 animate-spin" /> : <UploadCloud className="size-5" />}
+            </div>
+            <div className="flex-1 min-w-0 text-center sm:text-left">
+              <div className="text-sm font-semibold text-foreground">
+                {uploading ? "Enviando…" : dragActive ? "Solte para enviar" : <>Arraste arquivos aqui ou <span className="text-primary">escolha no computador</span></>}
               </div>
-            </button>
-
-            <div className="rounded-2xl border border-border bg-card p-4 flex flex-col">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="size-8 rounded-lg bg-primary/10 grid place-items-center shrink-0 text-primary"><ShieldCheck className="size-4" /></div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold leading-tight">Permitido</div>
-                    <div className="text-xs text-muted-foreground truncate">áudio, vídeo, imagem</div>
-                  </div>
-                </div>
-                <Button onClick={handleSync} disabled={syncing} variant="outline" size="sm" className="shrink-0">
-                  {syncing ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="size-3.5 mr-1.5" />}Atualizar
-                </Button>
-              </div>
-
-              <div className="mt-3.5 grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-[11px] text-muted-foreground">Máximo por arquivo</div>
-                  <div className="text-sm font-bold">16 MB</div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-muted-foreground truncate">Armazenamento{planName ? ` · ${planName}` : ""}</div>
-                  <div className="text-sm font-bold">{fmtBytes(usedBytes)} <span className="text-muted-foreground font-medium">de {armazenamentoMb} MB</span></div>
-                </div>
-              </div>
-              <div className="mt-2.5 h-2 rounded-full bg-muted overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${usoPct}%`, background: quase ? "linear-gradient(90deg,#f59e0b,#ef4444)" : "linear-gradient(90deg, #22c55e, hsl(var(--primary)))" }} />
-              </div>
-              <div className="mt-1.5 flex items-center justify-between text-[11px]">
-                <span className={quase ? "font-semibold text-amber-600" : "text-muted-foreground"}>{fmtBytes(freeBytes)} disponível</span>
-                <span className="text-muted-foreground tabular-nums">{usoPct}% usado</span>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {uploadOnly === "audio"
+                  ? "Áudio .ogg/.opus (chega como mensagem de voz), .mp3 ou .m4a · até 16 MB"
+                  : "Áudio .ogg/.opus, .mp3, .m4a e vídeo .mp4 até 16 MB · imagem .jpg/.png até 5 MB"}
               </div>
             </div>
+            <Button type="button" size="sm" className="shrink-0" disabled={uploading} onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }}>
+              <Plus className="size-4 mr-1" />Enviar arquivo
+            </Button>
           </div>
 
-          {/* Lista de arquivos */}
-          {loading ? (
-            <div className="grid place-items-center py-12"><Loader2 className="size-6 animate-spin text-primary" /></div>
+          {/* Busca e filtro */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar pelo nome" className="pl-9 h-9" aria-label="Buscar mídia pelo nome" />
+            </div>
+            <div className="inline-flex rounded-lg border border-border bg-card p-0.5" role="tablist" aria-label="Filtrar por tipo">
+              {filtros.map((f) => (
+                <button key={f.chave} type="button" role="tab" aria-selected={filtro === f.chave} onClick={() => setFiltro(f.chave)}
+                  className={`px-2.5 h-8 rounded-md text-xs font-semibold transition-colors ${filtro === f.chave ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                  {f.rotulo} <span className="tabular-nums opacity-70">{contagem[f.chave]}</span>
+                </button>
+              ))}
+            </div>
+            <Button onClick={handleSync} disabled={syncing || loading} variant="outline" size="sm" className="h-9" title="Atualizar a lista">
+              {syncing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            </Button>
+          </div>
+
+          {/* Arquivos */}
+          {loading && items.length === 0 ? (
+            <div className="grid place-items-center py-10"><Loader2 className="size-6 animate-spin text-primary" /></div>
           ) : visibleItems.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground py-12 border border-dashed rounded-2xl">
-              Nenhum arquivo na biblioteca ainda. Faça upload acima e ele aparece aqui.
+            <div className="flex items-center justify-center gap-2.5 text-sm text-muted-foreground py-7 rounded-xl bg-muted/40">
+              <FolderOpen className="size-4" />
+              {base.length === 0 ? "Nenhum arquivo ainda. Envie o primeiro acima." : "Nada encontrado com esse filtro."}
             </div>
           ) : (
-            <div>
-              <div className="text-sm font-bold mb-2.5">Arquivos adicionados ({visibleItems.length})</div>
-              <div className="space-y-2">
-                {visibleItems.map((it) => {
-                  const Icon = TYPE_RULES[it.type].icon;
-                  const token = `\n[${it.type}:${it.name}](${it.url})\n`;
-                  return (
-                    <div key={it.id} className="flex items-center gap-3 p-3 rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-20px_rgba(15,23,42,0.25)]">
-                      <div className="size-14 rounded-xl overflow-hidden shrink-0 grid place-items-center bg-primary/10 text-primary border border-border">
-                        {it.type === "image" ? <img src={it.url} alt="" loading="lazy" className="size-full object-cover" /> : <Icon className="size-6" />}
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleItems.map((it) => {
+                const Icon = TYPE_RULES[it.type].icon;
+                const token = `\n[${it.type}:${it.name}](${it.url})\n`;
+                const roteiro = deRoteiro[it.id];
+                return (
+                  <div key={it.id} className="flex flex-col rounded-xl border border-border bg-card overflow-hidden transition-shadow hover:shadow-[0_10px_28px_-18px_rgba(15,23,42,0.35)]">
+                    {/* Prévia */}
+                    {it.type === "image" ? (
+                      <a href={it.url} target="_blank" rel="noreferrer" className="block h-32 bg-muted/50 border-b border-border">
+                        <img src={it.url} alt={it.name} loading="lazy" className="size-full object-cover" />
+                      </a>
+                    ) : it.type === "video" ? (
+                      <video src={it.url} controls preload="metadata" className="h-32 w-full bg-slate-900 object-contain border-b border-border" />
+                    ) : (
+                      <div className="px-3 pt-3">
+                        <audio src={it.url} controls preload="none" className="w-full h-9" />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate">{it.name}</div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md border ${TYPE_BADGE[it.type]}`}>{TYPE_LABEL[it.type]}</span>
-                          <span className="text-[11px] text-muted-foreground">{fmtBytes(it.size_bytes ?? 0)}</span>
+                    )}
+                    <div className="p-3 flex flex-col gap-2 flex-1">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Icon className="size-4 mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold truncate" title={it.name}>{it.name}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-px rounded border ${TYPE_BADGE[it.type]}`}>{TYPE_LABEL[it.type]}</span>
+                            {roteiro && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-px rounded border bg-cyan-500/10 text-cyan-700 border-cyan-500/20" title={`Gravado no roteiro "${roteiro}"`}>
+                                <Mic className="size-3" />Roteiro
+                              </span>
+                            )}
+                            <span className="text-[11px] text-muted-foreground tabular-nums">{fmtBytes(it.size_bytes ?? 0)}</span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">{fmtDate(it.created_at)}</div>
                         </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">Enviado em {fmtDate(it.created_at)}</div>
                       </div>
-                      {onInsert && (
-                        <Button
-                          className="bg-gradient-primary text-white shrink-0 rounded-xl font-semibold shadow-[0_8px_20px_-8px_hsl(var(--primary)/0.6)] hover:shadow-[0_12px_26px_-8px_hsl(var(--primary)/0.7)] hover:-translate-y-0.5 transition-all"
-                          onClick={() => { onInsert(token); onOpenChange(false); toast.success("Mídia inserida no prompt"); }}
-                        >
-                          <Plus className="size-4 mr-1" />Inserir
-                        </Button>
-                      )}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Button size="icon" variant="ghost" className="size-9 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10" title="Renomear arquivo" onClick={() => { setRenameItem(it); setNovoNome(it.name); }}>
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="size-9 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted" title="Copiar referência" onClick={() => { navigator.clipboard.writeText(token.trim()); toast.success("Referência copiada"); }}>
-                          <Copy className="size-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="size-9 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Excluir" onClick={() => setConfirmItem(it)}>
-                          <Trash2 className="size-4" />
-                        </Button>
+                      <div className="mt-auto flex items-center gap-1 pt-1">
+                        {onInsert && (
+                          <Button size="sm" className="h-8 rounded-lg font-semibold mr-auto"
+                            onClick={() => { onInsert(token); onOpenChange(false); toast.success("Mídia inserida no prompt"); }}>
+                            <Plus className="size-3.5 mr-1" />Inserir
+                          </Button>
+                        )}
+                        <div className={`flex items-center gap-0.5 ${onInsert ? "" : "ml-auto"}`}>
+                          <Button size="icon" variant="ghost" className="size-8 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10" title="Renomear" aria-label={`Renomear ${it.name}`} onClick={() => { setRenameItem(it); setNovoNome(it.name); }}>
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="size-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted" title="Copiar referência para o prompt" aria-label={`Copiar referência de ${it.name}`} onClick={() => { navigator.clipboard.writeText(token.trim()); toast.success("Referência copiada"); }}>
+                            <Copy className="size-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="size-8 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10" title="Excluir" aria-label={`Excluir ${it.name}`} onClick={() => setConfirmItem(it)}>
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           )}
-
-          {/* Dica */}
-          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-xs text-muted-foreground flex items-center gap-2">
-            <Lightbulb className="size-4 text-primary shrink-0" />
-            <span>Clique em <strong className="text-foreground">Inserir</strong> para colar a mídia no prompt na posição do cursor.</span>
-          </div>
         </div>
 
         {/* Rodapé */}
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
+        <div className="flex items-center gap-3 px-6 py-3.5 border-t border-border bg-muted/30">
+          <span className="text-xs text-muted-foreground flex-1">
+            {onInsert
+              ? <>Clique em <strong className="text-foreground">Inserir</strong> para colar a mídia no prompt, na posição do cursor.</>
+              : <>Para usar no prompt, abra o editor do agente e insira pela biblioteca, ou copie a referência.</>}
+          </span>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Fechar</Button>
         </div>
       </DialogContent>
@@ -377,18 +432,21 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
       <Dialog open={!!confirmItem} onOpenChange={(v) => !v && !deleting && setConfirmItem(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Você deseja excluir esse arquivo?</DialogTitle>
+            <DialogTitle>Excluir este arquivo?</DialogTitle>
             {confirmItem && (
               <DialogDescription className="mt-1 break-all rounded-md bg-muted/60 px-2 py-1.5 font-mono text-xs">{confirmItem.name}</DialogDescription>
             )}
           </DialogHeader>
+          {confirmItem && deRoteiro[confirmItem.id] && (
+            <p className="text-xs text-muted-foreground">O roteiro "{deRoteiro[confirmItem.id]}" volta para "a gravar".</p>
+          )}
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="secondary" disabled={deleting} onClick={() => setConfirmItem(null)}>
               Cancelar
             </Button>
             <Button
               disabled={deleting}
-              className="bg-primary text-primary-foreground hover:bg-destructive hover:text-primary-foreground"
+              variant="destructive"
               onClick={async () => {
                 if (!confirmItem) return;
                 setDeleting(true);
@@ -401,7 +459,7 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
               }}
             >
               {deleting ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : null}
-              Deletar
+              Excluir
             </Button>
           </DialogFooter>
         </DialogContent>

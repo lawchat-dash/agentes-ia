@@ -239,6 +239,20 @@ def responde(*textos: str, transferir_para: str = "", ferramenta: str = "") -> d
             "notificacao": ""}
 
 
+QUALIFICADO = (("aposentado", "nao"), ("tem_advogado_no_caso", "nao"), ("sequela", "sim"), ("aceite_honorarios", "sim"))
+
+
+async def qualificar(e2e: "Cenario", fatos=QUALIFICADO) -> None:
+    """Leva 1 (B4): os fatos do portão já respondidos (como se o lead tivesse contado em turnos anteriores). Sem eles o
+    motor segura a passagem para o Closer e para Contratos (e o desqualificar sem motivo)."""
+    from types import SimpleNamespace
+
+    lead = await e2e.lead()
+    await e2e.repo.gravar_fatos(lead=SimpleNamespace(id=str(lead["id"]), id_escritorio=str(lead["id_escritorio"])),
+                                id_turno=None, fatos=[{"chave": c, "valor": v, "trecho": f"(teste) {c}", "fonte": "equipe"}
+                                                      for c, v in fatos])
+
+
 class IAFalsa:
     """Roteiro trocável por teste: `extrator` e `etapa` recebem (sistema, conteudo). `falhar` derruba a chamada."""
 
@@ -642,6 +656,7 @@ async def test_sdr_qualifica_e_passa_para_o_closer(e2e: Cenario):
 
     e2e.ia.etapa = etapa
     await e2e.chega(e2e.do_lead("oi, sofri um acidente"))
+    await qualificar(e2e)                                   # leva 1: fatos do portão
     await e2e.chega(e2e.do_lead("caí da escada no trabalho e fiquei com sequela no tornozelo"))
 
     lead = await e2e.lead()
@@ -679,7 +694,7 @@ async def test_troca_pelo_arroba_agente_do_prompt(e2e: Cenario):
            where id = $1::uuid""", e2e.ids["agente"])
 
     def etapa(_s, c):
-        novas = c.split("MENSAGENS NOVAS")[-1]
+        novas = c.split("MENSAGENS NOVAS")[-1].split("DADOS JÁ INFORMADOS")[0]   # os fatos do portão vêm depois
         if "sequela" in novas:
             return responde("Que bom que me contou.", FRASE_CLOSER, transferir_para="closer")
         if "advogado" in novas:
@@ -688,6 +703,7 @@ async def test_troca_pelo_arroba_agente_do_prompt(e2e: Cenario):
 
     e2e.ia.etapa = etapa
     await e2e.chega(e2e.do_lead("oi"))
+    await qualificar(e2e)                                   # leva 1: fatos do portão
     assert e2e.pedidos("etapa")[0]["esquema"]["properties"]["transferir_para"]["enum"] == ["", "closer"]
     await e2e.chega(e2e.do_lead("tenho advogado? não sei"))
     assert (await e2e.lead())["etapa"] == "sdr" and await e2e.eventos("destino_recusado")
@@ -702,6 +718,7 @@ async def test_troca_com_a_helena_fora_nao_muda_o_agente(e2e: Cenario):
     e2e.ia.etapa = lambda _s, c: responde("Entendi.", FRASE_CLOSER, transferir_para="closer") if "sequela" in c \
         else responde("Oi! Como foi o acidente?")
     await e2e.chega(e2e.do_lead("oi"))
+    await qualificar(e2e)                                   # leva 1: fatos do portão
     e2e.helena.falhar_envio = 6                                         # 2 partes x 3 tentativas
     await e2e.chega(e2e.do_lead("fiquei com sequela no joelho"))
     lead = await e2e.lead()

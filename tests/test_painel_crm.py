@@ -282,7 +282,7 @@ async def test_trava_timeout_no_painel_fica_incerto_e_bloqueado(ambiente):
     await cliente.post(f"{base}/codigo", headers=CAB)
     falsa.timeout_no_painel = True
     r = (await cliente.post(base, json={"codigo": "123456"}, headers=CAB)).json()
-    assert r["ok"] is False and r["estado"] == "incerto" and "Confira na Helena" in r["erro"]
+    assert r["ok"] is False and r["estado"] == "incerto" and "Confira na LawChat" in r["erro"]
     assert falsa.caminhos().count("/crm/v1/panel") == 1                                  # sem repetir
     bloqueado = await cliente.post(f"{base}/codigo", headers=CAB)
     assert bloqueado.status_code == 409 and "incerto" in bloqueado.json()["detail"]

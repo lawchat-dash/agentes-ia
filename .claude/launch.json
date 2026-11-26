@@ -53,6 +53,30 @@
       }
     },
     {
+      "name": "painel-rascunho",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8016"
+      ],
+      "port": 8016,
+      "env": {
+        "AGENTESIA_MODELO_FALSO": "1",
+        "AGENTESIA_BANCO_URL": "postgresql://postgres:postgres@127.0.0.1:55904/postgres",
+        "AGENTESIA_BANCO_CONEXOES": "1",
+        "AGENTESIA_HELENA_URL": "http://127.0.0.1:8020",
+        "AGENTESIA_URL_PUBLICA": "http://127.0.0.1:8016",
+        "AGENTESIA_WEBHOOK_SEGREDO": "segredo-demo",
+        "AGENTESIA_SEGREDO_SESSAO": "segredo-de-sessao-da-demonstracao-local-2",
+        "AGENTESIA_ZAPSIGN_URL_TESTE": "http://127.0.0.1:8020",
+        "AGENTESIA_HELENA_TOKEN_PARCEIRO": "pn_parceiro_de_teste_local",
+        "AGENTESIA_HELENA_CONTA_LAWCHAT": "11111111-0000-4000-8000-000000000002"
+      }
+    },
+    {
       "name": "painel-real",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [

@@ -105,7 +105,7 @@ async def test_rota_abre_lista_e_conversa_e_recusa_o_que_nao_deve(ambiente, monk
     linha = await pool.fetchrow(
         "select resumo, depois::text as depois from agentesia_alteracoes where id_escritorio = $1::uuid and acao = 'abriu_atendimento' "
         "order by criado_em desc limit 1", escritorio["id"])
-    assert "Abriu o atendimento da Helena" in linha["resumo"] and "uso-unico" not in (linha["depois"] or "")
+    assert "Abriu o atendimento da LawChat" in linha["resumo"] and "uso-unico" not in (linha["depois"] or "")
 
     # Escritório sem conta Helena: 409.
     outro = (await cliente.post("/api/admin/escritorios", json={"nome": "Sem conta"})).json()["escritorio"]

@@ -168,7 +168,7 @@ function PainelAtivacao({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Ag
     }))) return;
     if (situacao === "pausado" && !(await confirmar({
       titulo: "Pausar o agente?", confirmar: "Pausar agente", perigo: true,
-      texto: <>A IA para de responder neste número. As mensagens continuam chegando na Helena para a equipe atender.</>,
+      texto: <>A IA para de responder neste número. As mensagens continuam chegando na LawChat para a equipe atender.</>,
     }))) return;
     executar(async () => {
       try {
@@ -185,7 +185,7 @@ function PainelAtivacao({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Ag
 
   return (
     <Painel titulo="Ativação" acoes={<button className="btn sm" onClick={() => executar(() => conferir(true), "Preparação feita.")} disabled={ocupado || conferindo}
-      title="Sincroniza o número e cria ou corrige o webhook na Helena"><Wrench />Preparar agora</button>}>
+      title="Sincroniza o número e cria ou corrige o webhook na LawChat"><Wrench />Preparar agora</button>}>
       <div className="form">
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}><span className="lbl">Agora:</span><Situacao valor={agente.situacao} />{agente.situacao === "ativo" && <Situacao valor={agente.modo} />}</div>
         <div className="passos-ativacao" aria-live="polite">
@@ -200,7 +200,7 @@ function PainelAtivacao({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Ag
         {erros > 0 && <Alerta tipo="warn">{erros === 1 ? "Falta 1 item" : `Faltam ${erros} itens`} antes de ativar. Número e webhook o sistema arruma sozinho ao ativar.</Alerta>}
         {agente.situacao === "pausado" && <>
           <button className="btn pri" onClick={() => ativar("ativo", "teste")} disabled={ocupado}><FlaskConical />Preparar e ativar em teste</button>
-          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Sincroniza o número, cria o webhook na Helena, confere CRM e chave de IA, e liga. Só os números de teste recebem resposta.</p>
+          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Sincroniza o número, cria o webhook na LawChat, confere CRM e chave de IA, e liga. Só os números de teste recebem resposta.</p>
         </>}
         {agente.situacao === "ativo" && agente.modo === "teste" && <>
           <button className="btn ok" onClick={() => ativar("ativo", "producao")} disabled={ocupado}><Rocket />Ativar para todos</button>

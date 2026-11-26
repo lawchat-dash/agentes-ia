@@ -87,7 +87,7 @@ FUNCOES = [
      "descricao": "Cria o card do lead, muda a etapa (coluna) do CRM e põe ou tira etiquetas do contato quando uma regra manda.",
      "requer": "crm", "pronta": True},
     {"id": "transferir_humano", "nome": "Troca de departamento",
-     "descricao": "Transfere o atendimento para um departamento da Helena quando uma regra manda (pediu uma pessoa, qualificou, foi para análise...). Cada regra pode escolher o seu departamento.",
+     "descricao": "Transfere o atendimento para um departamento da LawChat quando uma regra manda (pediu uma pessoa, qualificou, foi para análise...). Cada regra pode escolher o seu departamento.",
      "requer": "helena", "pronta": True},
     {"id": "avisos", "nome": "Avisar a equipe",
      "descricao": "WhatsApp para a equipe quando acontece algo configurado em \"Avisos à equipe\" (qualificou, não sabe ler, contrato assinado...), e as notas das automações.",
@@ -187,12 +187,12 @@ DONO = exigir("dono_lawchat")
 
 def _erro_helena(erro: ErroHelenaApi) -> HTTPException:
     mensagens = {
-        "token_recusado": "A Helena recusou o token. Confira se ele foi copiado inteiro e se ainda vale.",
-        "sem_conexao": "Não foi possível falar com a Helena agora. Tente de novo em instantes.",
-        "limite_de_uso": "A Helena pediu para esperar: muitas chamadas seguidas. Tente em alguns minutos.",
-        "nao_encontrado": "A Helena não encontrou o que foi pedido.",
+        "token_recusado": "A LawChat recusou o token. Confira se ele foi copiado inteiro e se ainda vale.",
+        "sem_conexao": "Não foi possível falar com a LawChat agora. Tente de novo em instantes.",
+        "limite_de_uso": "A LawChat pediu para esperar: muitas chamadas seguidas. Tente em alguns minutos.",
+        "nao_encontrado": "A LawChat não encontrou o que foi pedido.",
     }
-    return HTTPException(502, mensagens.get(erro.motivo, f"A Helena respondeu com erro ({erro.detalhe})."))
+    return HTTPException(502, mensagens.get(erro.motivo, f"A LawChat respondeu com erro ({erro.detalhe})."))
 
 
 def _final(token: str) -> str:
@@ -203,8 +203,44 @@ async def _helena_do_escritorio(pedido: Request, repo: RepositorioGestao, id_esc
     integracao = await repo.integracao(id_escritorio, "helena")
     token = await repo.ler_segredo((integracao or {}).get("id_segredo_vault"))
     if not token:
-        raise HTTPException(409, "Cadastre o token da Helena em Integrações.")
+        raise HTTPException(409, "Cadastre o token da LawChat em Integrações.")
     return HelenaConta(token, pedido.app.state.cfg.helena_url)
+
+
+# Listas da Helena que o painel só consulta (etiquetas, equipes, painéis do CRM): guardadas por escritório por
+# HELENA_CACHE_S. Antes cada abertura da aba Funções esperava duas chamadas à api.helena.run (1 s ou mais cada,
+# até 20 s se a Helena demorasse) e duas idas ao banco pelo token.
+HELENA_CACHE_S = 120.0
+HELENA_TIMEOUT_PAINEL_S = 8.0
+_HELENA_CACHE: dict[tuple[str, str], tuple[float, Any]] = {}
+
+
+async def _consulta_helena(pedido: Request, id_escritorio: str, chave: str, ler: Any, recarregar: bool = False) -> Any:
+    """`ler(helena)` com cache curto e tempo-limite de painel. recarregar=True ignora a cópia guardada."""
+    import httpx
+    agora = time.monotonic()
+    guardado = _HELENA_CACHE.get((id_escritorio, chave))
+    if guardado and not recarregar and agora - guardado[0] < HELENA_CACHE_S:
+        return guardado[1]
+    repo = _repo(pedido)
+    integracao = await repo.integracao(id_escritorio, "helena")
+    token = await repo.ler_segredo((integracao or {}).get("id_segredo_vault"))
+    if not token:
+        raise HTTPException(409, "Cadastre o token da LawChat em Integrações.")
+    async with httpx.AsyncClient(timeout=HELENA_TIMEOUT_PAINEL_S) as http:
+        try:
+            valor = await ler(HelenaConta(token, pedido.app.state.cfg.helena_url, http=http))
+        except ErroHelenaApi as erro:
+            raise _erro_helena(erro) from erro
+    if len(_HELENA_CACHE) > 500:
+        _HELENA_CACHE.clear()
+    _HELENA_CACHE[(id_escritorio, chave)] = (time.monotonic(), valor)
+    return valor
+
+
+def _esquecer_helena(id_escritorio: str) -> None:
+    for chave in [c for c in _HELENA_CACHE if c[0] == id_escritorio]:
+        _HELENA_CACHE.pop(chave, None)
 
 
 # ============================================================================ sessão
@@ -364,7 +400,7 @@ async def entrar_pela_helena(pedido: Request) -> Response:
             senha_hash=seguranca.gerar_hash(seguranca.senha_provisoria()))
         await repo.registrar_alteracao(id_usuario=usuario["id"], id_escritorio=escritorio["id"],
                                        tabela="agentesia_usuarios", id_registro=usuario["id"], acao="criou",
-                                       resumo=f"{atendente['nome']} entrou pela primeira vez pela Helena")
+                                       resumo=f"{atendente['nome']} entrou pela primeira vez pela LawChat")
     if not usuario["ativo"]:
         return recusar("usuario_desativado")
     resposta = RedirectResponse(destino, status_code=303)
@@ -399,7 +435,7 @@ async def _entrar_como_lawchat(pedido: Request, repo: RepositorioGestao, id_usua
                                            papel="admin_lawchat", id_escritorio=None)
         await repo.registrar_alteracao(id_usuario=usuario["id"], id_escritorio=None, tabela="agentesia_usuarios",
                                        id_registro=usuario["id"], acao="criou",
-                                       resumo=f"{usuario['nome']} entrou na equipe LawChat pela Helena")
+                                       resumo=f"{usuario['nome']} entrou na equipe LawChat pela LawChat")
     if not usuario["ativo"]:
         return recusar("usuario_desativado")
     resposta = RedirectResponse("/admin/escritorios", status_code=303)
@@ -423,9 +459,17 @@ async def eu(pedido: Request, ctx: Contexto = Depends(contexto)) -> dict[str, An
     # Equipe LawChat: o escritório da própria conta LawChat na Helena é a "conta" dela (Voltar para a conta).
     conta = os.environ.get("AGENTESIA_HELENA_CONTA_LAWCHAT", "").strip()
     if ctx.lawchat and conta and re.fullmatch(r"[0-9a-fA-F-]{36}", conta):
-        id_esc = await _repo(pedido).pool.fetchval(
-            "select id from agentesia_escritorios where id_conta_helena = $1::uuid order by criado_em limit 1", conta)
-        resposta["escritorio_lawchat"] = str(id_esc) if id_esc else None
+        repo = _repo(pedido)
+        # Quase nunca muda: guardado por 60 s (o /eu roda em toda abertura do painel).
+        guardado = getattr(repo, "_escritorio_lawchat", None)
+        if guardado and guardado[0] == conta and time.monotonic() - guardado[1] < 60:
+            resposta["escritorio_lawchat"] = guardado[2]
+        else:
+            id_esc = await repo.pool.fetchval(
+                "select id from agentesia_escritorios where id_conta_helena = $1::uuid order by criado_em limit 1", conta)
+            resposta["escritorio_lawchat"] = str(id_esc) if id_esc else None
+            if id_esc:
+                repo._escritorio_lawchat = (conta, time.monotonic(), resposta["escritorio_lawchat"])
     return resposta
 
 
@@ -491,7 +535,7 @@ async def listar_escritorios(pedido: Request, _: Contexto = Depends(ADMIN)) -> l
 async def empresas_helena(pedido: Request, busca: str = "", _: Contexto = Depends(ADMIN)) -> list[dict[str, Any]]:
     token = os.environ.get("AGENTESIA_HELENA_TOKEN_PARCEIRO")
     if not token:
-        raise HTTPException(409, "Configure AGENTESIA_HELENA_TOKEN_PARCEIRO no servidor para buscar contas da Helena.")
+        raise HTTPException(409, "Configure AGENTESIA_HELENA_TOKEN_PARCEIRO no servidor para buscar contas da LawChat.")
     try:
         return await HelenaParceiro(token, pedido.app.state.cfg.helena_url).empresas(busca)
     except ErroHelenaApi as erro:
@@ -514,19 +558,19 @@ async def criar_escritorio(dados: NovoEscritorio, pedido: Request, ctx: Contexto
     if not token and dados.gerar_token_helena and dados.id_conta_helena:
         parceiro = os.environ.get("AGENTESIA_HELENA_TOKEN_PARCEIRO")
         if not parceiro:
-            await falhou("gerar_token", f"Token da Helena de {escritorio['nome']} não gerado", "sem token de parceiro")
+            await falhou("gerar_token", f"Token da LawChat de {escritorio['nome']} não gerado", "sem token de parceiro")
             raise HTTPException(409, "Sem token de parceiro para gerar o token da conta.")
         try:
             token = await HelenaParceiro(parceiro, pedido.app.state.cfg.helena_url).criar_token(
                 dados.id_conta_helena, NOME_DO_TOKEN_HELENA)
         except ErroHelenaApi as erro:
-            await falhou("gerar_token", f"Token da Helena de {escritorio['nome']} não gerado", f"{erro.motivo}: {erro.detalhe}")
+            await falhou("gerar_token", f"Token da LawChat de {escritorio['nome']} não gerado", f"{erro.motivo}: {erro.detalhe}")
             raise _erro_helena(erro) from erro
     if token:
         try:
             resultado["helena"] = await _salvar_token_helena(pedido, repo, escritorio["id"], token)
         except HTTPException as erro:
-            await falhou("conectou", f"Token da Helena de {escritorio['nome']} recusado", str(erro.detail))
+            await falhou("conectou", f"Token da LawChat de {escritorio['nome']} recusado", str(erro.detail))
             raise
         resultado.update(await _primeira_criacao_na_helena(pedido, repo, ctx, escritorio, token, dados))
 
@@ -572,12 +616,12 @@ async def _primeira_criacao_na_helena(pedido: Request, repo: RepositorioGestao, 
             await repo.registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=escritorio["id"], tabela="agentesia_escritorios",
                 id_registro=escritorio["id"], acao="criou_equipe",
-                resumo=f"Equipe {equipe['nome']} na Helena: {'criada' if equipe['criada'] else 'já existia'}")
+                resumo=f"Equipe {equipe['nome']} na LawChat: {'criada' if equipe['criada'] else 'já existia'}")
         except ErroHelenaApi as erro:
             saida["equipe"] = {"erro": erro.motivo}
             await repo.registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=escritorio["id"], tabela="agentesia_escritorios",
-                id_registro=escritorio["id"], acao="criou_equipe", resumo="Equipe da IA na Helena",
+                id_registro=escritorio["id"], acao="criou_equipe", resumo="Equipe da IA na LawChat",
                 situacao="erro", erro=f"{erro.motivo}: {erro.detalhe}")
     try:
         paineis = await helena.paineis()
@@ -593,12 +637,12 @@ async def _primeira_criacao_na_helena(pedido: Request, repo: RepositorioGestao, 
             await repo.registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=escritorio["id"], tabela="agentesia_escritorios",
                 id_registro=escritorio["id"], acao="criou_etiquetas",
-                resumo=f"Etiquetas padrão na Helena: {len(feitas['criadas'])} criada(s), {len(feitas['ja_existiam'])} já existia(m)")
+                resumo=f"Etiquetas padrão na LawChat: {len(feitas['criadas'])} criada(s), {len(feitas['ja_existiam'])} já existia(m)")
         except ErroHelenaApi as erro:
             saida["etiquetas"] = {"erro": erro.motivo}
             await repo.registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=escritorio["id"], tabela="agentesia_escritorios",
-                id_registro=escritorio["id"], acao="criou_etiquetas", resumo="Etiquetas padrão na Helena",
+                id_registro=escritorio["id"], acao="criou_etiquetas", resumo="Etiquetas padrão na LawChat",
                 situacao="erro", erro=f"{erro.motivo}: {erro.detalhe}")
     if dados.id_painel:
         painel = next((p for p in paineis if p["id"] == dados.id_painel), None)
@@ -609,14 +653,14 @@ async def _primeira_criacao_na_helena(pedido: Request, repo: RepositorioGestao, 
             saida["crm"] = config
             await repo.registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=escritorio["id"], tabela="agentesia_integracoes",
-                id_registro=None, acao="alterou", resumo=f"Painel do CRM da Helena escolhido: {painel['titulo']}",
+                id_registro=None, acao="alterou", resumo=f"Painel do CRM da LawChat escolhido: {painel['titulo']}",
                 depois=config)
         else:
             saida["crm"] = {"erro": "painel_nao_encontrado"}
             await repo.registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=escritorio["id"], tabela="agentesia_integracoes",
-                id_registro=None, acao="alterou", resumo="Painel do CRM da Helena", situacao="erro",
-                erro=f"o painel {dados.id_painel} não existe nesta conta da Helena")
+                id_registro=None, acao="alterou", resumo="Painel do CRM da LawChat", situacao="erro",
+                erro=f"o painel {dados.id_painel} não existe nesta conta da LawChat")
     return saida
 
 
@@ -1015,7 +1059,7 @@ async def alterar_escritorio(dados: AlterarEscritorio, pedido: Request, ctx: Con
         else:
             dominio = sinais.dominio_do_escritorio({"dominio_helena": dados.dominio_helena})
             if not dominio:
-                raise HTTPException(400, "Domínio da Helena inválido. Use, por exemplo, meuescritorio ou meuescritorio.wts.chat.")
+                raise HTTPException(400, "Domínio da LawChat inválido. Use, por exemplo, meuescritorio ou meuescritorio.wts.chat.")
             config["dominio_helena"] = dominio
     if config != (antes.get("config") or {}):
         campos["config"] = config
@@ -1058,6 +1102,7 @@ class ConfigCrm(BaseModel):
 
 
 async def _salvar_token_helena(pedido: Request, repo: RepositorioGestao, id_escritorio: str, token: str) -> dict[str, Any]:
+    _esquecer_helena(id_escritorio)          # token novo: etiquetas/equipes guardadas eram da conta antiga
     atual = await repo.integracao(id_escritorio, "helena")
     id_segredo = await repo.guardar_segredo(f"agentesia_helena_{id_escritorio}", token.strip(),
                                             (atual or {}).get("id_segredo_vault"))
@@ -1090,7 +1135,7 @@ async def salvar_helena(dados: TokenHelena, pedido: Request, ctx: Contexto = Dep
     integracao = await _salvar_token_helena(pedido, repo, ctx.escritorio(), dados.token)
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(),
                                    tabela="agentesia_integracoes", id_registro=integracao["id"], acao="conectou",
-                                   resumo=f"Token da Helena salvo (final {integracao['final_segredo']})")
+                                   resumo=f"Token da LawChat salvo (final {integracao['final_segredo']})")
     return {"integracao": integracao, "canais": await repo.canais(ctx.escritorio())}
 
 
@@ -1116,7 +1161,7 @@ async def conectar_webhook(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> 
                                  config={"id_assinatura": assinatura["id"], "webhook_conectado": True})
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(),
                                    tabela="agentesia_integracoes", id_registro=integracao.get("id"), acao="conectou",
-                                   resumo=f"Webhook da Helena {assinatura['acao'].replace('_', ' ')}")
+                                   resumo=f"Webhook da LawChat {assinatura['acao'].replace('_', ' ')}")
     assinatura.pop("url", None)                 # a URL leva o segredo: não volta para o navegador
     return {"assinatura": assinatura}
 
@@ -1135,32 +1180,22 @@ async def atualizar_canais(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> 
 
 @api.get("/integracoes/helena/paineis")
 async def paineis_crm(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
-    repo = _repo(pedido)
-    helena = await _helena_do_escritorio(pedido, repo, ctx.escritorio())
-    try:
-        return {"paineis": await helena.paineis(), "etiquetas": await helena.etiquetas()}
-    except ErroHelenaApi as erro:
-        raise _erro_helena(erro) from erro
+    # Botão "Carregar painéis" da tela Integrações: sempre lê de novo (e renova a cópia das etiquetas).
+    import asyncio
+    paineis, etiquetas = await asyncio.gather(
+        _consulta_helena(pedido, ctx.escritorio(), "paineis", lambda h: h.paineis(), recarregar=True),
+        _consulta_helena(pedido, ctx.escritorio(), "etiquetas", lambda h: h.etiquetas(), recarregar=True))
+    return {"paineis": paineis, "etiquetas": etiquetas}
 
 
 @api.get("/integracoes/helena/etiquetas")
-async def etiquetas_helena(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
-    repo = _repo(pedido)
-    helena = await _helena_do_escritorio(pedido, repo, ctx.escritorio())
-    try:
-        return await helena.etiquetas()
-    except ErroHelenaApi as erro:
-        raise _erro_helena(erro) from erro
+async def etiquetas_helena(pedido: Request, recarregar: bool = False, ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
+    return await _consulta_helena(pedido, ctx.escritorio(), "etiquetas", lambda h: h.etiquetas(), recarregar)
 
 
 @api.get("/integracoes/helena/equipes")
-async def equipes_helena(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
-    repo = _repo(pedido)
-    helena = await _helena_do_escritorio(pedido, repo, ctx.escritorio())
-    try:
-        return await helena.equipes()
-    except ErroHelenaApi as erro:
-        raise _erro_helena(erro) from erro
+async def equipes_helena(pedido: Request, recarregar: bool = False, ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
+    return await _consulta_helena(pedido, ctx.escritorio(), "equipes", lambda h: h.equipes(), recarregar)
 
 
 @api.put("/integracoes/crm")
@@ -1171,7 +1206,7 @@ async def salvar_crm(dados: ConfigCrm, pedido: Request, ctx: Contexto = Depends(
     integracao = await repo.salvar_integracao(ctx.escritorio(), "crm", situacao="ok", config=config)
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(),
                                    tabela="agentesia_integracoes", id_registro=integracao["id"], acao="alterou",
-                                   resumo="Painel do CRM da Helena escolhido",
+                                   resumo="Painel do CRM da LawChat escolhido",
                                    antes=(antes or {}).get("config"), depois=config)
     return integracao
 
@@ -1876,11 +1911,14 @@ async def salvar_automacoes(id_agente: str, dados: Automacoes, pedido: Request,
 def _followup_para_tela(bruto: dict[str, Any] | None) -> dict[str, Any]:
     from app.followup import regras
     c = regras.Config.de(bruto)
-    return {"ativo": c.ativo, "horario": {"inicio": c.inicio, "fim": c.fim, "dias": list(c.dias)},
+    tela = {"ativo": c.ativo, "horario": {"inicio": c.inicio, "fim": c.fim, "dias": list(c.dias)},
             "intervalo_minimo_min": c.intervalo_minimo_min, "etapas": list(c.etapas), "prompt": c.prompt,
             "por_etapa": c.por_etapa, "passos": [vars(p) for p in c.passos], "modelo_oficial": c.modelo_oficial,
             "desistir": {"ativo": c.desistir_ativo, "apos_horas": c.desistir_apos_horas, "nota": c.desistir_nota},
             "modelo": c.modelo}
+    if (limites := regras._limites((bruto or {}).get("limites"))) is not None:
+        tela["limites"] = limites            # quem ligou com o padrão novo: a tela devolve e os limites não somem
+    return tela
 
 
 @api.get("/agentes/{id_agente}/followup")
@@ -1914,7 +1952,7 @@ async def salvar_followup(id_agente: str, dados: dict[str, Any], pedido: Request
     if not agente:
         raise HTTPException(404, "Agente não encontrado.")
     try:
-        novo = regras.validar(dados)
+        novo = regras.validar(dados, anterior=(agente.get("config") or {}).get("followup"))
     except (ValueError, TypeError) as erro:
         raise HTTPException(400, str(erro)) from erro
     if novo.get("modelo") and novo["modelo"] not in IDS_MODELOS:
@@ -2005,7 +2043,7 @@ async def sugerir_automacoes(id_agente: str, pedido: Request, ctx: Contexto = De
     except ErroHelenaApi as erro:
         raise _erro_helena(erro) from erro
     if not painel:
-        raise HTTPException(404, "O painel escolhido não existe mais na Helena.")
+        raise HTTPException(404, "O painel escolhido não existe mais na LawChat.")
     agente = await repo.agente(ctx.escritorio(), id_agente)
     if not agente:
         raise HTTPException(404, "Agente não encontrado.")
@@ -2235,12 +2273,63 @@ class AcaoLead(BaseModel):
 
 @api.get("/inicio")
 async def inicio(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
+    import asyncio
     repo = _repo(pedido)
-    return {"resumo": await repo.resumo(ctx.escritorio()),
-            "agentes": [_agente_para_tela(a) for a in await repo.agentes(ctx.escritorio())],
-            "erros": await repo.eventos(ctx.escritorio(), abertos=True, limite=8),
-            "integracoes": await repo.integracoes(ctx.escritorio()),
-            "followup_desligado": await _followup_desligado(repo, ctx.escritorio())}
+    # As cinco leituras são independentes: em paralelo, o tempo é o da mais lenta e não a soma das idas ao banco.
+    resumo, agentes, erros, integracoes, followup = await asyncio.gather(
+        repo.resumo(ctx.escritorio()), repo.agentes(ctx.escritorio()),
+        repo.eventos(ctx.escritorio(), abertos=True, limite=8), repo.integracoes(ctx.escritorio()),
+        _followup_desligado(repo, ctx.escritorio()))
+    return {"resumo": resumo, "agentes": [_agente_para_tela(a) for a in agentes], "erros": erros,
+            "integracoes": integracoes, "followup_desligado": followup}
+
+
+@api.get("/inicio/contadores")
+async def contadores(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
+    """Contador do menu (erros abertos): uma consulta só. Antes o menu pedia o /inicio inteiro em toda tela."""
+    erros = await _repo(pedido).pool.fetchval(
+        """select count(*)::int from agentesia_eventos where id_escritorio = $1::uuid and resolvido_em is null
+           and gravidade in ('erro', 'critico')""", ctx.escritorio())
+    return {"erros_abertos": erros or 0}
+
+
+@api.get("/inicio/primeiros-passos")
+async def primeiros_passos(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """Cartão "Primeiros passos" do Início: 7 passos que se marcam sozinhos (app/gestao/primeiros_passos.py)."""
+    from app.gestao import primeiros_passos as pp
+    return await pp.calcular(_repo(pedido).pool, ctx.escritorio())
+
+
+@api.get("/admin/escritorios/primeiros-passos")
+async def progresso_das_contas(pedido: Request, _: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    """Coluna "Progresso" das Contas: por escritório, quantos dos 7 passos estão feitos e quais faltam."""
+    from app.gestao import primeiros_passos as pp
+    return await pp.de_todos(_repo(pedido).pool)
+
+
+@api.get("/saude/numeros")
+async def saude_dos_numeros(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """Selo de cada número e agente: recebendo mensagens, sem mensagens há X dias ou sem número; e o tipo do número."""
+    from app.gestao import saude_numero
+    return await saude_numero.numeros(_repo(pedido).pool, ctx.escritorio())
+
+
+@api.post("/saude/numeros/{id_canal}/testar")
+async def testar_conexao(id_canal: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """Testar conexão: conta (token), número, webhook e endereço público, só lendo (nada muda na Helena)."""
+    from app.gestao import saude_numero
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", id_canal):
+        raise HTTPException(404, "Número não encontrado.")
+    repo = _repo(pedido)
+
+    async def _helena(id_escritorio: str) -> HelenaConta:
+        return await _helena_do_escritorio(pedido, repo, id_escritorio)
+
+    resultado = await saude_numero.testar(repo=repo, id_escritorio=ctx.escritorio(), id_canal=id_canal, helena_de=_helena,
+                                          http=getattr(pedido.app.state, "http_ativacao", None))
+    if resultado is None:
+        raise HTTPException(404, "Número não encontrado.")
+    return resultado
 
 
 async def _followup_desligado(repo: Any, id_escritorio: str) -> list[dict[str, Any]]:
@@ -2351,6 +2440,24 @@ async def _trocar_etapa_do_lead(pedido: Request, ctx: Contexto, id_lead: str, co
 
 class EntrarNaHelena(BaseModel):
     id_lead: str | None = None
+    # Tela de ajustes da conta aberta dentro do painel (Minha Conta). Só as da lista abaixo.
+    pagina: str | None = None
+
+
+# Minha Conta › telas de ajustes da conta na LawChat (abertas já logadas dentro do painel). Lista fechada: o painel
+# manda só o código; o caminho nunca vem do navegador.
+PAGINAS_DE_AJUSTES = {
+    "usuarios": "/settings/core/agents",
+    "equipes": "/settings/core/departments",
+    "modelos": "/settings/chat/templates",
+    "conta": "/settings/core/company",
+    "horario": "/settings/core/company/office-hours",
+    "canais": "/settings/core/company/channels",
+    "consumo": "/settings/core/company/balance",
+    "integracoes": "/integration",
+    "contatos": "/contacts",
+    "paineis": "/panels",
+}
 
 
 def _link_da_helena_e_seguro(url: str, url_api_helena: str = "") -> bool:
@@ -2375,7 +2482,7 @@ async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto
     escritorio = await repo.escritorio(id_escritorio) or {}
     id_conta = escritorio.get("id_conta_helena")
     if not id_conta:
-        raise HTTPException(409, "Este escritório ainda não tem a conta da Helena ligada.")
+        raise HTTPException(409, "Este escritório ainda não tem a conta da LawChat ligada.")
     helena = await _helena_do_escritorio(pedido, repo, id_escritorio)
     email = str(ctx.usuario.get("email") or "").strip().lower()
     id_helena = ctx.usuario.get("id_usuario_helena")
@@ -2387,7 +2494,7 @@ async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto
             raise _erro_helena(erro) from erro
         email = (atendente or {}).get("email") or ""
     if not email or email.endswith(".helena.local"):
-        raise HTTPException(409, "Seu usuário não tem um e-mail da Helena. Peça para cadastrar seu e-mail como atendente na Helena.")
+        raise HTTPException(409, "Seu usuário não tem um e-mail na LawChat. Peça para cadastrar seu e-mail como usuário da conta.")
     # Conta da própria LawChat: a equipe LawChat entra no atendimento sempre com o usuário definido para isso
     # (AGENTESIA_HELENA_EMAIL_ATENDIMENTO; padrão: o e-mail do administrador da conta, vindo da sincronização).
     # O login do painel (ex.: admin@lawchat.com.br) é do parceiro e a Helena não faz o login integrado com ele.
@@ -2401,6 +2508,10 @@ async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto
         if fixo:
             email = fixo
     destino = "/chat2/sessions"
+    if dados.pagina:
+        if dados.pagina not in PAGINAS_DE_AJUSTES:
+            raise HTTPException(404, "Tela de ajustes não encontrada.")
+        destino = PAGINAS_DE_AJUSTES[dados.pagina]
     if dados.id_lead:
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", dados.id_lead):
             raise HTTPException(404, "Conversa não encontrada.")
@@ -2408,27 +2519,50 @@ async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto
             "select id_sessao_helena from agentesia_leads where id = $1::uuid and id_escritorio = $2::uuid",
             dados.id_lead, id_escritorio)
         if not id_sessao:
-            raise HTTPException(404, "Esta conversa ainda não tem atendimento aberto na Helena.")
+            raise HTTPException(404, "Esta conversa ainda não tem atendimento aberto na LawChat.")
         if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", str(id_sessao)):
-            raise HTTPException(409, "Atendimento da Helena com identificador inesperado.")
+            raise HTTPException(409, "Atendimento da LawChat com identificador inesperado.")
         destino = f"/chat2/sessions/{id_sessao}/preview?interactive=true"
     try:
         resposta = await helena.login_integrado(email=email, id_conta=str(id_conta), destino=destino)
     except ErroHelenaApi as erro:
-        if erro.motivo in ("nao_encontrado", "erro_helena") and (erro.status or 0) in (400, 404, 422):
+        if not _usuario_fora_da_conta(erro):
+            raise _erro_helena(erro) from erro
+        # Equipe LawChat na CONTA DA PRÓPRIA LAWCHAT: o super administrador do parceiro não pertence à conta, e a
+        # Helena só faz o login integrado com usuário da conta. Ali (só ali) entra como o administrador da conta.
+        # Em conta de cliente isso seria se passar pelo cliente: não faz.
+        conta_lawchat = os.environ.get("AGENTESIA_HELENA_CONTA_LAWCHAT", "").strip().lower()
+        admin_da_conta = None
+        if ctx.lawchat and conta_lawchat and str(id_conta).lower() == conta_lawchat:
+            from app.gestao import sincronizar_conta
+            conta = (await sincronizar_conta.ler_dados_helena(repo.pool, id_escritorio)).get("conta") or {}
+            admin_da_conta = str(conta.get("email_contato") or conta.get("email") or "").strip().lower() or None
+        if not admin_da_conta or admin_da_conta == email:
             raise HTTPException(409, f"O e-mail {email} não é usuário desta conta na LawChat (super administrador do "
                                      "parceiro não entra pelo atendimento). Cadastre esse e-mail como usuário da conta "
                                      "em Ajustes › Usuários, ou entre com um usuário da conta.") from erro
-        raise _erro_helena(erro) from erro
+        try:
+            resposta = await helena.login_integrado(email=admin_da_conta, id_conta=str(id_conta), destino=destino)
+        except ErroHelenaApi as erro2:
+            if _usuario_fora_da_conta(erro2):
+                raise HTTPException(409, f"Nem {email} nem o administrador da conta ({admin_da_conta}) entram pelo "
+                                         "atendimento. Cadastre um usuário da conta em Ajustes › Usuários.") from erro2
+            raise _erro_helena(erro2) from erro2
+        email = admin_da_conta
     url = str(resposta.get("urlRedirect") or "")
     if not _link_da_helena_e_seguro(url, pedido.app.state.cfg.helena_url):
-        raise HTTPException(502, "A Helena não devolveu um link de entrada válido.")
+        raise HTTPException(502, "A LawChat não devolveu um link de entrada válido.")
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=id_escritorio, tabela="agentesia_escritorios",
                                    id_registro=id_escritorio, acao="abriu_atendimento",
-                                   resumo=f"Abriu o atendimento da Helena{' (conversa de um lead)' if dados.id_lead else ''}"
+                                   resumo=f"Abriu {'os ajustes (' + dados.pagina + ')' if dados.pagina else 'o atendimento'} da LawChat{' (conversa de um lead)' if dados.id_lead else ''}"
                                           + (f" como {email}" if email != str(ctx.usuario.get("email") or "").lower() else ""),
-                                   depois={"id_lead": dados.id_lead, "entrou_como": email})
+                                   depois={"id_lead": dados.id_lead, "pagina": dados.pagina, "entrou_como": email})
     return {"url": url, "expira_em": resposta.get("expiresIn")}
+
+
+def _usuario_fora_da_conta(erro: ErroHelenaApi) -> bool:
+    """A Helena responde 400 OTP_USER_NOT_FOUND quando o e-mail não é usuário da conta (ou é só do parceiro)."""
+    return (erro.status or 0) in (400, 404, 422) and erro.motivo in ("nao_encontrado", "erro_helena")
 
 
 @api.post("/conversas/{id_lead}/ia")

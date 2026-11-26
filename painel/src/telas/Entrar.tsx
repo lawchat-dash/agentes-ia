@@ -1,8 +1,8 @@
 // Entrada do painel no visual do agents-lawchat-main (pages/Auth.tsx e pages/EntryGate.tsx).
 // Comportamento e rotas da API são os nossos:
-//  - cliente entra pela Helena (/entrar/helena no servidor, sem senha) → enquanto a sessão carrega,
-//    mostra a tela "Validando seu acesso"; se a Helena recusar, o servidor volta com ?erro=...;
-//  - sem sessão e sem vir da Helena → "Acesso restrito" (com um link discreto para a equipe);
+//  - cliente entra pela LawChat (/entrar/helena no servidor, sem senha) → enquanto a sessão carrega,
+//    mostra a tela "Validando seu acesso"; se a LawChat recusar, o servidor volta com ?erro=...;
+//  - sem sessão e sem vir da LawChat → "Acesso restrito" (com um link discreto para a equipe);
 //  - /login (ou /acesso, ?equipe) → login da equipe LawChat com e-mail e senha (POST /entrar);
 //  - /superadmin → página própria do superadmin (só equipe LawChat; o servidor recusa quem é de escritório).
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -15,16 +15,16 @@ import { BlockedAccountDialog } from "@/components/auth/BlockedAccountDialog";
 import logoMark from "@/assets/lawchat-logo.png";
 
 const ERROS_DA_HELENA: Record<string, string> = {
-  link_incompleto: "O link da Helena veio incompleto. Abra a IA de novo pelo botão dentro da Helena.",
-  conta_sem_ia: "Esta conta da Helena ainda não tem a IA da LawChat liberada. Fale com o suporte.",
+  link_incompleto: "O link da LawChat veio incompleto. Abra a IA de novo pelo botão dentro da LawChat.",
+  conta_sem_ia: "Esta conta da LawChat ainda não tem a IA da LawChat liberada. Fale com o suporte.",
   conta_suspensa: "A IA desta conta está suspensa. Fale com o suporte da LawChat.",
-  helena_nao_conectada: "A conta ainda não está conectada à Helena. A equipe LawChat precisa concluir o cadastro.",
-  helena_indisponivel: "Não foi possível confirmar seu acesso com a Helena agora. Tente de novo em instantes.",
-  usuario_nao_encontrado: "Seu usuário não foi encontrado nesta conta da Helena.",
+  helena_nao_conectada: "A conta ainda não está conectada à LawChat. A equipe LawChat precisa concluir o cadastro.",
+  helena_indisponivel: "Não foi possível confirmar seu acesso com a LawChat agora. Tente de novo em instantes.",
+  usuario_nao_encontrado: "Seu usuário não foi encontrado nesta conta da LawChat.",
   usuario_desativado: "Seu acesso foi desativado. Fale com o responsável do escritório.",
-  assinatura_ausente: "O acesso precisa vir de dentro da Helena.",
-  assinatura_invalida: "O link de acesso não é válido. Abra de novo pela Helena.",
-  assinatura_expirada: "O link de acesso expirou. Abra de novo pela Helena.",
+  assinatura_ausente: "O acesso precisa vir de dentro da LawChat.",
+  assinatura_invalida: "O link de acesso não é válido. Abra de novo pela LawChat.",
+  assinatura_expirada: "O link de acesso expirou. Abra de novo pela LawChat.",
   usuario_de_cliente: "Este e-mail é de um usuário de escritório cliente, não da equipe LawChat.",
 };
 const CHAVE_FORM = "agentesia_acesso_equipe";
@@ -100,7 +100,7 @@ const Background = () => (
   </>
 );
 
-/** Sem sessão: decide entre o erro da Helena, o "Acesso restrito" e o login da equipe. */
+/** Sem sessão: decide entre o erro da LawChat, o "Acesso restrito" e o login da equipe. */
 export function Entrar() {
   const [formulario, setFormulario] = useState(querFormulario());
   // Página própria do superadmin: formulário direto, só para a equipe LawChat.
@@ -117,7 +117,7 @@ export function Entrar() {
   return <LoginEquipe />;
 }
 
-/** Tela pública (pages/Auth.tsx sem ?admin): acesso somente pela Helena. */
+/** Tela pública (pages/Auth.tsx sem ?admin): acesso somente pela LawChat. */
 function AcessoRestrito({ aoAbrirEquipe }: { aoAbrirEquipe: () => void }) {
   return (
     <>
@@ -132,8 +132,8 @@ function AcessoRestrito({ aoAbrirEquipe }: { aoAbrirEquipe: () => void }) {
             </div>
             <h1 className="lcauth-title" style={{ fontSize: "1.4rem" }}>Acesso restrito</h1>
             <p className="lcauth-sub">
-              O acesso à IA da LawChat é feito automaticamente pelo botão dentro da Helena.
-              Abra a Helena e entre por lá, sem senha.
+              O acesso à IA da LawChat é feito automaticamente pelo botão dentro da LawChat.
+              Abra a LawChat e entre por lá, sem senha.
             </p>
             <div className="lcauth-foot">
               Não consegue acessar? Fale com o time comercial.
@@ -235,7 +235,7 @@ function LoginEquipe({ superadmin = false }: { superadmin?: boolean }) {
 
               {esqueci && (
                 <div className="lcauth-nota" role="status">
-                  Peça uma senha provisória ao dono da LawChat (equipe) ou ao gestor do seu escritório. Quem é de escritório também pode entrar pela Helena, sem senha.
+                  Peça uma senha provisória ao dono da LawChat (equipe) ou ao gestor do seu escritório. Quem é de escritório também pode entrar pela LawChat, sem senha.
                 </div>
               )}
 
@@ -246,7 +246,7 @@ function LoginEquipe({ superadmin = false }: { superadmin?: boolean }) {
 
             <div className="lcauth-foot">
               É de um escritório?{" "}
-              <span style={{ color: "#009926", fontWeight: 600 }}>{superadmin ? "Este acesso não é para você: entre pela sua conta." : "Entre pelo botão dentro da Helena."}</span>
+              <span style={{ color: "#009926", fontWeight: 600 }}>{superadmin ? "Este acesso não é para você: entre pela sua conta." : "Entre pelo botão dentro da LawChat."}</span>
             </div>
           </div>
 
@@ -271,7 +271,7 @@ function MolduraEntrada({ children }: { children: ReactNode }) {
   );
 }
 
-/** Enquanto a sessão carrega (por exemplo logo depois do botão da Helena): "Validando seu acesso". */
+/** Enquanto a sessão carrega (por exemplo logo depois do botão da LawChat): "Validando seu acesso". */
 export function CarregandoEntrada() {
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState("Conectando com o LawChat");
@@ -347,7 +347,7 @@ export function CarregandoEntrada() {
   );
 }
 
-/** A Helena recusou a entrada (?erro=...): bloqueado, não encontrado ou erro (pages/EntryGate.tsx). */
+/** A LawChat recusou a entrada (?erro=...): bloqueado, não encontrado ou erro (pages/EntryGate.tsx). */
 function ErroDeEntrada({ codigo }: { codigo: string }) {
   const limpou = useRef(false);
   const irParaInicio = () => { window.location.replace("/"); };
@@ -384,7 +384,7 @@ function ErroDeEntrada({ codigo }: { codigo: string }) {
       <div className="space-y-4">
         <AlertTriangle className="size-10 text-destructive mx-auto" />
         <h1 className="text-2xl font-bold">Erro ao validar acesso</h1>
-        <p className="text-muted-foreground text-sm break-words">{ERROS_DA_HELENA[codigo] ?? "Não foi possível entrar pela Helena."}</p>
+        <p className="text-muted-foreground text-sm break-words">{ERROS_DA_HELENA[codigo] ?? "Não foi possível entrar pela LawChat."}</p>
         <Button onClick={irParaInicio} variant="outline">Ir para o login</Button>
       </div>
     </MolduraEntrada>

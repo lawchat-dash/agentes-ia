@@ -26,12 +26,14 @@ def assunto(c, trecho):
     return next(a for a in c.lead.assuntos if any(trecho in q for q in a.quando))
 
 
-async def conversar(prefixo, ajustar=None, c=None):
+async def conversar(prefixo, ajustar=None, c=None, sem_portao=False):
     c = c or caso(prefixo)
     roteiro = falso.roteiro_de(c.id)
     if ajustar:
         ajustar(roteiro)
     snap = c.carregar_agente()
+    if sem_portao:                                     # leva 1 (B4): para medir a checagem, não o portão do motor
+        snap["agente"]["config"].setdefault("catalogo", {})["portao_de_fatos"] = False
     return await simulador.rodar_conversa(c, falso.ModeloRoteirizado(snap, roteiro), snapshot=snap)
 
 
@@ -234,8 +236,14 @@ async def test_closer_que_pede_nome_depois_de_nao_sei_acusa_dado_fora_de_hora_e_
     conversa = await conversar("01", ajustar)
     falhas = {f.codigo: f for f in conversa.falhas}
     assert "dado_fora_de_hora" in falhas and "nome completo" in falhas["dado_fora_de_hora"].evidencia
-    assert "aceite_antes_de_contratos" in falhas
     assert not conversa.aprovada
+    # Leva 1 (B4): sem o aceite registrado o motor não deixa entrar em Contratos; a IA pergunta o aceite antes.
+    falas = [t for r in conversa.rodadas for turno in r.turnos for t in turno.mensagens]
+    assert "Podemos seguir com a contratação nessas condições?" in falas
+    assert "aceite_antes_de_contratos" not in falhas
+    # Com o portão desligado, a checagem continua pegando a entrada em Contratos sem aceite.
+    conversa = await conversar("01", ajustar, sem_portao=True)
+    assert "aceite_antes_de_contratos" in conversa.codigos()
 
 
 async def test_turno_que_entra_em_contratos_com_a_frase_pode_pedir_o_dado():

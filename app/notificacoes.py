@@ -37,13 +37,15 @@ NOMES_DE_EVENTO: dict[str, str] = {
     "contrato_assinado": "Contrato assinado",
     "contrato_falhou": "Contrato não foi gerado",
     "followup_desistiu": "Lead não respondeu aos follow-ups",
+    "lead_parado": "Lead parado: retomar contato",
+    "lead_quente": "Lead quente",
     "trava": "IA barrada pela trava",
     "ia_falhou": "IA não conseguiu responder",
     "consumo_limite": "Consumo da IA perto do limite",
 }
 
 MARCADORES = ("nome", "telefone", "produto", "etapa", "data_hora", "valor", "link_assinatura",
-              "origem", "evento", "link_conversa", "mensagem_lead")
+              "origem", "evento", "link_conversa", "mensagem_lead", "beneficio", "nota", "motivos")
 
 MODELO_PADRAO = """🔔 *{{evento}}*
 Lead: {{nome}}
@@ -52,6 +54,17 @@ Etapa: {{etapa}}
 Mensagem do lead: {{mensagem_lead}}
 Contrato: {{link_assinatura}}
 Valor: {{valor}}
+Conversa: {{link_conversa}}
+{{data_hora}}"""
+
+# Lead quente (nota do lead, app/cerebro/temperatura.py): nome, benefício, nota e motivos. Nunca CPF nem a mensagem do lead.
+MODELO_LEAD_QUENTE = """🔥 *{{evento}}*
+Lead: {{nome}}
+Benefício: {{beneficio}}
+Nota: {{nota}}
+Motivos: {{motivos}}
+Telefone: {{telefone}}
+Etapa: {{etapa}}
 Conversa: {{link_conversa}}
 {{data_hora}}"""
 
@@ -173,3 +186,18 @@ def valores_do_aviso(*, evento: str, nome: str | None, telefone: str | None, pro
         "link_conversa": link_conversa or "",
         "mensagem_lead": mensagem,
     }
+
+
+def texto_lead_quente(modelo: str | None, valores: Mapping[str, Any], *, nota: int, faixa: str, motivos: str,
+                      beneficio: str) -> str:
+    """Aviso de lead quente. Usa o modelo do escritório; se ele não cita a nota ou os motivos (o modelo padrão não cita),
+    eles entram no fim. Nunca leva CPF nem a mensagem do lead (que pode ter o CPF)."""
+    from app.cerebro.temperatura import sem_cpf
+
+    completos = {**valores, "mensagem_lead": "", "beneficio": beneficio, "nota": f"{nota}/10 ({faixa})", "motivos": motivos}
+    base = (modelo or "").strip() or MODELO_LEAD_QUENTE
+    texto = renderizar_modelo(base, completos)
+    marcadores = set(_MARCADOR.findall(base))
+    extras = [f"{rotulo}: {completos[chave]}" for chave, rotulo in (("beneficio", "Benefício"), ("nota", "Nota"), ("motivos", "Motivos"))
+              if chave not in marcadores and str(completos[chave] or "").strip()]
+    return sem_cpf("\n".join([texto, *extras]).strip())

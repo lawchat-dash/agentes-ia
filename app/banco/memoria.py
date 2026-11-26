@@ -28,6 +28,7 @@ class RepositorioMemoria:
         self.segredos: dict[str, str] = {}
         self.crm: dict[str, dict[str, Any]] = {}          # config do CRM por escritório
         self.acoes: list[dict[str, Any]] = []
+        self.etapas: list[dict[str, Any]] = []            # histórico de etapa (como agentesia_lead_etapas)
 
     def _id(self, prefixo: str) -> str:
         return f"{prefixo}-{next(self._seq)}"
@@ -108,8 +109,45 @@ class RepositorioMemoria:
 
     async def atualizar_lead(self, id_lead, **campos) -> None:
         lead = self.leads[id_lead]
+        if "id_etapa" in campos and campos["id_etapa"] != lead.id_etapa:
+            self._registrar_etapa(lead, campos["id_etapa"], None)
         for nome, valor in campos.items():
             setattr(lead, nome, valor)
+
+    def _registrar_etapa(self, lead, id_etapa, origem, id_turno=None) -> None:
+        """Como o gatilho do banco: sem origem declarada, o turno da IA em andamento neste lead é quem trocou."""
+        if origem is None:
+            id_turno = next((i for i, t in reversed(list(self.turnos.items()))
+                             if t["id_lead"] == lead.id and t["situacao"] == "processando"), None)
+            origem = "ia" if id_turno else None
+        self.etapas.append({"id_lead": lead.id, "de": lead.id_etapa, "para": id_etapa, "origem": origem,
+                            "id_turno": id_turno, "criado_em": datetime.now(timezone.utc)})
+
+    async def desfazer_turno(self, *, lead, id_turno, id_etapa) -> None:
+        """B7: etapa de volta e cada fato do turno devolve a vigência à versão que ele substituiu."""
+        atual = self.leads[lead.id]
+        if atual.id_etapa != id_etapa:
+            self._registrar_etapa(atual, id_etapa, "desfazer", id_turno)
+            atual.id_etapa = id_etapa
+        for novo in [f for f in self.fatos[lead.id] if f.get("id_turno") == id_turno and not f["substituido"]]:
+            novo["substituido"] = True
+            anterior, alvo = None, novo
+            while True:              # a versão de ANTES do turno (o turno pode ter gravado a chave duas vezes)
+                anterior = next((f for f in self.fatos[lead.id] if f.get("substituido_por") is alvo), None)
+                if anterior is None or anterior.get("id_turno") != id_turno:
+                    break
+                alvo = anterior
+            if anterior is not None:
+                anterior["substituido"], anterior["substituido_por"] = False, None
+
+    async def trocas_da_ia(self, id_lead, horas: int = 24) -> int:
+        from datetime import timedelta as _td
+        corte = datetime.now(timezone.utc) - _td(hours=horas)
+        por_turno: dict[str, list[str | None]] = {}
+        for linha in self.etapas:
+            if linha["id_lead"] == id_lead and linha["id_turno"] and linha["criado_em"] > corte:
+                por_turno.setdefault(linha["id_turno"], []).append(linha["origem"])
+        return sum(1 for origens in por_turno.values() if origens == ["ia"])
 
     async def gravar_mensagem(self, *, lead, autor, tipo, texto, texto_extraido, url_midia, enviada_em,
                               id_externo, id_turno=None, situacao_envio="recebida", erro=None):
@@ -260,10 +298,11 @@ class RepositorioMemoria:
 
     async def gravar_fatos(self, *, lead, id_turno, fatos) -> None:
         for novo in fatos:
+            linha = {**novo, "id_turno": id_turno, "substituido": False}
             for antigo in self.fatos[lead.id]:
                 if antigo["chave"] == novo["chave"] and not antigo["substituido"]:
-                    antigo["substituido"] = True
-            self.fatos[lead.id].append({**novo, "id_turno": id_turno, "substituido": False})
+                    antigo["substituido"], antigo["substituido_por"] = True, linha
+            self.fatos[lead.id].append(linha)
 
     async def abrir_turno(self, *, lead, modo, etapa_antes) -> str:
         id_turno = self._id("turno")

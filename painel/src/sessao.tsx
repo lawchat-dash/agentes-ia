@@ -28,7 +28,7 @@ export function ProvedorSessao({ children }: { children: ReactNode }) {
   const [visao, setVisao] = useState<Visao>(visaoEscolhida());
 
   const recarregar = useCallback(async () => {
-    // Quem entrou pela Helena como equipe LawChat chega com ?escritorio=... na URL.
+    // Quem entrou pela LawChat como equipe LawChat chega com ?escritorio=... na URL.
     const daUrl = new URLSearchParams(window.location.search).get("escritorio");
     if (daUrl) {
       escolherEscritorio(daUrl);

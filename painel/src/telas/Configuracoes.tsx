@@ -23,14 +23,14 @@ export function normalizarDominioHelena(valor: string): string | null {
   return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(host) ? host : null;
 }
 
-/** Campo do domínio da Helena, com a explicação e o link de exemplo (usado aqui e no cadastro de escritório). */
+/** Campo do domínio da LawChat, com a explicação e o link de exemplo (usado aqui e no cadastro de escritório). */
 export function CampoDominioHelena({ valor, aoMudar }: { valor: string; aoMudar: (v: string) => void }) {
   const dominio = normalizarDominioHelena(valor);
   return (
-    <label className="field"><span className="lbl">Domínio da Helena</span>
+    <label className="field"><span className="lbl">Domínio da LawChat</span>
       <input value={valor} onChange={(e) => aoMudar(e.target.value)} placeholder="advmidia.wts.chat"
         spellCheck={false} autoCapitalize="none" autoCorrect="off" inputMode="url" />
-      <span className="ajuda">O endereço em que a equipe abre a Helena. Serve para pôr o link da conversa nos avisos à equipe; sem ele, o aviso sai sem o link.</span>
+      <span className="ajuda">O endereço em que a equipe abre a LawChat. Serve para pôr o link da conversa nos avisos à equipe; sem ele, o aviso sai sem o link.</span>
       {valor.trim() && (dominio
         ? <span className="ajuda">Link de exemplo: <span className="mono">https://{dominio}/redirect?type=SESSION&amp;id=…</span></span>
         : <span className="ajuda" style={{ color: "var(--warn)" }}>Endereço inválido. Use, por exemplo, meuescritorio ou meuescritorio.wts.chat.</span>)}
@@ -89,11 +89,11 @@ export function TelaConfiguracoes() {
               <span className="ajuda">Horário de Brasília. Vale para os agentes em produção; no modo teste a IA sempre responde.</span></label>
             <CampoDominioHelena valor={form.dominio_helena} aoMudar={(v) => setForm({ ...form, dominio_helena: v })} />
             <div className="field"><span className="lbl">Etiqueta pelo benefício do anúncio</span>
-              <span className="ajuda" style={{ marginTop: 0 }}>Quando o lead vem de anúncio, a IA descobre o benefício anunciado e põe esta etiqueta na Helena. Vazio = só a nota.</span>
+              <span className="ajuda" style={{ marginTop: 0 }}>Quando o lead vem de anúncio, a IA descobre o benefício anunciado e põe esta etiqueta na LawChat. Vazio = só a nota.</span>
               <div className="grid2" style={{ gap: 8 }}>
                 {PRODUTOS_ANUNCIO.map(([codigo, nome]) => (
                   <label key={codigo} className="field" style={{ gap: 2 }}><span className="muted" style={{ fontSize: 12 }}>{nome}</span>
-                    <input value={form.etiquetas_por_produto[codigo] ?? ""} placeholder="Etiqueta na Helena"
+                    <input value={form.etiquetas_por_produto[codigo] ?? ""} placeholder="Etiqueta na LawChat"
                       onChange={(e) => setForm({ ...form, etiquetas_por_produto: { ...form.etiquetas_por_produto, [codigo]: e.target.value } })} /></label>
                 ))}
               </div>
@@ -109,10 +109,10 @@ export function TelaConfiguracoes() {
             {dados.situacao !== "ativo" && <div style={{ marginTop: 10 }}><Alerta tipo="warn">Escritório {dados.situacao}: a IA não responde.</Alerta></div>}
           </Painel>
           <Painel titulo="Quem acessa" sem_corpo acoes={<button className="btn sm" onClick={() => setNovo({ email: "", nome: "", papel: "atendente" })}><UserPlus />Convidar</button>}>
-            {dados.usuarios.length === 0 ? <Vazio>Ninguém ainda. Quem entra pela Helena aparece aqui sozinho.</Vazio> : (
+            {dados.usuarios.length === 0 ? <Vazio>Ninguém ainda. Quem entra pela LawChat aparece aqui sozinho.</Vazio> : (
               <div className="rows">{dados.usuarios.map((u) => (
                 <div key={u.id}>
-                  <div style={{ flex: 1, minWidth: 0 }}><b>{u.nome}</b><div className="muted" style={{ fontSize: 12 }}>{u.email.endsWith(".helena.local") ? "entra pela Helena" : u.email} · último acesso {quando(u.ultimo_acesso_em)}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}><b>{u.nome}</b><div className="muted" style={{ fontSize: 12 }}>{u.email.endsWith(".helena.local") ? "entra pela LawChat" : u.email} · último acesso {quando(u.ultimo_acesso_em)}</div></div>
                   <span className="chip">{u.papel}</span>
                 </div>
               ))}</div>
@@ -123,7 +123,7 @@ export function TelaConfiguracoes() {
       </div>
 
       {novo && (
-        <Modal titulo="Convidar pessoa" texto="Ela recebe uma senha provisória para entrar fora da Helena." aoFechar={() => { setNovo(null); setSenha(null); }}
+        <Modal titulo="Convidar pessoa" texto="Ela recebe uma senha provisória para entrar fora da LawChat." aoFechar={() => { setNovo(null); setSenha(null); }}
           rodape={senha ? <><span className="sp" /><button className="btn pri" onClick={() => { setNovo(null); setSenha(null); }}>Pronto</button></> : <>
             <span className="sp" /><button className="btn" onClick={() => setNovo(null)}>Cancelar</button>
             <button className="btn pri" disabled={ocupado || !novo.email || novo.nome.length < 2} onClick={() => executar(async () => {

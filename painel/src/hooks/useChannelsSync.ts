@@ -30,13 +30,13 @@ export interface CanalDisponivel {
 export const listarCanaisDisponiveis = async (): Promise<CanalDisponivel[]> =>
   ((await api<CanalDisponivel[]>("/canais/disponiveis")) ?? []) as CanalDisponivel[];
 
-/** Atualiza os canais a partir da Helena (token do escritório) e devolve a lista nova. */
+/** Atualiza os canais a partir da LawChat (token do escritório) e devolve a lista nova. */
 export const sincronizarCanaisHelena = async (): Promise<CanalDisponivel[]> => {
   await api("/integracoes/helena/canais", { metodo: "POST" });
   return listarCanaisDisponiveis();
 };
 
-// Só canais de WhatsApp aparecem no seletor de canais do agente. A Helena sincroniza
+// Só canais de WhatsApp aparecem no seletor de canais do agente. A LawChat sincroniza
 // vários tipos (CLOUDAPI_WHATSAPP, ZAPI_WHATSAPP, INSTAGRAM, MESSENGER) — o agente é de
 // WhatsApp, então Instagram/Messenger não devem aparecer na busca de canais.
 // Aqui os canais já são só de WhatsApp: o tipo diz se é API oficial ("oficial") ou não ("nao_oficial").
@@ -46,7 +46,7 @@ export const ehWhatsapp = (n: any): boolean => {
 };
 
 /**
- * Canais de WhatsApp do escritório. Fonte: GET /canais/disponiveis (cache dos canais da Helena);
+ * Canais de WhatsApp do escritório. Fonte: GET /canais/disponiveis (cache dos canais da LawChat);
  * "Sincronizar" = POST /integracoes/helena/canais e recarrega a lista.
  */
 const mapNumero = (n: CanalDisponivel): ChannelItem => {
@@ -91,7 +91,7 @@ export const useChannelsSync = () => {
     loadPersisted();
   }, [loadPersisted]);
 
-  /** Sincroniza os números na Helena (com o token do escritório) e regrava o cache. */
+  /** Sincroniza os números na LawChat (com o token do escritório) e regrava o cache. */
   const fetchChannels = useCallback(async () => {
     if (!workspace?.id) return [];
     setLoading(true);

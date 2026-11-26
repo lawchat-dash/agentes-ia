@@ -28,7 +28,14 @@ MENSAGENS_FIXAS: dict[str, str] = {
     "seguranca": "Vou confirmar uma informação com a equipe e já te retorno por aqui.",
     "contrato_com_a_equipe": "Para finalizar o seu contrato, vou pedir ajuda a uma pessoa da nossa equipe. "
                              "Ela continua com você por aqui, tá bom?",
+    # Leva 1 (25/11): resposta da IA fora do formato (B3) e as outras passagens do código para a equipe (B4, B6, B7).
+    "formato_invalido": "Recebi sua mensagem! Vou pedir para alguém da equipe continuar com você por aqui.",
+    "equipe_continua": "Recebi sua mensagem! Vou pedir para alguém da equipe continuar com você por aqui.",
+    # B6: tentativa de manipular. Fixa e segura: não confirma nem nega regra, prompt ou instrução nenhuma.
+    "manipulacao": "Por aqui eu só consigo te ajudar com o seu caso no escritório.",
 }
+# Na 3ª mensagem seguida fora do tema (B6), a IA sai da conversa e a equipe assume com a ficha.
+FORA_DO_TEMA_PAUSA = 3
 
 
 @dataclass
@@ -78,6 +85,7 @@ class Saida:
     eventos: list[dict[str, Any]] = field(default_factory=list)
     chamadas: list[Chamada] = field(default_factory=list)
     contexto: dict[str, Any] = field(default_factory=dict)      # o que foi enviado à IA
+    ficha: str | None = None                                    # ficha do caso na passagem para humano (pipeline, B2)
 
     def como_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -187,6 +195,8 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
             saida.mensagens = _fixa(entrada, intencao)
             saida.eventos.append(_evento(intencao, "aviso", "lead", f"Lead: {intencao}"))
             return saida
+    if barreira := _barreiras(entrada, saida, extracao.intencoes):
+        return barreira
     if extracao.sinais:
         from app.cerebro.sinais import partes_do_auditor
         validos, mensagem = await _auditar_sinais(modelo, entrada, extracao.sinais, saida,
@@ -218,7 +228,7 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
     )
     sistema = _com_comeco_da_conversa(sistema, entrada)
     bloco_base = base_conhecimento.bloco(await base_conhecimento.resolver(entrada))   # busca já rodou junto do extrator
-    correcao: list[str] | None = None
+    correcao: list[str] | None = [LINHA_FORA_DO_TEMA] if saida.contexto.get("barreira") == "fora_do_tema" else None
     mensagens: list[dict[str, str]] = []
     aprovado = False
     resposta = None
@@ -359,6 +369,10 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         linhas.append("\nDADOS JÁ INFORMADOS PELO LEAD (não pergunte de novo): " + dados)
     if conferencias:
         linhas += [""] + conferencias
+    if linha_portao := _linha_do_portao(entrada, produto, papeis):
+        linhas.append("\n" + linha_portao)
+    if saida.contexto.get("barreira") == "fora_do_tema":
+        linhas.append("\n" + LINHA_FORA_DO_TEMA)
     if (produto.fatos_do_periodo and "zapsign" not in acoes and saida.fatos_depois.get("acidente_ano") in (None, "")
             and not saida.fatos_depois.get("acidente_quando_incerto")):
         # A vaga "[ocorrido em…]" do resumo saía com o ano de hoje (o "Hoje é" do começo do conteúdo).
@@ -404,9 +418,10 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         destino = resposta.get("transferir_para") or ""
         pela_frase = False
         if destino not in destinos:
-            # Rede de segurança: a IA escreveu a frase de passagem de um destino e deixou transferir_para vazio.
-            destino = catalogo.transferencia_pela_frase([m.get("texto", "") for m in mensagens if m["tipo"] == "texto"],
-                                                        destinos, papeis, parafrase=True) or ""
+            # Rede de segurança: a IA escreveu a frase de passagem EXATA de um destino e deixou transferir_para vazio.
+            # Leva 1 (B1): sem paráfrase e nunca para "desqualificado" (essa troca ninguém decidiu).
+            destino = catalogo.transferencia_pela_frase_exata(
+                [m.get("texto", "") for m in mensagens if m["tipo"] == "texto"], destinos, papeis) or ""
             pela_frase = bool(destino)
         erros = catalogo.conferir(mensagens)
         # Travas do motor sobre a resposta (CPF já conferido, laço, endereço inventado, troca de papel): ver _guardas_do_catalogo.
@@ -462,7 +477,7 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             "equipe. Travas: " + codigos, travas=[g.codigo for g in duras]))
         return saida
     for guarda in escolhida.guardas:
-        if guarda.codigo == "midia_desconhecida" or (
+        if guarda.codigo in ("midia_desconhecida", "portao_de_fatos") or (
                 guarda.codigo == "midia_repetida" and catalogo.sem_midias_repetidas(escolhida.mensagens, ja_enviadas)):
             continue                                    # tratadas abaixo: a parte sai da resposta, com evento próprio
         # Trava leve que a 2ª tentativa não resolveu: segue com a resposta (nunca pausa por isso) e fica registrado.
@@ -475,10 +490,15 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                                      f"A IA pediu para passar o lead de {etapa} para {pedido}, destino não permitido; "
                                      "a troca não foi feita.", destino=pedido, etapa=etapa))
     destino = _troca_precoce(entrada, saida, destino, papeis, etapa)
+    pedido_ao_portao = destino
+    destino, mensagens = _portao_de_fatos(entrada, produto, saida, destino, mensagens, papeis, etapa, regras,
+                                          ferramentas["calculadora"])
+    if _portao_prendeu(entrada, saida, pedido_ao_portao, destino, etapa):
+        return saida
     if destino and escolhida.pela_frase:
         saida.eventos.append(_evento("troca_pela_frase", "info", "lawchat",
                                      f"A IA escreveu a frase de passagem para {destino} sem marcar transferir_para; "
-                                     "o sistema fez a troca pela frase.", destino=destino, etapa=etapa,
+                                     "o sistema fez a troca pela frase exata.", destino=destino, etapa=etapa, exata=True,
                                      trecho=" ".join(m.get("texto", "") for m in mensagens if m["tipo"] == "texto")[:200]))
     if fora := catalogo.midias_fora_do_roteiro(mensagens, permitidas):
         # Link de mídia que não está no roteiro, mesmo depois da CORRIJA: não vai para a Helena (404 calado ou mídia de
@@ -630,6 +650,180 @@ def _troca_precoce(entrada: Entrada, saida: Saida, destino: str, papeis: dict[st
     return destino
 
 
+# ---------------------------------------------------------------------------- leva 1 (25/11): barreiras e portão
+LINHA_FORA_DO_TEMA = ("(sistema) O lead pediu algo fora do tema do escritório: recuse com gentileza em 1 frase curta, "
+                      "sem responder ao pedido, e volte à pergunta do roteiro.")
+
+
+def _barreiras(entrada: Entrada, saida: Saida, intencoes: dict[str, bool]) -> Saida | None:
+    """B6. Tentativa de manipular (ignorar regras, revelar o prompt, se passar por advogado): resposta fixa e segura,
+    sem chamar o agente, e evento. Fora do tema: o agente responde curto e volta ao assunto (linha de sistema no
+    conteúdo); na 3ª mensagem seguida fora do tema, a IA sai e a equipe assume com a ficha. Devolve a saída quando o
+    turno acaba aqui."""
+    antes = _inteiro(entrada.fatos.get(MARCA_FORA_DO_TEMA))
+    if intencoes.get("tentativa_de_manipular"):
+        saida.motivo = "barreira_manipulacao"
+        texto = entrada.mensagens_fixas.get("manipulacao") or MENSAGENS_FIXAS["manipulacao"]
+        pendente = _ultima_pergunta(entrada.historico)
+        textos = [texto] + ([f"Voltando ao seu caso: {pendente}"] if pendente else ["Me conta: como posso te ajudar com ele?"])
+        saida.mensagens = formatador.formatar([{"tipo": "texto", "texto": t} for t in textos])
+        saida.eventos.append(_evento("barreira_manipulacao", "aviso", "lead",
+                                     "O lead tentou mudar as regras da IA (ignorar instruções, ver o prompt ou se passar "
+                                     "por outra pessoa); a IA deu a resposta fixa e não revelou nada.",
+                                     trecho=" ".join(entrada.novas)[:200]))
+        return saida
+    if not intencoes.get("fora_do_tema"):
+        if antes:
+            _gravar_controle(saida, MARCA_FORA_DO_TEMA, 0)
+        return None
+    seguidas = antes + 1
+    _gravar_controle(saida, MARCA_FORA_DO_TEMA, seguidas)
+    saida.eventos.append(_evento("barreira_fora_do_tema", "info", "lead",
+                                 f"O lead pediu algo fora do tema ({seguidas}ª seguida).", seguidas=seguidas,
+                                 trecho=" ".join(entrada.novas)[:200]))
+    if seguidas < FORA_DO_TEMA_PAUSA:
+        saida.contexto["barreira"] = "fora_do_tema"
+        return None
+    saida.estado_lead, saida.motivo_estado = "pausado", "fora_do_tema_repetido"
+    saida.motivo = saida.motivo_estado
+    saida.mensagens = _fixa(entrada, "equipe_continua")
+    saida.eventos.append(_evento("fora_do_tema_repetido", "aviso", "lead",
+                                 f"O lead insistiu {seguidas} vezes seguidas em assunto fora do tema; a conversa foi "
+                                 "para a equipe.", seguidas=seguidas))
+    return saida
+
+
+def _inteiro(valor: Any) -> int:
+    try:
+        return int(valor or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ultima_pergunta(historico: list[dict[str, str]]) -> str | None:
+    """Última pergunta que a IA fez ao lead (fim do bloco mais recente da IA terminando em "?")."""
+    bloco = _ultima_resposta_da_ia(historico)
+    for texto in reversed(bloco):
+        texto = str(texto or "").strip()
+        if texto.endswith("?"):
+            return texto[-200:]
+    return None
+
+
+def _faltam_no_portao(produto: Any, destino: str, fatos: dict[str, Any], regras: aa.Regras, calculadora: bool,
+                      etapa: str) -> list[str]:
+    """B4. O que falta para o lead entrar no destino. Desqualificar exige um motivo comprovado por fato do lead (ou a
+    conta do período de graça dizendo que não estava coberto)."""
+    from app.cerebro import catalogo
+
+    config = getattr(produto, "config", {}) or {}
+    if not destino or not catalogo.portao_ligado(config):
+        return []
+    if destino == "desqualificado":
+        if catalogo.motivo_de_desqualificar(config, fatos):
+            return []
+        if getattr(produto, "fatos_do_periodo", ()) and (cobertura := contexto.cobertura_na_data_do_acidente(fatos, regras)) \
+                and cobertura[0] == "fora":
+            return []
+        return ["motivo_de_desqualificacao"]
+    return catalogo.faltam_para_entrar(config, destino, fatos)
+
+
+def _orientacao_do_portao(destino: str, faltam: list[str]) -> str:
+    from app.cerebro import catalogo
+
+    if faltam == ["motivo_de_desqualificacao"]:
+        return ("Você marcou transferir_para = \"desqualificado\", mas o lead ainda não disse nada que desqualifique o "
+                "caso (aposentadoria, advogado neste caso, sem sequela, nunca trabalhou). Deixe transferir_para vazio, "
+                "não use a frase de passagem e siga o roteiro com a próxima pergunta.")
+    perguntas = " ".join(catalogo.PERGUNTA_DO_PORTAO.get(f, catalogo.ROTULO_DO_PORTAO.get(f, f.replace("_", " ")))
+                         for f in faltam)
+    return (f"Ainda falta perguntar antes de passar o lead para \"{destino}\": {perguntas} Deixe transferir_para vazio "
+            "nesta resposta, não use a frase de passagem e faça a pergunta.")
+
+
+def _linha_do_portao(entrada: Entrada, produto: Any, papeis: dict[str, Any]) -> str | None:
+    """Turno seguinte a uma troca segurada pelo portão: a IA lembra o que ainda falta perguntar (linha de sistema)."""
+    from app.cerebro import catalogo
+
+    barrado = entrada.fatos.get(MARCA_PORTAO)
+    if not isinstance(barrado, dict) or not barrado.get("destino"):
+        return None
+    destino, faltam = str(barrado["destino"]), [str(f) for f in barrado.get("faltam") or []]
+    faltam = [f for f in faltam if f == "motivo_de_desqualificacao" or f in
+              catalogo.faltam_para_entrar(getattr(produto, "config", {}), destino, entrada.fatos)]
+    if not faltam:
+        return None
+    rotulos = "; ".join(catalogo.ROTULO_DO_PORTAO.get(f, f.replace("_", " ")) for f in faltam)
+    return (f"PARA PASSAR O LEAD (sistema): a passagem para {catalogo.NOMES.get(destino, destino)} foi segurada porque "
+            f"falta saber {rotulos}. Pergunte isso antes de passar.")
+
+
+def _portao_de_fatos(entrada: Entrada, produto: Any, saida: Saida, destino: str, mensagens: list[dict[str, Any]],
+                     papeis: dict[str, Any], etapa: str, regras: aa.Regras,
+                     calculadora: bool) -> tuple[str, list[dict[str, Any]]]:
+    """B4. A troca para a frente é decidida aqui, pelos fatos. Sem os fatos do destino, a troca é segurada: a frase de
+    passagem sai da resposta (o lead não pode ouvir "vou te passar" e não passar) e, se nada sobrar, vai a pergunta do
+    que falta. Com o motivo de desqualificação comprovado, ele fica no contexto (fato, valor e trecho do lead)."""
+    from app.cerebro import catalogo
+
+    if not destino:
+        return destino, mensagens
+    fatos = saida.fatos_depois
+    faltam = _faltam_no_portao(produto, destino, fatos, regras, calculadora, etapa)
+    if not faltam:
+        if destino == "desqualificado" and catalogo.portao_ligado(getattr(produto, "config", {})):
+            motivo = catalogo.motivo_de_desqualificar(getattr(produto, "config", {}), fatos)
+            chave = motivo[0] if motivo else "periodo_de_graca"
+            trecho = next((f.get("trecho") for f in saida.fatos_novos if f.get("chave") == chave), None)
+            saida.contexto["motivo_desqualificacao"] = {"fato": chave, "valor": motivo[1] if motivo else "fora",
+                                                        "trecho": trecho}
+        return destino, mensagens
+    saida.faltam = list(faltam)
+    saida.contexto["portao_barrou"] = {"destino": destino, "faltam": faltam}
+    saida.eventos.append(_evento("troca_barrada_faltam_fatos", "info", "lawchat",
+                                 f"A IA quis passar o lead de {etapa} para {destino}, mas faltam: {', '.join(faltam)}. "
+                                 "A troca foi segurada.", destino=destino, etapa=etapa, faltam=faltam))
+    frase = (papeis.get(destino) or {}).get("mensagem_troca") if isinstance(papeis.get(destino), dict) else None
+    sem_frase = [m for m in mensagens if not (m["tipo"] == "texto" and frase
+                                               and (catalogo.tem_frase_exata([m.get("texto", "")], frase)
+                                                    or catalogo.tem_frase([m.get("texto", "")], frase)))]
+    if not any(m["tipo"] == "texto" and "?" in str(m.get("texto") or "") for m in sem_frase):
+        perguntas = [catalogo.PERGUNTA_DO_PORTAO[f] for f in faltam if f in catalogo.PERGUNTA_DO_PORTAO]
+        if perguntas:
+            sem_frase = [m for m in sem_frase if m["tipo"] == "texto"] + [{"tipo": "texto", "texto": perguntas[0]}]
+    if not any(m["tipo"] == "texto" for m in sem_frase):
+        sem_frase = [{"tipo": "texto", "texto": "Me conta mais um pouco sobre o seu caso?"}]
+    return "", sem_frase
+
+
+def _portao_prendeu(entrada: Entrada, saida: Saida, pedido: str, destino: str, etapa: str) -> bool:
+    """Nunca prender o lead: a mesma troca segurada pela mesma falta dois turnos seguidos vai para a equipe com a ficha
+    (analise_manual:faltam_fatos). "Segurada" vale também quando a IA obedeceu à CORRIJA do portão e fez a pergunta:
+    se no turno seguinte a mesma falta continua (o extrator não achou a resposta), a IA não pergunta pela 3ª vez.
+    Troca que passou, falta que mudou (o lead respondeu algo) ou turno sem pedido de troca limpam ou trocam a marca."""
+    barrado = saida.contexto.get("portao_barrou") or (None if destino else saida.contexto.get("portao_pediu"))
+    anterior = entrada.fatos.get(MARCA_PORTAO)
+    if not barrado:
+        if isinstance(anterior, dict) and anterior.get("destino"):
+            _gravar_controle(saida, MARCA_PORTAO, {})
+        return False
+    if isinstance(anterior, dict) and anterior.get("destino") == barrado["destino"] \
+            and list(anterior.get("faltam") or []) == list(barrado["faltam"]):
+        _gravar_controle(saida, MARCA_PORTAO, {})
+        saida.etapa_depois = etapa
+        saida.estado_lead, saida.motivo_estado = "pausado", "analise_manual:faltam_fatos"
+        saida.motivo = saida.motivo_estado
+        saida.mensagens = _fixa(entrada, "equipe_continua")
+        saida.eventos.append(_evento("analise_manual", "aviso", "lawchat",
+                                     f"A passagem para {barrado['destino']} foi segurada dois turnos seguidos (faltam: "
+                                     f"{', '.join(barrado['faltam'])}); a conversa foi para a equipe.",
+                                     destino=barrado["destino"], faltam=barrado["faltam"]))
+        return True
+    _gravar_controle(saida, MARCA_PORTAO, dict(barrado))
+    return False
+
+
 # ---------------------------------------------------------------------------- catálogo: conferências e travas do motor
 # Fatos de controle do motor (fonte "sistema"; começam com "_" e não aparecem para a IA): memória entre turnos das travas
 # que só podem agir uma vez, para nenhuma delas prender o lead num laço.
@@ -641,6 +835,8 @@ MARCA_BOAS_VINDAS = "_boas_vindas_pendente"             # papel que recebeu o le
 MARCA_DESTINOS_IGNORADOS = "_destinos_ignorados"        # ["assinatura>contratos", ...]: já registrados nesta conversa
 MARCA_VOLTOU_AO_SDR = "_voltou_ao_sdr"                  # o Desqualificado já devolveu o lead ao SDR uma vez
 MARCA_VARIAVEIS_SEM_VALOR = "_variaveis_sem_valor"      # ["LINK AVALIACAO GOOGLE", ...]: evento já registrado
+MARCA_FORA_DO_TEMA = "_fora_do_tema_seguidas"           # quantas mensagens seguidas fora do tema (B6)
+MARCA_PORTAO = "_portao_barrou"                         # {"destino", "faltam"}: troca segurada no turno anterior (B4)
 # Nome curto de cada campo do contrato na linha "DADOS DO CONTRATO QUE FALTAM (sistema)".
 ROTULO_DO_CAMPO = {"nome": "nome completo", "cpf": "CPF", "endereco": "rua", "numero": "número", "bairro": "bairro",
                    "cidade": "cidade", "estado": "estado", "cep": "CEP", "email": "e-mail", "estado_civil": "estado civil",
@@ -1166,6 +1362,10 @@ def _guardas_do_catalogo(entrada: Entrada, produto: Any, saida: Saida, *, etapa:
         return guardas
     cfg_etapa = papeis.get(etapa) or {}
     cfg_destino = papeis.get(destino) or {}
+    if faltam_portao := _faltam_no_portao(produto, destino, fatos, regras, calculadora, etapa):
+        # Portão de fatos (B4): a troca é do código. A IA recebe o que falta perguntar e refaz sem a passagem.
+        guardas.append(_Guarda("portao_de_fatos", _orientacao_do_portao(destino, faltam_portao)))
+        saida.contexto.setdefault("portao_pediu", {"destino": destino, "faltam": list(faltam_portao)})
     # Pergunta do roteiro que o escritório exige antes de passar (config perguntar_antes_de_transferir): uma vez na conversa.
     marca = f"{etapa}>{destino}"
     faltam = [grupo for grupo in catalogo.perguntar_antes_de_transferir(cfg_etapa).get(destino, [])

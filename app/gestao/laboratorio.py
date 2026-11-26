@@ -47,8 +47,16 @@ class Laboratorios:
             ),
         )
 
+    def esquecer(self, id_conversa: str | None) -> None:
+        """Recomeçar: a conversa some da memória (a próxima mensagem abre outra)."""
+        if id_conversa:
+            self._conversas.pop(id_conversa, None)
+
     async def mensagem(self, *, escritorio: dict[str, Any], agente: dict[str, Any],
-                       id_conversa: str | None, texto: str) -> dict[str, Any]:
+                       id_conversa: str | None, texto: str, etapa_inicial: str | None = None) -> dict[str, Any]:
+        """Uma mensagem do lead de teste. `agente` pode ser o salvo (aba Laboratório) ou o montado a partir do
+        RASCUNHO do produto (assistente e editor: app/gestao/rotas_rascunho.py). etapa_inicial: código da etapa em
+        que a conversa nova começa (vazio = a principal, como um lead novo)."""
         self._limpar()
         chave = id_conversa if id_conversa in self._conversas else None
         if chave and self._conversas[chave][3] != agente["id"]:
@@ -61,6 +69,9 @@ class Laboratorios:
                 escritorio=repo.escritorios["lab-escritorio"], canal=repo.canais["lab-canal"],
                 agente=repo.agentes["lab-canal"], telefone="lab-" + uuid.uuid4().hex[:8], id_sessao=None)
             chave = lead.id + "-" + uuid.uuid4().hex[:6]
+            inicio = next((e for e in repo.agentes["lab-canal"].etapas if e.codigo == etapa_inicial), None)
+            if inicio is not None:
+                repo.leads[lead.id].id_etapa = inicio.id         # "começar na etapa": Closer, Contratos...
             self._conversas[chave] = (time.time(), repo, atendimento, agente["id"])
         _, repo, atendimento, _ = self._conversas[chave]
         self._montar(repo, escritorio, agente)

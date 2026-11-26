@@ -80,7 +80,7 @@ async def _escritorio(repo: Any, id_escritorio: str) -> dict[str, Any]:
     if not escritorio:
         raise HTTPException(404, "Escritório não encontrado.")
     if not escritorio.get("id_conta_helena"):
-        raise HTTPException(409, "O escritório não tem a conta da Helena (companyId).")
+        raise HTTPException(409, "O escritório não tem a conta da LawChat (companyId).")
     return escritorio
 
 
@@ -154,7 +154,7 @@ async def pedir_codigo(id_escritorio: str, pedido: Request, ctx: Contexto = Depe
         raise HTTPException(409, "Já existe painel do CRM neste escritório. Não é possível criar outro.")
     estado = await _estado(repo.pool, id_escritorio)
     if estado.get("estado") in BLOQUEADOS:
-        raise HTTPException(409, "Há uma criação em andamento ou com resultado incerto. Confira na Helena e marque como conferido.")
+        raise HTTPException(409, "Há uma criação em andamento ou com resultado incerto. Confira na LawChat e marque como conferido.")
     tentativas = await repo.pool.fetchval(
         """select count(*) from agentesia_alteracoes where id_escritorio = $1::uuid and acao = 'painel_crm_codigo'
            and criado_em > now() - interval '1 hour'""", id_escritorio)
@@ -240,7 +240,7 @@ async def criar(id_escritorio: str, dados: Codigo, pedido: Request, simular: boo
                 """insert into agentesia_eventos (id_escritorio, tipo, gravidade, responsavel, descricao, detalhe)
                    values ($1::uuid, 'painel_crm_divergente', 'erro', 'lawchat', $2, $3::jsonb)""",
                 id_escritorio, "Painel padrão do CRM criado com divergência: " + "; ".join(divergencias)
-                + ". Confira o painel na Helena.", json.dumps({"id_painel": painel["id"], "etapas_por_tipo": mapa}))
+                + ". Confira o painel na LawChat.", json.dumps({"id_painel": painel["id"], "etapas_por_tipo": mapa}))
         else:
             fluxo.marcar("conferencia", "ok", "6 etapas com os títulos esperados")
             estado_final = "criado"
@@ -256,7 +256,7 @@ async def criar(id_escritorio: str, dados: Codigo, pedido: Request, simular: boo
     except ErroPainelCrm as erro:
         fluxo.marcar(erro.passo, "incerto" if erro.incerto else "erro", erro.mensagem)
         estado_final = "incerto" if erro.incerto else "livre"
-        mensagem = (f"Resultado incerto no passo {erro.passo}: {erro.mensagem}. Confira na Helena se o painel foi "
+        mensagem = (f"Resultado incerto no passo {erro.passo}: {erro.mensagem}. Confira na LawChat se o painel foi "
                     "criado antes de tentar de novo; novas tentativas ficam bloqueadas até marcar como conferido."
                     if erro.incerto else f"Parou no passo {erro.passo}: {erro.mensagem}")
         await _gravar_estado(repo.pool, id_escritorio, {"estado": estado_final, "passos": fluxo.andamento,
@@ -287,5 +287,5 @@ async def marcar_conferido(id_escritorio: str, pedido: Request, ctx: Contexto = 
     await _gravar_estado(repo.pool, id_escritorio, {"estado": "livre", "conferido_por": ctx.id_usuario,
                                                     "conferido_em": datetime.now(timezone.utc).isoformat()})
     await _auditar(repo, ctx, pedido, id_escritorio, "painel_crm_conferido",
-                   f"Painel padrão do CRM: resultado '{estado.get('estado')}' conferido na Helena", estado.get("passos") or [])
+                   f"Painel padrão do CRM: resultado '{estado.get('estado')}' conferido na LawChat", estado.get("passos") or [])
     return {"ok": True, "estado": "livre"}

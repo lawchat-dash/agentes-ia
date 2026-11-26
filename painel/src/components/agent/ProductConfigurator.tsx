@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, ChevronDown, Rocket, Bot, Loader2, RefreshCw, Shield, FlaskConical, FileSignature, ExternalLink, Settings2, Braces, AlertTriangle, X, Sparkles, Building2, Headphones, BellRing } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, ChevronDown, Rocket, Bot, Loader2, RefreshCw, Shield, FlaskConical, FileSignature, ExternalLink, Settings2, Braces, AlertTriangle, X, Sparkles, Building2, Headphones, BellRing, History, PencilLine } from "lucide-react";
 import { useTemplate } from "@/hooks/useTemplates";
 import { ActivationSummary } from "@/components/agent/ActivationSummary";
 import { resolveGradient } from "@/data/categories";
@@ -27,12 +27,13 @@ import { Slider } from "@/components/ui/slider";
 import { api, enviar } from "@/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
-import { ROLE_META, ROLE_ORDER, ALL_ROLES_ORDERED, AgentRole } from "@/hooks/useProducts";
+import { ROLE_META, ROLE_ORDER, ALL_ROLES_ORDERED, AgentRole, roleSortIndex } from "@/hooks/useProducts";
 import { PipelineAgentEditor } from "@/components/agent/PipelineAgentEditor";
 import { TestePrompt } from "@/components/agent/TestePrompt";
+import { VersoesProduto, type ConteudoVersao } from "@/components/agent/VersoesProduto";
 import ConhecimentoManager from "@/components/agent/ConhecimentoManager";
 import { buildBlocksForRole } from "@/data/roleBlocks";
-import { expandirBlocosParaBot, expandirHandoffsParaBot } from "@/data/handoffTargets";
+import { expandirBlocosParaBot, expandirHandoffsParaBot, recolherHandoffsDoBot } from "@/data/handoffTargets";
 import { agentesSemFraseDeSaida, expandirFrasesParaBot, fraseDaEtapa, setProdutoFrases, temTokenTransferencia } from "@/data/frasesTroca";
 import { carregarFrasesTroca, FrasesProdutoProvider } from "@/hooks/useFrasesTroca";
 import { AudioSlotsPanel } from "./AudioSlotsPanel";
@@ -279,7 +280,9 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // Etapa "Follow-up": vem LIGADO (opt-out, docs/FOLLOWUP.md); a cadência é a padrão do produto da biblioteca.
   const [followupLigado, setFollowupLigado] = useState(true);
   const [followupEdicao, setFollowupEdicao] = useState<FollowupSituacao | null>(editData?.followup ?? null);
-  const [fuPrevia, setFuPrevia] = useState<{ resumo: string[]; por_que: string; aviso_oficial: string; do_produto: boolean } | null>(null);
+  const [fuPrevia, setFuPrevia] = useState<{ resumo: string[]; passos?: number[]; por_que: string; aviso_oficial: string; do_produto: boolean } | null>(null);
+  // Cadência escolhida na ativação (horas de cada tentativa). null = a padrão do produto, sem mexer.
+  const [fuHoras, setFuHoras] = useState<number[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Pipeline (step 3)
@@ -319,6 +322,9 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [step3Tab, setStep3Tab] = useState<Step3Tab>("agente");
   const [generalRules, setGeneralRules] = useState<string>(editData?.generalRules ?? "");
   const [testOpen, setTestOpen] = useState(false);
+  // Modo edição: aba "Versões" (lista, diferenças, restaurar no rascunho) ao lado do editor.
+  const [aba, setAba] = useState<"editar" | "versoes">("editar");
+  const [versaoRestaurada, setVersaoRestaurada] = useState<number | null>(null);
 
   // config completo da etapa por papel (modo edição) — base para regravar no bot via 0021.
   const configByRoleRef = useRef<Record<string, any>>(editData?.configByRole ?? {});
@@ -417,7 +423,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   useEffect(() => {
     if (!template?.id) return;
     let vivo = true;
-    api<{ resumo: string[]; por_que: string; aviso_oficial: string; do_produto: boolean }>(`/biblioteca/produtos/${template.id}/followup-padrao`)
+    api<{ resumo: string[]; passos?: number[]; por_que: string; aviso_oficial: string; do_produto: boolean }>(`/biblioteca/produtos/${template.id}/followup-padrao`)
       .then((r) => { if (vivo) setFuPrevia(r); }).catch(() => { /* sem prévia: a etapa mostra só o interruptor */ });
     return () => { vivo = false; };
   }, [template?.id]);
@@ -446,7 +452,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     setWaSyncError(null);
     try {
       if (!workspace?.id) throw new Error("Sem conta ativa");
-      // Atualiza os canais a partir da Helena (token do escritório) e lista os números.
+      // Atualiza os canais a partir da LawChat (token do escritório) e lista os números.
       const data = await sincronizarCanaisHelena();
 
       const normalized = ((data ?? []) as any[])
@@ -481,7 +487,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         setWaSyncError({
           tipo: "atencao",
           title: "Nenhum número de WhatsApp encontrado",
-          detail: "Não achamos nenhum número de WhatsApp conectado à sua conta. Confira se o número está conectado na Helena e tente de novo.",
+          detail: "Não achamos nenhum número de WhatsApp conectado à sua conta. Confira se o número está conectado na LawChat e tente de novo.",
         });
         toast.warning("Nenhum número encontrado", { id: "ativar-sync-whatsapp" });
       } else {
@@ -834,7 +840,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     // (na Coleta de Dados a equipe recebe o caso para mandar o contrato).
     { key: "integracao", obrig: false, opcional: true, vazio: zapStatus !== "ok", ok: zapStatus === "ok", label: "Integração ZapSign", det: zapStatus === "ok" ? `Contrato: ${zapModelo ?? "modelo selecionado"}` : zapStatus === "pending" ? "Conectada, mas falta selecionar o modelo do contrato (pode ser depois)" : "Sem ZapSign por enquanto: a IA não gera o contrato sozinha (pode conectar depois)", ir: () => setStep(4) },
     { key: "faq", obrig: false, opcional: true, vazio: faqItems.length === 0, ok: true, label: "FAQ", det: faqItems.length ? `${faqItems.length} pergunta${faqItems.length > 1 ? "s" : ""}` : "Nenhuma (opcional)", ir: () => { setStep(3); setStep3Tab("faq"); } },
-    { key: "followup", obrig: false, opcional: true, vazio: isEdit ? !followupEdicao?.ligado : !followupLigado, ok: true, label: "Follow-up", det: (isEdit ? followupEdicao?.ligado : followupLigado) ? `Ligado · ${((isEdit ? followupEdicao?.resumo : fuPrevia?.resumo) ?? []).join(", ") || "cadência padrão"}` : "Desligado — leads que param de responder não recebem lembrete", ir: () => setStep(5) },
+    { key: "followup", obrig: false, opcional: true, vazio: isEdit ? !followupEdicao?.ligado : !followupLigado, ok: true, label: "Follow-up", det: (isEdit ? followupEdicao?.ligado : followupLigado) ? `Ligado · ${(isEdit ? followupEdicao?.resumo ?? [] : fuHoras ? fuHoras.map(rotuloHoras) : fuPrevia?.resumo ?? []).join(", ") || "cadência padrão"}` : "Desligado — leads que param de responder não recebem lembrete", ir: () => setStep(5) },
     { key: "objecoes", obrig: false, opcional: true, vazio: objectionItems.length === 0, ok: true, label: "Objeções", det: objectionItems.length ? `${objectionItems.length} cadastrada${objectionItems.length > 1 ? "s" : ""}` : "Nenhuma (opcional)", ir: () => { setStep(3); setStep3Tab("objecoes"); } },
   ];
   const pendencias = revisao.filter((i) => i.obrig && !i.ok);
@@ -891,6 +897,66 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
 
     return { promptChanges, changedItems: items, total: items.length + promptChanges.length };
   })();
+
+  /** Resumo das mudanças que vai para a versão gravada no salvar ("Prompt do Closer", "FAQ (+2)"). */
+  const resumoDasMudancas = (): string[] => {
+    if (!editChanges || !editData) return [];
+    const linhas = editChanges.promptChanges.map((pc) => (pc.before !== pc.after ? `Prompt do ${pc.label}` : `Agente ${pc.label}`));
+    const delta = (n: number) => (n ? ` (${n > 0 ? "+" : ""}${n})` : "");
+    editChanges.changedItems.forEach((it) => {
+      if (it.key === "faq") linhas.push(`FAQ${delta(faqItems.length - (editData.faqItems ?? []).length)}`);
+      else if (it.key === "objecoes") linhas.push(`Objeções${delta(objectionItems.length - (editData.objectionItems ?? []).length)}`);
+      else linhas.push(it.label);
+    });
+    if (versaoRestaurada) linhas.unshift(`Restaurada da v${versaoRestaurada}`);
+    return linhas;
+  };
+
+  /** Payload do TESTE do rascunho: o mesmo do ativar/sincronizar, com o que está na tela agora (mesmo sem salvar). */
+  const obterRascunhoTeste = async () => {
+    if (step === 3 && step3Tab === "agente") flushHandlerRef.current?.();
+    await carregarFrasesTroca(template?.id).catch(() => null);
+    setProdutoFrases(template?.id ?? null);
+    return montarPayloadProduto();
+  };
+  const etapasTeste = pipelineAgents.map((a) => ({ role: a.role as string, name: a.name || ROLE_META[a.role]?.label || a.role }));
+
+  /** "Restaurar" uma versão: o conteúdo dela vira o rascunho do editor. Nada vai ao ar até salvar. */
+  const aplicarVersao = (c: ConteudoVersao, numero: number) => {
+    const atuais = new Map(pipelineAgentsRef.current.map((a) => [a.role, a]));
+    const restaurados: PipelineAgent[] = (c.agentes ?? [])
+      .filter((v) => (ALL_ROLES_ORDERED as string[]).includes(v.papel))
+      .map((v) => {
+        const role = v.papel as AgentRole;
+        const prompt = recolherHandoffsDoBot(v.prompt ?? "");
+        return {
+          id: atuais.get(role)?.id ?? role,
+          role,
+          name: v.nome || atuais.get(role)?.name || ROLE_META[role]?.label || role,
+          welcome: v.boas_vindas ?? "",
+          blocks: [
+            { id: "freeform", type: "freeform", icon: "📝", label: "Prompt", content: prompt },
+            { id: "handoff_trigger", type: "handoff_trigger", icon: "🔀", label: "Gatilho de transferência", content: recolherHandoffsDoBot(v.mensagem_troca ?? "") },
+          ],
+          promptText: prompt,
+          saved: true,
+        };
+      })
+      .sort((a, b) => roleSortIndex(a.role) - roleSortIndex(b.role));
+    if (restaurados.length) {
+      pipelineAgentsRef.current = restaurados;
+      setPipelineAgents(restaurados);
+      setActiveRoleIdx(0);
+    }
+    setFaqItems((c.faq ?? []).map((f) => ({ pergunta: f.pergunta ?? "", resposta: f.resposta ?? "" })));
+    setObjectionItems((c.objecoes ?? []).map((o) => ({ titulo: o.titulo ?? "", resposta: o.resposta ?? "" })));
+    setGeneralRules(c.regras_markdown ?? "");
+    setDadosEscritorio(c.dados_escritorio ?? "");
+    setEditorVersion((n) => n + 1);             // remonta o editor do agente com o texto restaurado
+    setVersaoRestaurada(numero);
+    setAba("editar");
+    setStep(6);                                 // a Revisão mostra o antes e depois contra o que está no ar
+  };
 
   /** Preenche um campo {{ }} de uma vez em TODO o produto: regras + agentes + FAQ + objeções. */
   const applyGlobalField = (field: string, value: string) => {
@@ -1015,7 +1081,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       // voltou da lixeira está sendo ATIVADO de novo (o cliente escolhe se já liga ou deixa pausado).
       ...(isEdit && !reativando ? {} : { ativar_imediatamente: activateNow }),
       // Follow-up: só a ativação escolhe (agente que já tem follow-up não muda; quem manda é a aba Follow-up).
-      ...(isEdit && !reativando ? {} : { followup_ativo: followupLigado }),
+      ...(isEdit && !reativando ? {} : { followup_ativo: followupLigado, ...(followupLigado && fuHoras ? { followup_horas: fuHoras } : {}) }),
       periodo_graca_ativo: pipelineAgentsRef.current.some((a) => a.role === "periododegraca"),
       agentes,
       faq: faqItems,
@@ -1047,7 +1113,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
 
       // CONTEÚDO de NÍVEL PRODUTO (aba "Conteúdo": FAQ + objeções + regras gerais) vai IGUAL para
       // todos os agentes — o servidor regrava prompts e configurações do agente a cada save.
-      const payload = await montarPayloadProduto();
+      const payload = { ...(await montarPayloadProduto()), resumo_mudancas: resumoDasMudancas() };
       // Não envia token "@Transferência" cru: o bot compararia o texto errado e não trocaria
       // o departamento.
       if (payloadComTokenSolto(payload.agentes)) {
@@ -1220,7 +1286,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           </div>
 
           {/* Stepper estilo tubelight (desktop) */}
-          <div className="hidden items-center gap-1 rounded-full border border-[#E6EAF0] bg-white/70 p-1 shadow-sm backdrop-blur md:flex">
+          <div className={`hidden items-center gap-1 rounded-full border border-[#E6EAF0] bg-white/70 p-1 shadow-sm backdrop-blur ${isEdit && aba === "versoes" ? "" : "md:flex"}`}>
             {STEP_LABELS.map((lbl, idx) => {
               const s = idx + 1;
               const done = step > s;
@@ -1253,6 +1319,18 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
               );
             })}
           </div>
+
+          {isEdit && groupId && (
+            <div className="flex shrink-0 items-center gap-1 rounded-full border border-[#E6EAF0] bg-white/70 p-1 shadow-sm" role="tablist" aria-label="Editor ou versões">
+              {([["editar", "Editar", PencilLine], ["versoes", "Versões", History]] as const).map(([id, rotulo, Icone]) => (
+                <button key={id} type="button" role="tab" aria-selected={aba === id} aria-label={rotulo} title={rotulo} onClick={() => { if (step === 3 && step3Tab === "agente") flushHandlerRef.current?.(); setAba(id); }}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${aba === id ? "" : "text-[#98A2B3] hover:text-[#667085]"}`}
+                        style={aba === id ? { color: catC1, backgroundColor: `${catC1}1a` } : undefined}>
+                  <Icone className="size-3.5" /><span className={aba === "versoes" ? "" : "hidden xl:inline"}>{rotulo}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="shrink-0 rounded-full border border-[#E2E8F0] bg-white px-3 py-1 text-xs font-medium text-[#667085] md:hidden">
             {step}/{STEP_COUNT} · {STEP_LABELS[step - 1]}
@@ -1290,6 +1368,15 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         {isEdit && editData && !editData.precisaAtivar && (
           <AvisoFollowupDesligado className="mb-5" idAtivado={editData.groupId} situacao={followupEdicao} aoLigar={setFollowupEdicao} />
         )}
+        {isEdit && versaoRestaurada && aba === "editar" && (
+          <Aviso tipo="info" icone={History} className="mb-5" titulo={`Versão ${versaoRestaurada} carregada no rascunho`}
+                 acoes={<Button size="sm" variant="outline" onClick={() => setStep(6)}>Ver o que vai mudar</Button>}>
+            Confira e salve para publicar. Até lá, o agente no ar continua como está.
+          </Aviso>
+        )}
+        {isEdit && aba === "versoes" && groupId ? (
+          <VersoesProduto idProduto={groupId} mudancasNaoSalvas={editChanges?.total ?? 0} onRestaurar={aplicarVersao} c1={catC1} />
+        ) : (
         <div className={step === 3 ? "" : "grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 lg:gap-8 items-start"}>
         <div className="min-w-0">
           {/* mode="wait": a etapa atual sai (exit) antes da próxima entrar */}
@@ -1324,7 +1411,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                     <span className="text-[11px] font-semibold text-muted-foreground mr-0.5 inline-flex items-center gap-1">
                       <Sparkles className="size-3 text-primary" />Sugestões:
                     </span>
-                    {["Sofia", "Helena", "Laura", "Alice", "Beatriz", "Valentina", "Lorena", "Júlia", "Marina", "Clara"].map((n) => (
+                    {["Sofia", "LawChat", "Laura", "Alice", "Beatriz", "Valentina", "Lorena", "Júlia", "Marina", "Clara"].map((n) => (
                       <button
                         key={n}
                         type="button"
@@ -2020,29 +2107,10 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                         />
                       </div>
 
-                      {/* Painel lateral: Teste de prompt — DESLIGADO temporariamente.
-                          A lógica do funil (handoffs/tools/auto-continue) será repensada. O componente
-                          <TestePrompt> e os helpers (buscarCep, handoffTargets) seguem prontos no repo —
-                          p/ RELIGAR, é só restaurar este bloco no lugar do placeholder abaixo:
-                            <TestePrompt agents={pipelineAgents} startRole={currentAgent.role}
-                              generalRules={generalRules} dadosEscritorio={dadosEscritorio}
-                              faqItems={faqItems} objectionItems={objectionItems} model={selectedModel}
-                              handoffByRole={handoffByRole} handoffRulesByRole={handoffRulesByRole}
-                              c1={catC1} c2={catC2} /> */}
+                      {/* Painel lateral: teste do RASCUNHO no motor real do servidor (app/gestao/rotas_rascunho.py). */}
                       <div className="xl:sticky xl:top-[5.5rem]">
-                        <Card className="lc-card p-7 text-center">
-                          <div className="size-12 rounded-2xl grid place-items-center mx-auto mb-3 bg-[#F1F5F9] text-[#94A3B8]">
-                            <FlaskConical className="size-6" />
-                          </div>
-                          <div className="flex items-center justify-center gap-2 mb-2">
-                            <h3 className="text-sm font-semibold text-[#101828]">Teste de prompt</h3>
-                            <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#B45309]">Em breve</span>
-                          </div>
-                          <p className="text-xs text-[#667085] leading-relaxed max-w-[260px] mx-auto">
-                            Estamos reformulando a simulação do funil para deixá-la mais fiel ao
-                            atendimento real. Em breve você poderá testar a conversa completa por aqui.
-                          </p>
-                        </Card>
+                        <TestePrompt idProduto={groupId} obterRascunho={obterRascunhoTeste} etapas={etapasTeste}
+                                     etapaSugerida={currentAgent.role} c1={catC1} />
                       </div>
                     </div>
                   )}
@@ -2261,13 +2329,18 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                     <div className="flex items-start gap-4">
                       <div className="flex-1 min-w-0">
                         <Label htmlFor="followup-ativo" className="font-bold text-[#101828]">Ligar o follow-up</Label>
-                        <p className="text-xs text-muted-foreground mt-0.5">Cadência padrão do produto, contada a partir da última mensagem da IA:</p>
-                        <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Cadência padrão">
-                          {(fuPrevia?.resumo ?? []).map((r, i) => (
-                            <span key={i} className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-[#e2e8f0] bg-[#f8fafc] text-[#334155]">{i + 1}ª · {r}</span>
-                          ))}
-                          {!fuPrevia && <span className="text-[11px] text-[#98A2B3]">carregando a cadência…</span>}
-                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">Quando cada lembrete sai, contado a partir da última mensagem da IA. Até 4 tentativas.</p>
+                        {fuPrevia ? (
+                          <CadenciaEditavel
+                            horas={fuHoras ?? fuPrevia.passos ?? []}
+                            desligado={!followupLigado}
+                            mudou={!!fuHoras}
+                            aoMudar={setFuHoras}
+                            aoVoltarPadrao={() => setFuHoras(null)}
+                          />
+                        ) : (
+                          <span className="mt-2 block text-[11px] text-[#98A2B3]">carregando a cadência…</span>
+                        )}
                       </div>
                       <Switch id="followup-ativo" checked={followupLigado} onCheckedChange={setFollowupLigado} />
                     </div>
@@ -2518,8 +2591,13 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           )}
         </div>
         </div>
-        {template && step !== 3 && <ActivationSummary template={template} name={name} step={step} />}
+        {template && step === 6 && groupId ? (
+          <div className="lg:sticky lg:top-[5.5rem] self-start">
+            <TestePrompt idProduto={groupId} obterRascunho={obterRascunhoTeste} etapas={etapasTeste} c1={catC1} />
+          </div>
+        ) : template && step !== 3 && <ActivationSummary template={template} name={name} step={step} />}
         </div>
+        )}
       </div>
 
       {/* Revisar atualização do catálogo (só edição) */}
@@ -2693,3 +2771,58 @@ const BuildingOverlay = ({ c1, c2, stage, productName, agentCount, error, onGoPr
 };
 
 export default ProductConfigurator;
+
+/* ----------------------------------------------------------------- cadência do follow-up (ativação) */
+const OPCOES_HORAS = [0.25, 0.5, 1, 2, 4, 8, 12, 24, 48, 72, 96, 120, 168, 240, 336, 504, 720];
+function rotuloHoras(h: number): string {
+  const min = Math.round(h * 60);
+  if (min < 60) return `${min} min`;
+  if (min % 60) return `${Math.floor(min / 60)} h ${min % 60} min`;
+  const hh = min / 60;
+  return hh <= 72 || hh % 24 ? `${hh} h` : `${hh / 24} dias`;
+}
+
+function CadenciaEditavel({ horas, desligado, mudou, aoMudar, aoVoltarPadrao }: {
+  horas: number[]; desligado: boolean; mudou: boolean; aoMudar: (h: number[]) => void; aoVoltarPadrao: () => void;
+}) {
+  const trocar = (i: number, valor: number) => {
+    const novo = [...horas]; novo[i] = valor;
+    aoMudar(novo);
+  };
+  const tirar = (i: number) => aoMudar(horas.filter((_, j) => j !== i));
+  const pôr = () => {
+    const ultimo = horas[horas.length - 1] ?? 0;
+    aoMudar([...horas, OPCOES_HORAS.find((o) => o > ultimo) ?? 720]);
+  };
+  const foraDeOrdem = horas.some((h, i) => i > 0 && h <= horas[i - 1]);
+  return (
+    <div className={`mt-2.5 space-y-2 ${desligado ? "opacity-50 pointer-events-none" : ""}`}>
+      <div className="flex flex-wrap items-center gap-2" aria-label="Cadência do follow-up">
+        {horas.map((h, i) => (
+          <div key={i} className="inline-flex items-center gap-1 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] pl-2 pr-1 py-1">
+            <span className="text-[11px] font-bold text-[#475467]">{i + 1}ª</span>
+            <select
+              value={OPCOES_HORAS.includes(h) ? h : ""}
+              onChange={(e) => trocar(i, Number(e.target.value))}
+              className="h-7 rounded-md border border-[#e2e8f0] bg-white px-1.5 text-[12px] font-semibold text-[#101828]"
+              aria-label={`Tempo da ${i + 1}ª tentativa`}
+            >
+              {!OPCOES_HORAS.includes(h) && <option value="">{rotuloHoras(h)}</option>}
+              {OPCOES_HORAS.map((o) => <option key={o} value={o}>{rotuloHoras(o)}</option>)}
+            </select>
+            {horas.length > 1 && (
+              <button type="button" onClick={() => tirar(i)} className="size-6 grid place-items-center rounded-md text-[#98A2B3] hover:text-red-600 hover:bg-red-50" aria-label={`Tirar a ${i + 1}ª tentativa`}>×</button>
+            )}
+          </div>
+        ))}
+        {horas.length < 4 && (
+          <button type="button" onClick={pôr} className="h-8 px-2.5 rounded-lg border border-dashed border-[#cbd5e1] text-[12px] font-semibold text-[#475467] hover:border-primary hover:text-primary">+ tentativa</button>
+        )}
+        {mudou && (
+          <button type="button" onClick={aoVoltarPadrao} className="text-[11px] font-semibold text-primary underline-offset-2 hover:underline">voltar ao padrão</button>
+        )}
+      </div>
+      {foraDeOrdem && <p className="text-[11px] font-semibold text-red-600">Cada tentativa precisa vir depois da anterior.</p>}
+    </div>
+  );
+}

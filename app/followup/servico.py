@@ -4,6 +4,11 @@ O disparador reserva até 5 envios vencidos ("for update skip locked": dois serv
 confere TUDO de novo na hora (lead respondeu? equipe falou? IA desligada? etapa mudou? fora do horário?),
 escreve a mensagem (IA, texto fixo ou modelo aprovado) e envia pela Helena. Depois agenda o passo seguinte
 ou, no fim, a desistência.
+
+Regras da OAB e da Meta (regras.py): quem nunca respondeu à IA recebe no máximo `max_toques_sem_resposta`; o penúltimo
+toque oferece parar; pedido para parar na última mensagem do lead cancela tudo (lead_pediu_para_parar). Lead parado:
+24 h depois do 3º toque sem resposta vira tarefa da equipe (varrer_parados).
+Depois de cada turno o agendar também chama o gancho da nota do lead (automacoes.depois_do_turno).
 """
 
 from __future__ import annotations
@@ -43,6 +48,20 @@ async def cancelar(pool: asyncpg.Pool, id_lead: str, motivo: str) -> int:
     return int(resultado.split()[-1])
 
 
+async def ultima_do_lead(conexao: Any, id_lead: Any) -> str | None:
+    return await conexao.fetchval(
+        """select coalesce(nullif(btrim(texto), ''), texto_extraido) from agentesia_mensagens
+           where id_lead = $1::uuid and autor = 'lead' order by enviada_em desc limit 1""", str(id_lead))
+
+
+async def respondeu_a_ia(conexao: Any, id_lead: Any) -> bool:
+    """O lead já mandou alguma mensagem depois da primeira mensagem da IA? (quem nunca respondeu tem menos toques)"""
+    return bool(await conexao.fetchval(
+        """select exists(select 1 from agentesia_mensagens m where m.id_lead = $1::uuid and m.autor = 'lead'
+                         and m.enviada_em > (select min(i.enviada_em) from agentesia_mensagens i
+                                             where i.id_lead = $1::uuid and i.autor = 'ia'))""", str(id_lead)))
+
+
 async def _contexto_do_lead(conexao: Any, id_lead: str) -> dict[str, Any] | None:
     linha = await conexao.fetchrow(
         """select l.id, l.id_escritorio, l.id_agente, l.estado, l.ultima_mensagem_lead_em, l.id_sessao_helena,
@@ -75,7 +94,18 @@ def _etapas_de_conversa(lead: dict[str, Any]) -> set[str]:
 
 
 async def agendar(pool: asyncpg.Pool, id_lead: str, base: datetime) -> datetime | None:
-    """Depois de cada resposta da IA: troca o follow-up pendente pelo primeiro passo a partir de agora."""
+    """Depois de cada resposta da IA: troca o follow-up pendente pelo primeiro passo a partir de agora. Depois (fora da
+    transação, sem derrubar o agendamento) roda o gancho de fim de turno: a nota do lead."""
+    quando = await _agendar(pool, id_lead, base)
+    from app import automacoes
+    try:
+        await automacoes.depois_do_turno(pool, str(id_lead))
+    except Exception:                                  # a nota do lead nunca atrapalha o follow-up
+        log.exception("falha ao calcular a nota do lead %s", id_lead)
+    return quando
+
+
+async def _agendar(pool: asyncpg.Pool, id_lead: str, base: datetime) -> datetime | None:
     async with pool.acquire() as conexao, conexao.transaction():
         lead = await _contexto_do_lead(conexao, id_lead)
         await conexao.execute(
@@ -85,6 +115,13 @@ async def agendar(pool: asyncpg.Pool, id_lead: str, base: datetime) -> datetime 
             return None
         config = regras.Config.de(lead["config_agente"].get("followup"))
         if not config.ativo or lead["estado"] != "ativo" or not config.vale_para(lead["etapa"], _etapas_de_conversa(lead)):
+            return None
+        if regras.pediu_para_parar(await ultima_do_lead(conexao, id_lead)):
+            # Pediu para parar: não agenda e deixa marcado (o painel mostra o motivo na lista do follow-up).
+            await conexao.execute(
+                """insert into agentesia_followups (id_escritorio, id_lead, id_agente, passo, base, agendado_para, situacao, motivo)
+                   values ($1, $2, $3, 0, $4, $4, 'cancelado', 'lead_pediu_para_parar')""",
+                lead["id_escritorio"], lead["id"], lead["id_agente"], base)
             return None
         quando = regras.horario_do_passo(base, 0, config, str(id_lead))
         if quando is None:
@@ -115,12 +152,19 @@ class Disparador:
             except Exception:
                 log.exception("falha no disparador de follow-up")
             try:
+                await self.varrer_parados()
+            except Exception:
+                log.exception("falha na varredura de leads parados")
+            try:
                 await asyncio.wait_for(self._parar.wait(), intervalo_s)
             except asyncio.TimeoutError:
                 pass
 
     def parar(self) -> None:
         self._parar.set()
+
+    async def varrer_parados(self, limite: int = 20) -> int:
+        return await varrer_parados(self._pool, limite)
 
     async def rodar_uma_vez(self, limite: int = 5) -> int:
         reservados = await self._pool.fetch(
@@ -146,8 +190,15 @@ class Disparador:
             return await self._fechar(f, "cancelado", "lead_inexistente")
         config = regras.Config.de(lead["config_agente"].get("followup"))
         motivo = await self._por_que_nao(f, lead, config)
+        if motivo == "lead_pediu_para_parar":
+            return await self._fechar(f, "cancelado", motivo, evento=(
+                "lead", "O lead pediu para não receber mais mensagens: os follow-ups dele foram cancelados."))
         if motivo:
             return await self._fechar(f, "cancelado", motivo)
+        total = config.total_de_toques(await respondeu_a_ia(self._pool, f["id_lead"]))
+        if total <= f["passo"] < len(config.passos):
+            # Nunca respondeu à IA e já recebeu o máximo (regras da OAB e da Meta): para aqui.
+            return await self._fechar(f, "cancelado", "limite_sem_resposta")
         momento = agora()
         dentro = regras.ajustar_ao_horario(momento, config, str(f["id_lead"]))
         if dentro > momento + timedelta(minutes=1):
@@ -171,7 +222,9 @@ class Disparador:
         if modelo_aprovado and not id_modelo:
             return await self._fechar(f, "falhou", "janela_fechada_sem_modelo", evento=(
                 "cadastro", "Follow-up no número oficial depois de 24 h precisa de modelo aprovado (Agente › Follow-up)."))
-        textos = [] if modelo_aprovado else await self._textos(f, lead, config, passo)
+        textos = [] if modelo_aprovado else await self._textos(f, lead, config, passo, total)
+        if textos and config.leva_opcao_de_parar(f["passo"], total):
+            textos = regras.com_opcao_de_parar(textos)         # penúltimo toque: "se preferir que eu não mande mais..."
         # A IA levou segundos escrevendo: o lead (ou a equipe) pode ter falado nesse meio tempo, ou o follow-up pode ter
         # sido cancelado. Confere tudo num comando só, logo antes de enviar.
         if not await self._ainda_vale(f):
@@ -201,7 +254,7 @@ class Disparador:
             """update agentesia_followups set situacao = 'enviado', enviado_em = now(), mensagens = $2::jsonb, motivo = null
                where id = $1 and situacao = 'reservado' returning id""", f["id"], json.dumps(enviadas, ensure_ascii=False))
         if atualizado:                                 # cancelado no meio do envio: não agenda o passo seguinte
-            await self._proximo(f, lead, config)
+            await self._proximo(f, lead, config, total)
 
     async def _ainda_vale(self, f: dict[str, Any]) -> bool:
         """Ainda reservado e ninguém falou desde a base? Renova a reserva no mesmo comando. Se o lead ou a equipe falou,
@@ -234,6 +287,8 @@ class Disparador:
                 return "modo_teste"
         if lead["etapa"] == "desqualificado":
             return "lead_desqualificado"
+        if regras.pediu_para_parar(await ultima_do_lead(self._pool, f["id_lead"])):
+            return "lead_pediu_para_parar"
         if lead["etapa"] == "contrato_assinado" or await self._pool.fetchval(
                 "select 1 from agentesia_contratos where id_lead = $1 and situacao = 'assinado' limit 1", f["id_lead"]):
             return "contrato_assinado"
@@ -254,7 +309,8 @@ class Disparador:
             return cobranca.MOTIVO
         return None
 
-    async def _textos(self, f: dict[str, Any], lead: dict[str, Any], config: regras.Config, passo: regras.Passo) -> list[str]:
+    async def _textos(self, f: dict[str, Any], lead: dict[str, Any], config: regras.Config, passo: regras.Passo,
+                      total: int | None = None) -> list[str]:
         if passo.modo == "texto" and passo.texto:
             return [regras.preencher(passo.texto, nome=lead["nome"])]
         historico = await self._pool.fetch(
@@ -262,14 +318,15 @@ class Disparador:
                where id_lead = $1 and coalesce(texto_extraido, texto) is not null order by enviada_em desc limit 24""", f["id_lead"])
         conversa = "\n".join(f"{'lead' if m['autor'] == 'lead' else 'você' if m['autor'] == 'ia' else 'equipe'}: {m['texto']}"
                              for m in reversed(historico))
+        total = total or len(config.passos)
         instrucao = passo.instrucao or regras.INSTRUCAO_PASSO_PADRAO.get(f["passo"], "Retomada breve e gentil.")
-        if f["passo"] == len(config.passos) - 1:
+        if f["passo"] == total - 1:
             instrucao += " Esta é a última tentativa: diga que fica à disposição quando a pessoa puder."
         sistema = "\n\n".join(filter(None, [
             f"Você é {lead['nome_agente'] or 'a atendente'}, do escritório {lead['escritorio']}.",
             config.prompt,
             config.por_etapa.get(lead["etapa"] or ""),
-            f"Tentativa {f['passo'] + 1} de {len(config.passos)}. {instrucao}",
+            f"Tentativa {f['passo'] + 1} de {total}. {instrucao}",
             "Devolva de 1 a 3 mensagens curtas em 'mensagens'.",
         ]))
         nome_modelo = config.modelo or (lead["config_agente"].get("modelos") or {}).get("followup") or self._modelo_padrao
@@ -304,11 +361,14 @@ class Disparador:
             log.exception("falha ao conferir o consumo no follow-up")
             return False
 
-    async def _proximo(self, f: dict[str, Any], lead: dict[str, Any], config: regras.Config) -> None:
+    async def _proximo(self, f: dict[str, Any], lead: dict[str, Any], config: regras.Config, total: int | None = None) -> None:
+        """Agenda o toque seguinte ou, depois do último (do total deste lead), a desistência (passo = nº de passos)."""
+        total = len(config.passos) if total is None else total
         seguinte = f["passo"] + 1
-        if seguinte < len(config.passos):
+        if seguinte < total:
             quando = regras.horario_do_passo(f["base"], seguinte, config, str(f["id_lead"]))
-        elif seguinte == len(config.passos) and config.desistir_ativo:
+        elif seguinte == total and config.desistir_ativo:
+            seguinte = len(config.passos)
             quando = regras.ajustar_ao_horario(agora() + timedelta(hours=config.desistir_apos_horas), config, str(f["id_lead"]))
         else:
             return
@@ -378,8 +438,64 @@ class Disparador:
             await self._fechar(f, "falhou", erro[:200], evento=("provedor", f"Follow-up não enviado depois de {MAX_TENTATIVAS} tentativas ({erro[:120]})."))
             lead = await _contexto_do_lead(self._pool, str(f["id_lead"]))
             if lead:
-                await self._proximo(f, lead, regras.Config.de(lead["config_agente"].get("followup")))
+                config = regras.Config.de(lead["config_agente"].get("followup"))
+                await self._proximo(f, lead, config, config.total_de_toques(await respondeu_a_ia(self._pool, f["id_lead"])))
             return
         await self._pool.execute(
             """update agentesia_followups set situacao = 'pendente', agendado_para = now() + interval '1 hour', motivo = $2,
                       reservado_ate = null where id = $1""", f["id"], erro[:200])
+
+
+# ------------------------------------------------------------------ lead parado (B12)
+_PARADOS = """
+    select f.id, f.id_escritorio, f.id_lead, f.passo, f.base, f.enviado_em, a.config as config_agente
+    from agentesia_followups f
+    join agentesia_leads l on l.id = f.id_lead
+    join agentesia_agentes a on a.id = f.id_agente
+    left join agentesia_agente_etapas et on et.id = l.id_etapa
+    where f.situacao = 'enviado' and f.enviado_em <= now() - make_interval(hours => $1)
+      and f.enviado_em > now() - interval '30 days'
+      and f.passo + 1 = coalesce((a.config->'followup'->'limites'->>'lead_parado_apos')::int, $2)
+      and f.passo < jsonb_array_length(coalesce(a.config->'followup'->'passos', '[]'::jsonb))
+      and l.estado = 'ativo' and coalesce(et.codigo, '') not in ('desqualificado', 'contrato_assinado')
+      and not exists (select 1 from agentesia_mensagens m where m.id_lead = f.id_lead and m.autor in ('lead', 'humano')
+                      and m.enviada_em > f.base)
+      and not exists (select 1 from agentesia_contratos k where k.id_lead = f.id_lead and k.situacao = 'assinado')
+      and not exists (select 1 from agentesia_acoes x where x.chave_unica = f.id_lead::text || ':lead_parado:' || f.id::text)
+    order by f.enviado_em limit $3"""
+
+
+async def varrer_parados(pool: asyncpg.Pool, limite: int = 20) -> int:
+    """Lead parado vira tarefa da equipe: 24 h depois do 3º toque (lead_parado_apos) sem resposta do lead nem da equipe,
+    põe na fila a nota "Lead parado: retomar contato", a etiqueta/coluna/aviso do gatilho "lead_parado" e grava o
+    evento lead_parado. Uma vez por ciclo de follow-up (a chave da nota leva o id do toque). Devolve quantos."""
+    from app import automacoes
+
+    linhas = await pool.fetch(_PARADOS, regras.LEAD_PARADO_ESPERA_H, regras.LEAD_PARADO_APOS, limite)
+    feitos = 0
+    for r in linhas:
+        config_agente = r["config_agente"] if isinstance(r["config_agente"], dict) else json.loads(r["config_agente"] or "{}")
+        crm = await pool.fetchval("select config from agentesia_integracoes where id_escritorio = $1 and tipo = 'crm'", r["id_escritorio"])
+        avisos = {x["tipo_evento"] for x in await pool.fetch(
+            "select tipo_evento from agentesia_notificacoes where id_escritorio = $1 and habilitada", r["id_escritorio"])}
+        acoes = automacoes.acoes_do_lead_parado(config_agente, crm if isinstance(crm, dict) else json.loads(crm or "{}"),
+                                                id_lead=str(r["id_lead"]), id_followup=str(r["id"]), avisos=avisos)
+        async with pool.acquire() as conexao, conexao.transaction():
+            primeira = await conexao.fetchval(
+                """insert into agentesia_acoes (id_escritorio, id_lead, tipo, chave_unica, dados)
+                   values ($1, $2, $3, $4, $5::jsonb) on conflict (chave_unica) do nothing returning true""",
+                r["id_escritorio"], r["id_lead"], acoes[0]["tipo"], acoes[0]["chave_unica"], json.dumps(acoes[0]["dados"], ensure_ascii=False))
+            if not primeira:                           # outro servidor já fez este ciclo
+                continue
+            for a in acoes[1:]:
+                await conexao.execute(
+                    """insert into agentesia_acoes (id_escritorio, id_lead, tipo, chave_unica, dados)
+                       values ($1, $2, $3, $4, $5::jsonb) on conflict (chave_unica) do nothing""",
+                    r["id_escritorio"], r["id_lead"], a["tipo"], a["chave_unica"], json.dumps(a["dados"], ensure_ascii=False))
+            await conexao.execute(
+                """insert into agentesia_eventos (id_escritorio, id_lead, tipo, gravidade, responsavel, descricao, detalhe)
+                   values ($1, $2, 'lead_parado', 'info', 'lead', $3, $4::jsonb)""", r["id_escritorio"], r["id_lead"],
+                f"Lead parado: {r['passo'] + 1} follow-ups sem resposta. Tarefa para a equipe retomar o contato.",
+                json.dumps({"id_followup": str(r["id"]), "passo": r["passo"] + 1}, ensure_ascii=False))
+            feitos += 1
+    return feitos

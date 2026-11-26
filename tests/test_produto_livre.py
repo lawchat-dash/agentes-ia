@@ -102,7 +102,9 @@ def test_esquema_do_extrator_tem_os_campos_e_as_intencoes():
     esquema = produto().esquema_extrator()
     assert esquema["properties"]["fatos"]["items"]["properties"]["chave"]["enum"] == [
         "situacao", "salario", "demissao", "aceita_consulta"]
-    assert set(esquema["properties"]["intencoes"]["required"]) == {"pediu_humano", "pediu_para_parar", "engano", "quer_agendar"}
+    # fora_do_tema e tentativa_de_manipular: as barreiras da leva 1 (B6), em todo produto.
+    assert set(esquema["properties"]["intencoes"]["required"]) == {"pediu_humano", "pediu_para_parar", "engano", "quer_agendar",
+                                                                   "fora_do_tema", "tentativa_de_manipular"}
     guia = produto().guia_do_extrator()
     assert "situacao (Situação de trabalho): clt | autonomo | desempregado" in guia and "quer_agendar" in guia
 

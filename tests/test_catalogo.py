@@ -33,6 +33,20 @@ def test_balao_com_link_de_midia_vira_arquivo_e_travas():
     assert catalogo.transferencia_pela_frase(["Certo! Vou te passar para nossa especialista agora mesmo."], ["closer"], papeis) == "closer"
 
 
+# Leva 1 (B4): o lead destes turnos já respondeu o que o portão de fatos exige para passar ao Closer e a Contratos
+# (como se a qualificação tivesse sido feita antes); quem testa o portão está em tests/test_leva1_motor.py.
+QUALIFICADO = {"aposentado": "nao", "tem_advogado_no_caso": "nao", "sequela": "sim", "aceite_honorarios": "sim"}
+
+
+def _ja_qualificado(repo):
+    originais = repo.fatos_vigentes
+
+    async def fatos_vigentes(id_lead):
+        return {**QUALIFICADO, **await originais(id_lead)}
+
+    repo.fatos_vigentes = fatos_vigentes
+
+
 def montar(respostas_etapa):
     repo = RepositorioMemoria()
     escritorio = Escritorio(id="esc-1", nome="Escritório Teste", id_segredo_helena="seg-1",
@@ -49,6 +63,7 @@ def montar(respostas_etapa):
                             Etapa("e-desq", "desqualificado", instrucao="Encerre."), Etapa("e-ok", "contrato_assinado")])
     repo.cadastrar(escritorio, canal, agente, id_conta=CONTA)
     repo.segredos["seg-1"] = "token-de-teste"
+    _ja_qualificado(repo)
     cfg = Configuracao(banco_url=None, helena_url="http://helena.invalid", modelo_padrao="falso", modelo_falso=True,
                        espera_minima_s=0, espera_maxima_s=0, espera_padrao_s=0, segundos_por_letra=0, max_reprocessos=2)
     extrator = {"fatos": [], "sinais": [], "intencoes": SEM_INTENCAO}

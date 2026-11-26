@@ -102,7 +102,7 @@ function Conversa({ detalhe: d, aoVoltar, aoAbrirDetalhes, acoes }: { detalhe: D
           </p>
         </div>
         {acoes && <div className="cv-acoes-cab">{acoes}</div>}
-        <button type="button" className="cv-icone-btn" aria-label="Abrir esta conversa na Helena" title="Abrir na Helena (já logado)"
+        <button type="button" className="cv-icone-btn" aria-label="Abrir esta conversa na LawChat" title="Abrir na LawChat (já logado)"
           onClick={() => { abrirHelenaEmJanela(d.id).catch((e) => toast.error((e as Error).message)); }}><Headset /></button>
         {aoAbrirDetalhes && (
           <button type="button" className="cv-icone-btn" onClick={aoAbrirDetalhes} aria-label="Ver detalhes do lead" title="Fatos, origem, turnos e eventos"><PanelRightOpen /></button>

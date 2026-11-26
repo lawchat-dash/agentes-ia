@@ -69,8 +69,75 @@ def extrator_de_regras(_sistema: str, conteudo: str) -> dict[str, Any]:
         prefixo = "demissao" if _SAIDA.search(antes) or _SAIDA.search(ultima_ia) else "acidente"
         fato(f"{prefixo}_mes", MESES[m.group(1).lower()], m.group(0))
         fato(f"{prefixo}_ano", m.group(2), m.group(0))
+    _respostas_do_roteiro(texto, ultima_ia, fato)
     intencoes = {nome: bool(regex.search(texto)) for nome, regex in INTENCOES.items()}
     return {"fatos": fatos, "sinais": [], "intencoes": intencoes}
+
+
+# Leva 1 (B4): o extrator de verdade sempre procura os fatos do portão (aposentadoria, advogado no caso, sequela e o
+# aceite dos honorários). O roteirizado lê a resposta curta do lead à pergunta que a IA acabou de fazer.
+# "não", "nunca", "nada", também com o sujeito antes ("ele não, ele trabalha ainda", quando a conversa é por outra pessoa).
+_NAO = re.compile(r"(?i)^\W*(?:(?:como eu falei,?|ele|ela|meu marido|minha esposa)\s+)?"
+                  r"(n[ãa]o\b[^.!?\n]{0,40}|nunca\b[^.!?\n]{0,30}|nada\b[^.!?\n]{0,30})")
+_SIM = re.compile(r"(?i)^\W*(sim\b[^.!?\n]{0,40}|sou\b[^.!?\n]{0,30}|tenho\b[^.!?\n]{0,30}|j[áa] sou\b[^.!?\n]{0,30})")
+_ACEITE = re.compile(r"(?i)\b(pode(mos)? seguir|vamos( seguir)?|quero( seguir)?|pode sim|pode ser|bora|claro|aceito|"
+                     r"sim|gostei|fechado|pode continuar|pode iniciar)\b")
+# Pergunta do aceite: "Podemos seguir com o seu caso?", "Podemos iniciar a coleta dos seus dados?" (Sousa e Costa).
+_PEDE_ACEITE = re.compile(r"(?i)podemos (seguir|iniciar|avan[çc]ar|continuar)|vamos (seguir|avan[çc]ar)|quer seguir")
+_DUVIDA = re.compile(r"(?i)\b(n[ãa]o sei|vou ver|vou pensar|talvez|depois eu vejo)\b")
+_PERGUNTAS_DO_PORTAO = (("aposentado", re.compile(r"(?i)aposentad")),
+                        ("tem_advogado_no_caso", re.compile(r"(?i)advogad")),
+                        ("sequela", re.compile(r"(?i)sequela|limita[çc][ãa]o")),
+                        ("seguro_desemprego", re.compile(r"(?i)seguro-desemprego|seguro desemprego")),
+                        ("contribuiu_por_conta_propria", re.compile(r"(?i)por conta pr[óo]pria")),
+                        ("documentos_rurais", re.compile(r"(?i)documento dessa [ée]poca|bloco de produtor")))
+
+
+# O que o lead conta sem ter sido perguntado ("hoje sou aposentada", "já tenho advogado nesse caso").
+_ESPONTANEOS = (
+    ("aposentado", "nao", re.compile(r"(?i)n[ãa]o sou aposentad[oa]|n[ãa]o me aposentei")),
+    ("aposentado", "sim", re.compile(r"(?i)(?<!n[ãa]o )(?:sou aposentad[oa]|me aposentaram|me aposentei|aposentad[oa] por)")),
+    ("tem_advogado_no_caso", "nao", re.compile(r"(?i)n[ãa]o tenho (?:nenhum |ningu[ée]m|a?d?e?vogad)")),
+    ("tem_advogado_no_caso", "sim", re.compile(r"(?i)(?<!n[ãa]o )(?:j[áa] )?tenho (?:um )?a(?:de)?vogad[oa]|"
+                                               r"na m[ãa]o do a(?:de)?vogad")),
+    # Sequela contada no relato do acidente ("até hoje ele falseia", "hoje manco", "ficou sem força").
+    ("sequela", "sim", re.compile(r"(?i)fiquei com (?:sequela|limita[çc][ãa]o|essa limita)|at[ée] (?:hoje|hj)|"
+                                  r"hoje (?:manco|anda de)|\bmanc[oa]\b|sem for[çc]a|falseia|n[ãa]o (?:consigo|subo|levanto|"
+                                  r"carrego|fecha|firma)")),
+)
+
+
+def _respostas_do_roteiro(texto: str, ultima_ia: str, fato: Callable[[str, Any, str], None]) -> None:
+    if not texto:
+        return
+    vistos: set[str] = set()
+
+    def anota(chave: str, valor: Any, trecho: str) -> None:
+        vistos.add(chave)
+        fato(chave, valor, trecho)
+
+    _respostas_a_pergunta(texto, ultima_ia, anota)
+    for chave, valor, padrao in _ESPONTANEOS:
+        if chave not in vistos and (m := padrao.search(texto)):
+            anota(chave, valor, m.group(0))
+
+
+def _respostas_a_pergunta(texto: str, ultima_ia: str, fato: Callable[[str, Any, str], None]) -> None:
+    for chave, pergunta in _PERGUNTAS_DO_PORTAO:
+        if not pergunta.search(ultima_ia):
+            continue
+        if m := _NAO.search(texto):
+            fato(chave, "nao", m.group(1).strip())
+        elif chave == "sequela":
+            fato(chave, "sim", texto.splitlines()[0].strip())     # contou a limitação: tem sequela
+        elif m := _SIM.search(texto):
+            fato(chave, "sim", m.group(1).strip())
+        return
+    if _PEDE_ACEITE.search(ultima_ia):
+        if m := _DUVIDA.search(texto):
+            fato("aceite_honorarios", "nao_sabe", m.group(0))
+        elif m := _ACEITE.search(texto):
+            fato("aceite_honorarios", "sim", m.group(0))
 
 
 def passo(*mensagens: str, transferir: str = "", ferramenta: str = "", notificacao: str = "") -> dict[str, Any]:
@@ -86,6 +153,7 @@ class ModeloRoteirizado:
         self.roteiro = copy.deepcopy(roteiro)
         self.extrator = extrator
         self.pedidos: list[dict[str, Any]] = []
+        self._ultimo: dict[str, dict[str, Any]] = {}       # último passo do roteiro devolvido, por papel
         from app.cerebro import catalogo
 
         agente, escritorio = snapshot["agente"], snapshot["escritorio"]
@@ -99,6 +167,21 @@ class ModeloRoteirizado:
             if prompt:
                 self._papeis.append((etapa["codigo"], prompt[:80]))
 
+    _FALTA_NO_PORTAO = re.compile(r'Ainda falta perguntar antes de passar o lead para "(\w+)": (.+?\?)')
+
+    def _pergunta_do_portao(self, papel: str, conteudo: str) -> dict[str, Any] | None:
+        """Leva 1 (B4): a IA que obedece à CORRIJA do portão de fatos. O motor segurou a troca por falta de um fato:
+        a IA faz a pergunta do primeiro fato que falta (texto da própria CORRIJA) e o passo da troca volta para a
+        frente da fila do papel, para ser tentado de novo no turno seguinte, depois da resposta do lead."""
+        if "CORRIJA:" not in conteudo or not (achado := self._FALTA_NO_PORTAO.search(conteudo.split("CORRIJA:")[-1])):
+            return None
+        ultimo = self._ultimo.get(papel)
+        if not ultimo or ultimo.get("transferir_para") != achado.group(1):
+            return None
+        self.roteiro[papel].insert(0, ultimo)
+        self._ultimo.pop(papel, None)
+        return {"mensagens": [{"texto": achado.group(2).strip()}], "transferir_para": "", "ferramenta": "", "notificacao": ""}
+
     def papel_do_sistema(self, sistema: str) -> str | None:
         return next((codigo for codigo, inicio in self._papeis if sistema.startswith(inicio)), None)
 
@@ -110,7 +193,7 @@ class ModeloRoteirizado:
         if papel == "extrator":
             dados = self.extrator(sistema, conteudo)
         elif papel == "etapa":
-            dados = self._etapa(sistema, esquema)
+            dados = self._etapa(sistema, esquema, conteudo)
         elif papel == "auditor":                             # confirma o sinal, como o auditor faria no caso claro
             dados = {"valido": True, "motivo": "modelo roteirizado confirma o sinal", "mensagem": ""}
         else:
@@ -124,14 +207,17 @@ class ModeloRoteirizado:
                           tokens_saida=len(json.dumps(dados, ensure_ascii=False)) // 4)
         return Resultado(dados=dados, chamadas=[chamada])
 
-    def _etapa(self, sistema: str, esquema: dict[str, Any]) -> dict[str, Any]:
+    def _etapa(self, sistema: str, esquema: dict[str, Any], conteudo: str = "") -> dict[str, Any]:
         papel = self.papel_do_sistema(sistema)
         if papel is None:
             raise ErroModelo("provedor_fora_do_ar", "o modelo roteirizado não reconheceu o papel pelo prompt")
-        fila = self.roteiro.get(papel) or []
+        fila = self.roteiro.setdefault(papel, [])
+        if (pergunta := self._pergunta_do_portao(papel, conteudo)) is not None:
+            return pergunta
         if not fila:
             raise ErroModelo("provedor_fora_do_ar", f"o roteiro do papel {papel} acabou")
         atual = fila.pop(0)
+        self._ultimo[papel] = atual
         if "erro" in atual:
             raise ErroModelo(atual["erro"], "erro de propósito no roteiro")
         dados = {"mensagens": [{"texto": t} for t in atual.get("mensagens", [])],

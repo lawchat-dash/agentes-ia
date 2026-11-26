@@ -12,7 +12,7 @@ interface Evento {
 const RESPONSAVEIS: Record<string, [string, string]> = {
   cliente: ["warn", "Do escritório: em geral um token ou cadastro a corrigir em Integrações."],
   cadastro: ["warn", "Cadastro incompleto: número, etapa ou atendimento faltando."],
-  provedor: ["info", "Helena ou provedor de IA fora do ar ou recusando: o sistema tenta de novo sozinho."],
+  provedor: ["info", "LawChat ou provedor de IA fora do ar ou recusando: o sistema tenta de novo sozinho."],
   lead: ["", "Pedido do lead (humano, parar, sinal). Só acompanhar."],
   lawchat: ["bad", "Falha do sistema: a equipe LawChat é avisada."],
 };

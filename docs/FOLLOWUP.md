@@ -7,6 +7,11 @@ sozinha quando o lead responde ou alguém da equipe assume.
 precisava lembrar de ligar na aba Follow-up do agente, e muitos esqueciam. Agora quem não quiser desliga
 (opt-out, em vez de opt-in).
 
+**Regras da OAB e da Meta (26/11/2026, aprendizado 5 da pesquisa).** O Provimento OAB 205/2021 veda captação e mala
+direta para quem não autorizou, e a Meta derruba a nota do número que insiste. Por isso a cadência padrão nova tem no
+máximo 4 toques, quem nunca respondeu recebe no máximo 2, o penúltimo toque oferece parar e o pedido para parar
+cancela tudo (seção 2.1). O interruptor continua ligado por padrão; a mudança está na cadência.
+
 ## 1. Como funciona
 
 1. Cada vez que a IA responde, o follow-up pendente do lead é trocado pela 1ª tentativa, contada a partir dessa
@@ -40,9 +45,48 @@ Na ativação, isso vira a configuração do agente (`app/followup/padrao.py`, `
 | prompt da etapa | instrução extra da etapa (`por_etapa`) |
 | `habilitado_padrao: false` | a etapa fica fora da lista |
 
-Se o produto não definiu cadência, vale a do sistema: 1 h, 5 h, 24 h, 72 h, 7, 15 e 30 dias. Se nenhuma etapa foi
-marcada, valem todas as etapas de conversa. A desistência automática (encerrar o lead depois da última tentativa)
-vem desligada.
+Se o produto não definiu cadência, vale a do sistema: **1 h, 24 h, 72 h e 7 dias** (`regras.CADENCIA_PADRAO`). Se o
+produto definiu mais de 4 tempos, só os 4 primeiros entram. Se nenhuma etapa foi marcada, valem todas as etapas de
+conversa. A desistência automática (encerrar o lead depois da última tentativa) vem desligada.
+
+### 2.1 Regras da OAB e da Meta
+
+Quem ativa (ou clica em **Ligar com o padrão**) a partir de 26/11/2026 recebe, junto da cadência, o bloco `limites`:
+
+```
+"limites": {"max_toques_sem_resposta": 2, "oferecer_parar": true, "lead_parado_apos": 3}
+```
+
+| Regra | Como funciona | Onde |
+|---|---|---|
+| No máximo 4 toques | A cadência padrão e a copiada do produto param no 4º tempo | `regras.CADENCIA_PADRAO`, `padrao.config_do_produto` |
+| Quem nunca respondeu à IA: no máximo 2 | "Nunca respondeu" = nenhuma mensagem do lead depois da primeira mensagem da IA. O 3º toque não é agendado; se já estava na fila, é cancelado (`limite_sem_resposta`) | `Config.total_de_toques`, `servico.respondeu_a_ia` |
+| O penúltimo toque oferece parar | No fim da última mensagem do toque entra “Se preferir que eu não mande mais mensagens, é só me avisar.” (se a IA já não disse algo parecido). Penúltimo do total deste lead: o 3º de 4 ou o 1º de 2. Não vale para o modelo aprovado da API oficial (texto fixo da Meta) | `Config.leva_opcao_de_parar`, `regras.com_opcao_de_parar` |
+| Pedido para parar | “pare”, “para de me mandar”, “não quero mais”, “sair”, “quero sair”, “remover”, “me tira da lista”, “descadastrar”... na **última mensagem do lead**: o envio é cancelado com `lead_pediu_para_parar` e fica um evento `followup_lead_pediu_para_parar`. Na próxima resposta da IA o agendar não agenda e grava uma linha cancelada com o mesmo motivo (aparece em “Recentes” da aba). Se o lead volta a conversar, a cadência volta. Vale para **todas** as configs | `regras.pediu_para_parar`, `servico.agendar`, `Disparador._por_que_nao` |
+
+**Quem já tinha cadência configurada não muda.** Config sem `limites` (todas as gravadas antes de 26/11) segue com os
+seus passos, sem limite para quem nunca respondeu e sem a frase. Só o pedido para parar e o lead parado (seção 2.2)
+valem para todos. Para trazer um agente antigo para as regras novas: **Ligar com o padrão** (ou o script).
+
+Atenção para a tela de edição: `regras.validar(dados, anterior=...)` guarda os `limites` da config anterior quando a
+tela não manda o campo. A rota `PUT /api/agentes/{id}/followup` (`app/gestao/rotas.py`, `salvar_followup`) ainda chama
+`regras.validar(dados)` sem o `anterior`, e `_followup_para_tela` não devolve `limites`. Enquanto isso não mudar
+(frente da gestão), salvar a aba Follow-up apaga os limites desse agente. A troca é de uma linha:
+`regras.validar(dados, anterior=(agente.get("config") or {}).get("followup"))`.
+
+### 2.2 Lead parado vira tarefa da equipe
+
+24 h depois do 3º toque (`lead_parado_apos`, padrão 3; 0 desliga) sem resposta do lead e sem a equipe falar, o lead
+vira tarefa da equipe, uma vez por ciclo de follow-up (`servico.varrer_parados`, a cada minuto junto com o disparador):
+
+- nota **“Lead parado: retomar contato”** no atendimento (pela fila de ações; se a automação `lead_parado` do agente
+  tiver nota própria, sai a dela no lugar);
+- o que o escritório configurou no gatilho **Lead parado** das automações: etiqueta, coluna do CRM;
+- o aviso por WhatsApp do evento `lead_parado` em **Avisos à equipe** (com a função de avisos ligada);
+- o evento `lead_parado` (info) na central de eventos.
+
+Os toques automáticos seguem a cadência (o 4º sai no 7º dia). Não entra quem está pausado, encerrado,
+desqualificado ou com contrato assinado.
 
 ## 3. Como ligar e desligar
 
@@ -90,6 +134,8 @@ O disparador confere tudo na hora do envio, e o envio é cancelado com o motivo 
 | Agente (produto) pausado | `agente_pausado` |
 | Atendente assumiu ou a IA foi desligada para o lead (etiqueta, botão, painel) | `lead_pausado` |
 | Lead encerrado (pediu para parar, engano, desistência) | `lead_encerrado` |
+| A última mensagem do lead pede para parar (“pare”, “não quero mais”, “sair”, “remover”...) | `lead_pediu_para_parar` |
+| Nunca respondeu à IA e já recebeu o máximo (`limites.max_toques_sem_resposta`) | `limite_sem_resposta` |
 | Alguém da equipe falou com o lead depois da última resposta da IA | `equipe_falou` |
 | O lead respondeu | `lead_respondeu` |
 | Lead desqualificado (nunca recebe, mesmo se a etapa estiver na lista) | `lead_desqualificado` |
@@ -122,17 +168,36 @@ Outros casos adiam ou trocam a mensagem, sem cancelar:
 | Script: só lista sem `--aplicar`, liga com `--aplicar` | `tests/test_followup_padrao.py::test_script_so_lista_sem_aplicar_e_liga_com_aplicar` |
 | Não manda: desqualificado, contrato assinado, IA desligada, agente pausado, atendente assumiu, equipe falou, lead respondeu, follow-up desligado | `tests/test_followup_padrao.py::test_nao_envia_para_desqualificado_contrato_assinado_ia_desligada_e_atendente` |
 | Horário, janela de 24 h do número oficial, saldo estourado | `tests/test_followup_padrao.py::test_respeita_horario_janela_oficial_e_saldo` |
+| Cadência padrão nova (4 toques), produto com mais de 4 tempos, `limites` | `tests/test_followup_oab.py::test_cadencia_padrao_nova_tem_4_toques_e_limites` |
+| Config antiga (sem `limites`) não muda | `tests/test_followup_oab.py::test_quem_ja_tem_cadencia_configurada_nao_muda`, `::test_config_antiga_sem_limites_segue_igual` |
+| Nunca respondeu: 2 toques, o 1º oferece parar; o 3º é cancelado | `tests/test_followup_oab.py::test_nunca_respondeu_recebe_2_toques_e_o_1o_oferece_parar` |
+| Respondeu: 4 toques, o 3º oferece parar | `tests/test_followup_oab.py::test_quem_respondeu_recebe_4_toques_e_o_3o_oferece_parar` |
+| Pedido para parar: frases reconhecidas e não confundidas; cancela e marca | `tests/test_followup_oab.py::test_reconhece_pedido_para_parar`, `::test_nao_confunde_com_pedido_para_parar`, `::test_pedido_para_parar_cancela_e_marca` |
+| Lead parado: nota, aviso, etiqueta e evento, uma vez; não entra quem respondeu ou desligou | `tests/test_followup_oab.py::test_acoes_do_lead_parado`, `::test_lead_parado_vira_tarefa_da_equipe_uma_vez` |
 | Cadência, envio, cancelamento e desistência | `tests/test_followup.py` |
 | Horário comercial empurra para a próxima abertura | `tests/test_followup.py::test_horario_comercial_empurra_para_a_proxima_abertura` |
 
 Os testes com banco precisam do banco local: `node db/testes/servidor_local.mjs 55741` e
 `AGENTESIA_TESTE_PG_URL=postgresql://postgres:postgres@127.0.0.1:55741/postgres`.
 
+### 5.1 Nota do lead (fica junto do follow-up)
+
+`app/cerebro/temperatura.py` calcula a nota de 0 a 10 do lead (frio, morno, quente) com os motivos, sem IA. Ela roda
+pelo gancho `automacoes.depois_do_turno`, chamado pelo `agendar` deste módulo (o pipeline chama o `agendar` depois de
+cada resposta da IA). Fica em `agentesia_lead_fatos`, chave `_temperatura`. Na primeira vez que chega a 7 sai o evento
+`lead_quente` e o aviso à equipe (nome, benefício, nota e motivos; nunca CPF). Testes: `tests/test_temperatura.py`.
+
 ## 6. Arquivos
 
 - `app/followup/padrao.py`: padrão do produto, resumo da cadência, situação, ligar com o padrão, visão do admin.
-- `app/followup/regras.py`: configuração, validação e horário (desqualificado e contrato assinado fora sempre).
-- `app/followup/servico.py`: agenda e disparador (os motivos da seção 4).
+- `app/followup/regras.py`: configuração, validação e horário (desqualificado e contrato assinado fora sempre),
+  `limites`, a frase de parar e `pediu_para_parar`.
+- `app/followup/servico.py`: agenda e disparador (os motivos da seção 4), pedido para parar, lead parado
+  (`varrer_parados`) e o gancho da nota do lead no `agendar`.
+- `app/automacoes.py`: gatilhos `lead_parado` e `lead_quente`, `acoes_do_lead_parado`, `depois_do_turno`.
+- `app/notificacoes.py`: nomes dos eventos `lead_parado` e `lead_quente`, marcadores `{{beneficio}}`, `{{nota}}` e
+  `{{motivos}}`, `texto_lead_quente`.
+- `app/cerebro/temperatura.py`: a nota do lead.
 - `app/gestao/produtos.py`: a ativação copia o padrão (`_com_followup_padrao`); as linhas trazem `followup_situacao`.
 - `app/gestao/rotas_followup.py`: prévia da etapa, “Ligar com o padrão” e as rotas do admin.
 - `app/gestao/rotas.py`: `/api/inicio` traz `followup_desligado`.

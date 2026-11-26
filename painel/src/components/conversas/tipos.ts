@@ -48,7 +48,7 @@ export interface Mensagem {
   tipo: TipoMensagem;
   texto: string | null;
   texto_extraido: string | null;
-  /** Endereço do arquivo (áudio, imagem, vídeo, documento), como chegou da Helena ou da pasta de mídia. */
+  /** Endereço do arquivo (áudio, imagem, vídeo, documento), como chegou da LawChat ou da pasta de mídia. */
   url_midia: string | null;
   enviada_em: string;
   situacao_envio: "recebida" | "pendente" | "enviada" | "falhou";
@@ -102,7 +102,29 @@ export interface DetalheConversa extends Omit<ResumoConversa, "ultima_mensagem" 
   eventos: EventoLead[];
   /** null enquanto a conversa não ficou longa o bastante para ganhar ficha. */
   memoria: FichaMemoria | null;
+  /** Aba "Rastro" (app/gestao/rastro.py): o funil do agente com a etapa ativa. null se não deu para montar. */
+  funil?: FunilDoLead | null;
+  /** Linha do tempo das passagens, recusas, barreiras e pausas (o mais recente primeiro). */
+  rastro?: ItemRastro[];
 }
+
+export type TipoRastro = "entrada" | "passagem" | "recusa" | "barreira" | "alerta" | "pausa";
+export interface ItemRastro {
+  quando: string;
+  tipo: TipoRastro;
+  titulo: string;
+  de: string | null;
+  para: string | null;
+  nome_de: string | null;
+  nome_para: string | null;
+  /** Quem fez: ia | frase | painel | card | contrato | entrada | etiqueta | botao | lead | sistema. */
+  quem: string | null;
+  motivo: string | null;
+  /** Tipo do evento de origem (portao_de_fatos, trava_..., desligou_ia...); null nas passagens do histórico. */
+  evento: string | null;
+}
+export interface EtapaDoFunil { codigo: string; nome: string; tipo: string; ativa: boolean; visitada: boolean; alcancavel: boolean }
+export interface FunilDoLead { etapas: EtapaDoFunil[]; ativa: string | null; nome_ativa: string | null; alcancaveis: string[] }
 
 // --------------------------------------------------------------------------- rótulos
 export const ESTADOS: Record<EstadoLead, { rotulo: string; plural: string; cor: string; fundo: string; chip: string }> = {
@@ -111,7 +133,7 @@ export const ESTADOS: Record<EstadoLead, { rotulo: string; plural: string; cor: 
   encerrado: { rotulo: "Encerrada", plural: "Encerradas", cor: "#64748b", fundo: "#eef2f7", chip: "" },
 };
 
-/** Desligada pela equipe (painel, etiqueta "🤖 IA Desativada" ou botão da Helena): app/ia_controle.py. */
+/** Desligada pela equipe (painel, etiqueta "🤖 IA Desativada" ou botão da LawChat): app/ia_controle.py. */
 export const MOTIVO_DESATIVADA = "desativada_pela_equipe";
 
 /** O que a IA faz NESTA conversa agora, em português. `agora` entra para a desativação vencida voltar a "IA ligada". */
@@ -140,7 +162,7 @@ function horaCurta(d: Date): string {
 }
 
 const MOTIVOS: Record<string, string> = {
-  desativada_pela_equipe: "Desligada pela equipe (painel, etiqueta ou botão da Helena)",
+  desativada_pela_equipe: "Desligada pela equipe (painel, etiqueta ou botão da LawChat)",
   humano_assumiu: "A equipe assumiu o atendimento",
   pausado_pela_equipe: "Pausada pela equipe no painel",
   devolvido_pela_equipe: "Devolvida para a IA pela equipe",
@@ -233,6 +255,44 @@ export const SITUACOES_TURNO: Record<Turno["situacao"], { rotulo: string; chip: 
 };
 
 export const MODOS_TURNO: Record<Turno["modo"], string> = { producao: "atendimento real", teste: "número de teste", laboratorio: "laboratório" };
+
+/** Quem fez a passagem (ou a pausa), em português. */
+export const QUEM_RASTRO: Record<string, string> = {
+  ia: "pela IA", frase: "pela frase de passagem", painel: "pela equipe no painel", card: "pela equipe, movendo o card no CRM",
+  contrato: "pelo contrato", entrada: "na chegada do lead", etiqueta: "pela etiqueta na LawChat", botao: "pelo botão na LawChat",
+  lead: "do lead", sistema: "pelo sistema",
+};
+
+/** Nomes legíveis dos tipos de evento (aba Rastro e aba Eventos). Os novos (formato, tema, manipulação, trocas demais,
+ *  portão de fatos, lead quente e parado) já têm nome, para aparecerem certos quando o motor começar a gravá-los. */
+export const NOMES_EVENTO: Record<string, string> = {
+  etapa_trocada: "Passagem de etapa",
+  destino_recusado: "Troca recusada: destino não permitido",
+  troca_precoce_recusada: "Troca recusada: cedo demais",
+  transferencia_adiada_pergunta_aberta: "Troca adiada: havia pergunta em aberto",
+  troca_barrada_faltam_fatos: "Troca barrada: faltam fatos",
+  troca_pela_frase: "Troca feita pela frase de passagem",
+  sinal_recusado: "Sinal não confirmado",
+  ia_fora_do_formato: "Resposta da IA fora do formato",
+  trava_persistente: "Travas reprovaram duas vezes",
+  pediu_humano: "Lead pediu uma pessoa",
+  formato_invalido: "Resposta da IA fora do formato",
+  fora_do_tema: "Mensagem fora do tema",
+  tentativa_de_manipular: "Tentativa de manipular a IA",
+  trocas_demais: "Trocas demais na mesma conversa",
+  portao_de_fatos: "Portão de fatos: faltam dados para passar",
+  lead_quente: "Lead quente",
+  lead_parado: "Lead parado",
+};
+
+/** "trava_promessa_valor" vira "Trava: promessa valor"; os conhecidos saem de NOMES_EVENTO. */
+export function nomeDoEvento(tipo: string): string {
+  if (NOMES_EVENTO[tipo]) return NOMES_EVENTO[tipo];
+  for (const [prefixo, rotulo] of [["trava_", "Trava"], ["barreira_", "Barreira"], ["sinal_", "Sinal do lead"]] as const) {
+    if (tipo.startsWith(prefixo)) return `${rotulo}: ${tipo.slice(prefixo.length).replace(/_/g, " ")}`;
+  }
+  return tipo.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
 
 export const RESPONSAVEIS: Record<string, string> = {
   cliente: "Escritório", cadastro: "Cadastro", provedor: "Provedor", lead: "Lead", lawchat: "LawChat",

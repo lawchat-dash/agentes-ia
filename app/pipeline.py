@@ -808,6 +808,7 @@ class Atendimento:
 
         if await self._tentar_de_novo_depois(escritorio, lead, id_turno, saida, modo):
             return None, False
+        self._formato_invalido(entrada, saida)              # B3: fora do formato vira mensagem fixa + equipe
 
         # Segunda conferência, antes de enviar: chegou mensagem nova? o atendente assumiu? a etapa mudou?
         agora_pendentes = await self.repo.mensagens_pendentes(id_lead)
@@ -834,6 +835,21 @@ class Atendimento:
         self._descartes.pop(id_lead, None)
         self._falhas_ia.pop(id_lead, None)
         await self.repo.marcar_no_turno(ids_lote, id_turno)
+        await self._limitar_trocas(entrada, lead, saida)     # B7: no máximo 4 trocas da IA por lead em 24 h
+        if saida.estado_lead == "pausado":
+            self._por_ficha(agente, entrada, saida)         # B2: ficha do caso em toda passagem para humano
+        saida.contexto["partes_entregues"] = 0
+        try:
+            return await self._gravar_e_enviar(escritorio, agente, lead, etapa, modo, entrada, saida, id_turno)
+        except Exception:
+            if not saida.contexto.get("partes_entregues") and not saida.contexto.get("envio_feito"):
+                await self._desfazer_turno(escritorio, lead, id_turno, saida)
+            raise
+
+    async def _gravar_e_enviar(self, escritorio: Escritorio, agente: Agente, lead: Lead, etapa: Any, modo: str,
+                               entrada: cerebro.Entrada, saida: cerebro.Saida, id_turno: str
+                               ) -> tuple[cerebro.Saida | None, bool]:
+        id_lead = lead.id
         if saida.fatos_novos:
             await self.repo.gravar_fatos(lead=lead, id_turno=id_turno, fatos=saida.fatos_novos)
         campos: dict[str, Any] = {}
@@ -878,6 +894,7 @@ class Atendimento:
                 # O atendente assumiu no meio do envio: a pausa dele vale (o estado da saída não passa por cima dela).
                 for chave in ("estado", "motivo_estado", "pausado_ate"):
                     campos.pop(chave, None)
+        saida.contexto["envio_feito"] = True                 # daqui em diante o turno não é mais desfeito (B7)
         if campos:
             await self.repo.atualizar_lead(lead.id, **campos)
         if trocou_etapa:
@@ -907,7 +924,8 @@ class Atendimento:
         for evento in saida.eventos:
             if self._automacao_ja_anota(agente, evento["tipo"], saida.etapa_depois):
                 continue                                 # a nota configurada pelo escritório já vai: sem nota dobrada
-            await self._nota_de_problema(escritorio, lead, evento["tipo"], evento.get("descricao") or "")
+            ficha_do_caso = saida.ficha if self._e_passagem(evento["tipo"]) else None
+            await self._nota_de_problema(escritorio, lead, evento["tipo"], evento.get("descricao") or "", ficha=ficha_do_caso)
         await self._fechar(id_turno, saida, saida.situacao, saida.motivo)
         return saida, False
 
@@ -942,6 +960,104 @@ class Atendimento:
         await self._marcar_resposta(lead.id, agora() + timedelta(seconds=espera))
         self._agendar(lead.id, espera)
         return True
+
+    # ------------------------------------------------------------------ leva 1 (25/11): B2, B3 e B7
+    # Erros de formato da resposta da IA (depois das tentativas do modelo): melhor uma pessoa do que silêncio.
+    FORMATO_QUEBRADO = ("saida_invalida", "saida_cortada", "recusa_do_modelo")
+    # Trocas de etapa feitas pela IA por lead em 24 h; a seguinte é segurada e a conversa vai para a equipe.
+    LIMITE_TROCAS_IA_24H = 4
+    # Eventos de passagem para humano: a nota deles leva a ficha do caso e o detalhe ganha o campo "ficha".
+    PASSAGENS = ("pediu_humano", "trava_persistente", "pedido_repetido", "analise_manual", "contrato_correcao_repetida",
+                 "formato_invalido", "trocas_demais", "fora_do_tema_repetido")
+
+    @classmethod
+    def _e_passagem(cls, tipo: str) -> bool:
+        return tipo in cls.PASSAGENS or (tipo.startswith("sinal_") and tipo != "sinal_recusado")
+
+    def _formato_invalido(self, entrada: cerebro.Entrada, saida: cerebro.Saida) -> None:
+        """B3. A IA respondeu fora do formato (JSON inválido, cortado ou recusa) mesmo depois das tentativas: em vez de
+        silêncio, o lead recebe a mensagem fixa e educada e a IA pausa neste lead, com a ficha para a equipe."""
+        if saida.situacao != "erro" or saida.motivo.partition(":")[2] not in self.FORMATO_QUEBRADO:
+            return
+        original = saida.motivo
+        detalhe = next((e.get("detalhe") for e in saida.eventos if e.get("tipo") == "ia_nao_respondeu"), None)
+        saida.eventos = [e for e in saida.eventos if e.get("tipo") != "ia_nao_respondeu"]
+        saida.situacao, saida.motivo = "respondido", "formato_invalido"
+        saida.estado_lead, saida.motivo_estado = "pausado", "formato_invalido"
+        saida.etapa_depois = saida.etapa_antes
+        saida.mensagens = cerebro._fixa(entrada, "formato_invalido")
+        saida.eventos.append({"tipo": "formato_invalido", "gravidade": "erro", "responsavel": "provedor",
+                              "descricao": f"A IA respondeu fora do formato depois das tentativas ({original}); o lead "
+                                           "recebeu a mensagem padrão e a conversa foi para a equipe.",
+                              "detalhe": {"motivo": original, "erro": detalhe}})
+
+    async def _limitar_trocas(self, entrada: cerebro.Entrada, lead: Lead, saida: cerebro.Saida) -> None:
+        """B7. Pingue-pongue de etapa: com 4 trocas feitas pela IA neste lead nas últimas 24 h, a 5ª é segurada e a
+        conversa vai para a equipe com a ficha (evento trocas_demais). Trocas da equipe e do contrato não contam."""
+        if saida.etapa_depois == saida.etapa_antes or saida.estado_lead:
+            return
+        contar = getattr(self.repo, "trocas_da_ia", None)
+        if contar is None:
+            return
+        try:
+            feitas = await contar(lead.id, 24)
+        except Exception:                                    # a contagem nunca derruba o turno
+            log.exception("falha ao contar as trocas de etapa do lead %s", lead.id)
+            return
+        if feitas < self.LIMITE_TROCAS_IA_24H:
+            return
+        destino = saida.etapa_depois
+        saida.etapa_depois = saida.etapa_antes
+        saida.estado_lead, saida.motivo_estado = "pausado", "trocas_demais"
+        saida.motivo = "trocas_demais"
+        saida.mensagens = cerebro._fixa(entrada, "equipe_continua")
+        saida.fatos_novos = [f for f in saida.fatos_novos if f.get("chave") != cerebro.MARCA_BOAS_VINDAS]
+        saida.eventos.append({"tipo": "trocas_demais", "gravidade": "aviso", "responsavel": "lawchat",
+                              "descricao": f"A IA já trocou este lead de etapa {feitas} vezes em 24 h; a troca "
+                                           f"{saida.etapa_antes} → {destino} foi segurada e a conversa foi para a equipe.",
+                              "detalhe": {"de": saida.etapa_antes, "para": destino, "trocas_24h": feitas}})
+
+    def _por_ficha(self, agente: Agente, entrada: cerebro.Entrada, saida: cerebro.Saida) -> None:
+        """B2. Ficha do caso na passagem para humano: vai em saida.ficha, no detalhe dos eventos de passagem ("ficha",
+        para os avisos à equipe) e na nota da Helena."""
+        from app import conhecimento
+        from app.cerebro import catalogo, ficha
+
+        try:
+            produto = entrada.produto
+            etapa = saida.etapa_depois or saida.etapa_antes
+            faltando = list(saida.faltam)
+            if agente.produto == "catalogo" and not faltando:
+                faltando = catalogo.faltam_para_seguir(getattr(produto, "config", {}), etapa, saida.fatos_depois)
+            nome_etapa = catalogo.NOMES.get(etapa, etapa) if agente.produto == "catalogo" else \
+                next((e.nome for e in getattr(produto, "etapas", []) if e.codigo == etapa), etapa)
+            lead = {"nome": (entrada.fatos_sistema or {}).get("nome"),
+                    "beneficio": getattr(produto, "beneficio", None) or getattr(produto, "nome", None)}
+            texto = ficha.montar_ficha(lead, saida.fatos_depois, nome_etapa, saida.motivo_estado,
+                                       conhecimento.ultima_pergunta_da_ia(entrada.historico), faltando)
+        except Exception:                                    # a ficha é um extra: nunca derruba a passagem
+            log.exception("falha ao montar a ficha do caso")
+            return
+        saida.ficha = texto
+        for evento in saida.eventos:
+            if self._e_passagem(str(evento.get("tipo") or "")):
+                evento.setdefault("detalhe", {})
+                if isinstance(evento["detalhe"], dict):
+                    evento["detalhe"]["ficha"] = texto
+
+    async def _desfazer_turno(self, escritorio: Escritorio, lead: Lead, id_turno: str, saida: cerebro.Saida) -> None:
+        """B7. O turno quebrou depois de gravar etapa/fatos e antes de qualquer mensagem chegar ao lead: a etapa volta
+        e cada fato do turno devolve a vigência à versão anterior (uma transação no banco). Falha aqui só registra."""
+        desfazer = getattr(self.repo, "desfazer_turno", None)
+        if desfazer is None:
+            return
+        try:
+            await desfazer(lead=lead, id_turno=id_turno, id_etapa=lead.id_etapa)
+            await self._evento(escritorio.id, lead.id, id_turno, "turno_desfeito", "erro", "lawchat",
+                               "O turno quebrou antes de qualquer mensagem chegar ao lead: a etapa e os fatos do turno "
+                               "voltaram ao que eram.")
+        except Exception:
+            log.exception("falha ao desfazer o turno %s", id_turno)
 
     # Evento do turno -> gatilhos de automação que já deixam nota no chat quando o escritório os configurou.
     @staticmethod
@@ -1110,6 +1226,15 @@ class Atendimento:
                              "Responda manualmente.",
         "analise_manual": "🔎 Caso para a equipe avaliar ({detalhe}). A IA saiu da conversa: responda manualmente.",
         "sinal": "🔔 O lead precisa de atenção da equipe ({detalhe}). A IA saiu da conversa: responda manualmente.",
+        # Leva 1 (25/11): passagens decididas pelo código (B3, B6, B7), sempre com a ficha do caso.
+        "formato_invalido": "⚠️ A IA respondeu fora do formato e saiu da conversa (o lead recebeu a mensagem padrão). "
+                            "Continue manualmente.",
+        "trocas_demais": "⚠️ A IA trocou o lead de etapa vezes demais em 24 h e saiu da conversa. Confira a etapa e "
+                         "continue manualmente.",
+        "fora_do_tema_repetido": "🙋 O lead insistiu em assunto fora do tema e a IA saiu da conversa. Continue "
+                                 "manualmente.",
+        "barreira_manipulacao": "🛡️ O lead tentou mudar as regras da IA (ver o prompt, ignorar instruções ou se passar "
+                                "por outra pessoa). A IA deu a resposta padrão e segue no atendimento.",
     }
 
     # A IA não atende este lead: (gravidade, responsável, descrição do evento). O motivo vira o tipo do evento.
@@ -1129,11 +1254,12 @@ class Atendimento:
     }
 
     async def _nota_de_problema(self, escritorio: Escritorio, lead: Lead, tipo: str, detalhe: str,
-                                inteiro: bool = False) -> None:
+                                inteiro: bool = False, ficha: str | None = None) -> None:
         """Avisa a equipe dentro da conversa, na Helena, no máximo 1 vez a cada 6 h por problema.
 
         inteiro=True usa o detalhe todo (um motivo escrito para a equipe); senão só o fim do código ('onde:motivo').
-        Os sinais ('sinal_quer_videochamada', 'sinal_analise_humana'...) usam um modelo só, com o nome do sinal."""
+        Os sinais ('sinal_quer_videochamada', 'sinal_analise_humana'...) usam um modelo só, com o nome do sinal.
+        Na passagem para humano a nota leva a ficha do caso (B2) inteira, depois do aviso."""
         if tipo.startswith("sinal_") and tipo != "sinal_recusado":
             sinal = tipo.removeprefix("sinal_")
             tipo, detalhe, inteiro = "sinal", automacoes.NOMES_SINAIS.get(sinal, sinal.replace("_", " ")), True
@@ -1143,7 +1269,7 @@ class Atendimento:
         detalhe = detalhe.strip()[:300] if inteiro else detalhe.split(":")[-1].strip()[:120]
         try:
             await self.repo.nota_de_problema(id_escritorio=escritorio.id, id_lead=lead.id, tipo=tipo,
-                                             texto=modelo.format(detalhe=detalhe or tipo))
+                                             texto=modelo.format(detalhe=detalhe or tipo) + (f"\n\n{ficha}" if ficha else ""))
         except Exception:                                    # a nota é um extra: nunca derruba o turno
             log.exception("falha ao agendar a nota de problema %s", tipo)
 
@@ -1466,6 +1592,8 @@ class Atendimento:
                 log.exception("falha ao gravar a parte enviada no turno %s", id_turno)
             if situacao in ("enviada", "pendente"):           # 'pendente' = talvez enviada (sem confirmação)
                 entregues += 1
+                # B7: o turno que quebrar depois daqui não é desfeito (o lead já ouviu parte da resposta).
+                saida.contexto["partes_entregues"] = int(saida.contexto.get("partes_entregues") or 0) + 1
             if id_externo:
                 enviadas.append(id_externo)
                 if url and self.digitar and posicao < len(partes) - 1:
@@ -1578,7 +1706,7 @@ class Atendimento:
             "mensagens": saida.mensagens, "fatos_novos": saida.fatos_novos, "fatos_rejeitados": saida.fatos_rejeitados,
             "decisoes": saida.decisoes, "faltam": saida.faltam, "reprovacoes": saida.reprovacoes,
             "sinais": saida.sinais, "intencoes": saida.intencoes,
-            "estado_lead": saida.estado_lead, "motivo_estado": saida.motivo_estado,
+            "estado_lead": saida.estado_lead, "motivo_estado": saida.motivo_estado, "ficha": saida.ficha,
         }
         await self.repo.fechar_turno(id_turno, situacao=situacao, motivo=motivo, etapa_depois=saida.etapa_depois,
                                      contexto=saida.contexto, resposta=resposta)

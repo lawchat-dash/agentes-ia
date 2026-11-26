@@ -291,7 +291,7 @@ async def usuarios(helena: HelenaConta) -> list[dict[str, Any]]:
         if not id_usuario:
             continue
         disponibilidade = a.get("availability") or a.get("status")
-        saida.append({"id": str(id_usuario), "nome": a.get("name") or a.get("shortName") or "Usuário da Helena",
+        saida.append({"id": str(id_usuario), "nome": a.get("name") or a.get("shortName") or "Usuário da LawChat",
                       "dados": {"id_atendente": a.get("id"),
                                 **({"disponibilidade": disponibilidade} if isinstance(disponibilidade, str) else {})}})
     return saida

@@ -11,22 +11,43 @@ Configuração em agentesia_agentes.config["followup"], editável no painel:
       "passos": [{"apos_horas": 1, "modo": "ia", "instrucao": "..."},     # modo: ia | texto | modelo
                  {"apos_horas": 24, "modo": "texto", "texto": "Oi {nome}! ..."}, ...],
       "modelo_oficial": {"id_modelo": "...", "nome": "..."},              # canal oficial com janela de 24 h fechada
-      "desistir": {"ativo": true, "apos_horas": 24, "nota": "..."}
+      "desistir": {"ativo": true, "apos_horas": 24, "nota": "..."},
+      "limites": {"max_toques_sem_resposta": 2, "oferecer_parar": true, "lead_parado_apos": 3}
     }
 Os tempos contam a partir da última resposta da IA (o momento em que o lead parou de responder).
+
+Regras da OAB (Provimento 205/2021) e da Meta (docs/FOLLOWUP.md, seção 2):
+- a cadência padrão tem no máximo 4 toques: 1 h, 24 h, 72 h e 7 dias (CADENCIA_PADRAO);
+- "limites" só existe em quem ligou com o padrão novo (ativação ou "Ligar com o padrão" a partir de 25/11/2026):
+  max_toques_sem_resposta = quem nunca respondeu à IA recebe no máximo isso; oferecer_parar = o penúltimo toque leva
+  FRASE_PARAR. Config sem "limites" (cadência já configurada antes) segue como estava;
+- lead_parado_apos (padrão 3, 0 desliga, vale para todos): 24 h depois desse toque sem resposta o lead vira tarefa da
+  equipe (nota "Lead parado: retomar contato" e evento lead_parado);
+- pedido para parar ("pare", "não quero mais", "sair", "remover"...) na última mensagem do lead cancela os follow-ups
+  dele (lead_pediu_para_parar), em qualquer config.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
 from app.notificacoes import fuso
 
-# Cadência do sistema atual (GERAL - Follow Up Unificado): 1h, 5h, 24h, 72h, 7, 15 e 30 dias.
-CADENCIA_PADRAO = (1, 5, 24, 72, 168, 360, 720)
+# Cadência padrão (OAB/Meta, 25/11/2026): no máximo 4 toques. Vale para quem ativa a partir de agora; quem já tem
+# "passos" gravados segue com os seus (a antiga, do GERAL - Follow Up Unificado, era CADENCIA_ANTIGA).
+CADENCIA_PADRAO = (1, 24, 72, 168)
+CADENCIA_ANTIGA = (1, 5, 24, 72, 168, 360, 720)
+MAX_TOQUES_PADRAO = 4
+LEAD_PARADO_APOS = 3                 # toque depois do qual o lead parado vira tarefa da equipe (todas as configs)
+LEAD_PARADO_ESPERA_H = 24            # horas sem resposta depois desse toque
+LIMITES_PADRAO = {"max_toques_sem_resposta": 2, "oferecer_parar": True, "lead_parado_apos": LEAD_PARADO_APOS}
+FRASE_PARAR = "Se preferir que eu não mande mais mensagens, é só me avisar."
+NOTA_LEAD_PARADO = "Lead parado: retomar contato"
 
 PROMPT_PADRAO = """Você está retomando uma conversa de WhatsApp com uma pessoa que parou de responder.
 - Escreva como a mesma atendente da conversa: curto, gentil, natural, sem pressão.
@@ -73,12 +94,16 @@ class Config:
     desistir_apos_horas: float = 24
     desistir_nota: str = NOTA_DESISTENCIA
     modelo: str | None = None            # modelo de IA do agente de follow-up (vazio = padrão do servidor)
+    max_sem_resposta: int | None = None  # quem nunca respondeu à IA recebe no máximo isso (None = sem limite)
+    oferecer_parar: bool = False         # penúltimo toque com FRASE_PARAR
+    lead_parado_apos: int = LEAD_PARADO_APOS
 
     @classmethod
     def de(cls, bruto: dict[str, Any] | None) -> "Config":
         b = bruto or {}
         horario = b.get("horario") or {}
         desistir = b.get("desistir") or {}
+        limites = b.get("limites") if isinstance(b.get("limites"), dict) else {}
         passos = [Passo(float(p.get("apos_horas") or 1), str(p.get("modo") or "ia"), str(p.get("instrucao") or ""),
                         str(p.get("texto") or "")) for p in b.get("passos") or [] if isinstance(p, dict)]
         return cls(
@@ -91,7 +116,20 @@ class Config:
             desistir_ativo=bool(desistir.get("ativo")), desistir_apos_horas=float(desistir.get("apos_horas", 24)),
             desistir_nota=str(desistir.get("nota") or NOTA_DESISTENCIA),
             modelo=str(b.get("modelo") or "") or None,
+            max_sem_resposta=int(limites["max_toques_sem_resposta"]) if limites.get("max_toques_sem_resposta") else None,
+            oferecer_parar=bool(limites.get("oferecer_parar")),
+            lead_parado_apos=int(limites.get("lead_parado_apos", LEAD_PARADO_APOS) or 0),
         )
+
+    def total_de_toques(self, respondeu_a_ia: bool) -> int:
+        """Quantos toques este lead pode receber: quem nunca respondeu à IA fica no limite (se a config tem)."""
+        if not respondeu_a_ia and self.max_sem_resposta:
+            return min(len(self.passos), self.max_sem_resposta)
+        return len(self.passos)
+
+    def leva_opcao_de_parar(self, passo: int, total: int) -> bool:
+        """O penúltimo toque (do total deste lead) oferece parar. Com 1 toque só não há penúltimo."""
+        return self.oferecer_parar and total >= 2 and passo == total - 2
 
     def vale_para(self, etapa: str | None, etapas_de_conversa: set[str]) -> bool:
         if not etapa or etapa in ETAPAS_SEM_FOLLOWUP:
@@ -99,8 +137,22 @@ class Config:
         return etapa in self.etapas if self.etapas else etapa in etapas_de_conversa
 
 
-def validar(bruto: dict[str, Any]) -> dict[str, Any]:
-    """Limpa a configuração vinda do painel. Erro de uso vira ValueError com mensagem para a tela."""
+def _limites(bruto: Any) -> dict[str, Any] | None:
+    if not isinstance(bruto, dict):
+        return None
+    try:
+        return {"max_toques_sem_resposta": max(0, min(12, int(bruto.get("max_toques_sem_resposta") or 0))),
+                "oferecer_parar": bool(bruto.get("oferecer_parar")),
+                "lead_parado_apos": max(0, min(12, int(bruto.get("lead_parado_apos", LEAD_PARADO_APOS) or 0)))}
+    except (TypeError, ValueError):
+        raise ValueError("Limites do follow-up inválidos.") from None
+
+
+def validar(bruto: dict[str, Any], anterior: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Limpa a configuração vinda do painel. Erro de uso vira ValueError com mensagem para a tela.
+
+    "limites" (regras da OAB e da Meta) fica como veio; se não veio, fica o da config `anterior` (a tela de edição que
+    não conhece o campo não apaga os limites de quem ligou com o padrão novo)."""
     horario = bruto.get("horario") or {}
     inicio, fim = int(horario.get("inicio", 8)), int(horario.get("fim", 20))
     if not (0 <= inicio < fim <= 24):
@@ -124,7 +176,8 @@ def validar(bruto: dict[str, Any]) -> dict[str, Any]:
     if len(set(horas)) != len(horas):
         raise ValueError("Dois passos com o mesmo tempo: ajuste a cadência.")
     desistir = bruto.get("desistir") or {}
-    return {
+    limites = _limites(bruto["limites"] if "limites" in bruto else (anterior or {}).get("limites"))
+    limpo = {
         "ativo": bool(bruto.get("ativo")), "horario": {"inicio": inicio, "fim": fim, "dias": dias},
         "intervalo_minimo_min": max(5, min(1440, int(bruto.get("intervalo_minimo_min", 30)))),
         "etapas": [str(e) for e in bruto.get("etapas") or []],
@@ -136,6 +189,9 @@ def validar(bruto: dict[str, Any]) -> dict[str, Any]:
         "desistir": {"ativo": bool(desistir.get("ativo")), "apos_horas": max(1.0, float(desistir.get("apos_horas", 24))),
                      "nota": str(desistir.get("nota") or "").strip()[:500] or NOTA_DESISTENCIA},
     }
+    if limites is not None:
+        limpo["limites"] = limites
+    return limpo
 
 
 def ajustar_ao_horario(momento: datetime, config: Config, semente: str = "") -> datetime:
@@ -171,3 +227,41 @@ def horario_do_passo(base: datetime, passo: int, config: Config, semente: str = 
 def preencher(texto: str, *, nome: str | None) -> str:
     primeiro = (nome or "").strip().split(" ")[0] if nome else ""
     return texto.replace("{nome}", primeiro).replace("  ", " ").replace(" !", "!").replace(" ,", ",").strip()
+
+
+def com_opcao_de_parar(textos: list[str]) -> list[str]:
+    """Põe FRASE_PARAR no fim da última mensagem (se a IA já não ofereceu parar com outras palavras)."""
+    if not textos:
+        return [FRASE_PARAR]
+    if any(re.search(r"nao (te |lhe |vou )?(mande|mandar|mando|envie|enviar|envio|incomode|incomodar|incomodo) mais", _sem_acento(t)) for t in textos):
+        return list(textos)
+    return [*textos[:-1], textos[-1].rstrip() + "\n\n" + FRASE_PARAR]
+
+
+# ------------------------------------------------------------------ pedido para parar
+def _sem_acento(texto: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", str(texto or "").lower()) if unicodedata.category(c) != "Mn")
+
+
+# Sem acento e em minúsculas. Errar para o lado de parar é o seguro: só cancela o lembrete (a IA segue respondendo).
+_SO_A_PALAVRA = re.compile(r"^\W*(pare|parem|para|parar|chega|sair|remover|remova|remove|stop|descadastrar)\W*$")
+_PEDIDOS_DE_PARAR = [re.compile(p) for p in (
+    r"\bparem?\b(?! de (pensar|ver|falar com|trabalhar|doer))",
+    r"\bpode parar\b",
+    r"\bpar(a|e|ar|em) de (me )?(mandar|enviar|chamar|ligar|mandando|enviando|chamando|incomodar)",
+    r"\bnao (me )?(mande|mandem|envie|enviem|manda|mandar|enviar) mais\b",
+    r"\bnao quero (mais|receber)\b",
+    r"\bquero sair\b",
+    r"\b(sair|saia|saiam) (da|dessa|desta) lista\b",
+    r"\b(tira|tire|tirar|remove|remova|remover|exclui|exclua|excluir)\b.{0,25}\b(lista|numero|contato|cadastro|daqui)\b",
+    r"\bdescadastr",
+    r"\bnao (me )?(incomode|incomodem|perturbe|perturbem)\b",
+)]
+
+
+def pediu_para_parar(texto: str | None) -> bool:
+    """O lead pediu para não receber mais mensagens? ("pare", "não quero mais", "sair", "remover meu número"...)"""
+    t = _sem_acento(texto or "").strip()
+    if not t:
+        return False
+    return bool(_SO_A_PALAVRA.match(t) or any(p.search(t) for p in _PEDIDOS_DE_PARAR))

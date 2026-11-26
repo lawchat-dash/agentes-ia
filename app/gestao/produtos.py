@@ -641,6 +641,11 @@ class Ativar(BaseModel):
     # tem follow-up, copia a cadência desligada (quem liga é o cliente ou o admin, nunca a sincronização sozinha).
     # Agente que já tem config.followup não muda por aqui (é a aba Follow-up que manda).
     followup_ativo: bool | None = None
+    # Cadência escolhida na ativação (horas de cada tentativa, 1 a 4). Sem ela vale a padrão do produto.
+    followup_horas: list[float] | None = None
+    # O que mudou, como o assistente mostra na Revisão ("Prompt do Closer", "FAQ (+2)"): vai para a versão gravada
+    # (app/gestao/versoes.py). Vazio = calculado aqui pela diferença com a versão anterior. Não fica no rascunho.
+    resumo_mudancas: list[str] | None = None
 
 
 async def _canal(pool: asyncpg.Pool, id_escritorio: str, dados: Ativar, id_agente_atual: str | None) -> dict[str, Any] | None:
@@ -660,7 +665,7 @@ async def _canal(pool: asyncpg.Pool, id_escritorio: str, dados: Ativar, id_agent
                and right(numero_normalizado, 11) = right($2, 11) order by ativo desc limit 1""",
             id_escritorio, normalizar_telefone(digitos) or digitos)
     if not canal:
-        raise HTTPException(400, "Escolha o número de WhatsApp (use Sincronizar para buscar na Helena).")
+        raise HTTPException(400, "Escolha o número de WhatsApp (use Sincronizar para buscar na LawChat).")
     ocupante = await pool.fetchrow("select id, nome from agentesia_agentes where id_canal = $1::uuid", canal["id"])
     if ocupante and str(ocupante["id"]) != (id_agente_atual or ""):
         raise HTTPException(409, f"Este número já está em uso pelo agente {ocupante['nome']}.")
@@ -809,7 +814,7 @@ async def _montar_agente(pedido: Request, ctx: Contexto, id_ativado: str, dados:
                    on conflict (id_agente, id_origem) where id_origem is not null do nothing""",
                 ctx.escritorio(), id_agente, catalogo["id"])
         await _vincular_contrato(conexao, ctx.escritorio(), str(produto["id"]), str(id_agente))
-        rascunho_salvo = {**(produto.get("rascunho") or {}), "payload_ativacao": dados.model_dump()}
+        rascunho_salvo = {**(produto.get("rascunho") or {}), "payload_ativacao": dados.model_dump(exclude={"resumo_mudancas"})}
         if reativando:      # volta da lixeira: ativa já (padrão) ou fica pausado; nunca "rascunho" (já tem agente)
             status = "ativo" if dados.ativar_imediatamente else "pausado"
         elif sincronizar and produto["status"] in ("ativo", "pausado"):
@@ -831,6 +836,7 @@ async def _montar_agente(pedido: Request, ctx: Contexto, id_ativado: str, dados:
         acao="sincronizou" if sincronizar else "ativou",
         resumo=f"{'Produto atualizado' if sincronizar else 'Produto ativado'}: {nome} ({len(papeis)} agentes, {('número ' + canal['numero_normalizado']) if canal else 'ainda sem número'})"
                + _resumo_followup(config))
+    versao = await _gravar_versao(pool, ctx, id_ativado, dados, produto, "sincronizou" if sincronizar and not reativando else "ativou")
     # Webhook, alcance e o resto da conferência da ativação (o mesmo passo a passo dos outros agentes).
     verificacao: dict[str, Any] = {}
     try:
@@ -844,7 +850,26 @@ async def _montar_agente(pedido: Request, ctx: Contexto, id_ativado: str, dados:
     except Exception as erro:                  # a conferência não desfaz a ativação: mostra o que faltou
         verificacao = {"erro": str(erro)[:300]}
     _avisar_indexacao(pedido)
-    return {"ok": True, "id_agente": id_agente, "verificacao": verificacao}
+    return {"ok": True, "id_agente": id_agente, "verificacao": verificacao, "versao": versao}
+
+
+async def _gravar_versao(pool: asyncpg.Pool, ctx: Contexto, id_ativado: str, dados: Ativar, produto: dict[str, Any],
+                         origem: str) -> dict[str, Any] | None:
+    """Versão dos prompts que acabou de ir ao ar (migração 008). Falha aqui não desfaz a ativação: só não grava."""
+    from app.gestao import versoes
+    try:
+        novo = versoes.conteudo(
+            agentes=[a.model_dump() for a in dados.agentes],
+            faq=dados.faq if dados.faq is not None else produto.get("faq"),
+            objecoes=dados.objecoes if dados.objecoes is not None else produto.get("objecoes"),
+            regras_markdown=dados.regras_markdown if dados.regras_markdown is not None else produto.get("regras_markdown"),
+            dados_escritorio=dados.dados_escritorio if dados.dados_escritorio is not None else produto.get("dados_escritorio"))
+        return await versoes.gravar(pool, id_escritorio=ctx.escritorio(), id_ativado=id_ativado, id_usuario=ctx.id_usuario,
+                                    autor=ctx.usuario.get("nome"), origem=origem, novo=novo, resumo_cliente=dados.resumo_mudancas)
+    except Exception:
+        import logging
+        logging.getLogger("agentesia.versoes").exception("falha ao gravar a versão do produto %s", id_ativado)
+        return None
 
 
 def _com_followup_padrao(config: dict[str, Any], catalogo: dict[str, Any], dados: Ativar, sincronizando: bool) -> dict[str, Any]:
@@ -854,7 +879,13 @@ def _com_followup_padrao(config: dict[str, Any], catalogo: dict[str, Any], dados
         return config
     from app.followup import padrao as padrao_fu
     ligar = dados.followup_ativo if dados.followup_ativo is not None else not sincronizando
-    return {**config, "followup": padrao_fu.config_do_produto(catalogo, ativo=ligar)}
+    horas = None
+    if dados.followup_horas:
+        try:
+            horas = padrao_fu.horas_escolhidas(dados.followup_horas)
+        except ValueError as erro:
+            raise HTTPException(400, str(erro)) from None
+    return {**config, "followup": padrao_fu.config_do_produto(catalogo, ativo=ligar, horas=horas)}
 
 
 def _resumo_followup(config: dict[str, Any]) -> str:
@@ -1090,6 +1121,11 @@ async def apagar_midia(id_midia: str, pedido: Request, ctx: Contexto = Depends(G
                 await origem.apagar(linha["caminho_storage"])
             except armazenamento.ErroArmazenamento as erro:
                 raise HTTPException(502, str(erro)) from erro
+    try:                                                  # o roteiro desse áudio volta para "a gravar" (migração 009)
+        await pool.execute("update agentesia_roteiros set id_midia = null, status = 'a_gravar' "
+                           "where id_midia = $1::uuid and id_escritorio = $2::uuid", id_midia, ctx.escritorio())
+    except asyncpg.UndefinedTableError:
+        pass
     await pool.execute("delete from agentesia_biblioteca_midia where id = $1::uuid and id_escritorio = $2::uuid",
                        id_midia, ctx.escritorio())
     return {"ok": True}

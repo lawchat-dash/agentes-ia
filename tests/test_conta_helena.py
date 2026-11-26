@@ -323,13 +323,13 @@ async def test_onboarding_em_passos(ambiente):
     assert len([p for p in falsa.pedidos if p[0] != "GET"]) == antes
     situacao = {p["codigo"]: p["situacao"] for p in conferido["passos"]}
     assert situacao == {"token": "ok", "webhook": "pendente", "canais": "ok", "etiquetas": "pendente", "equipe": "pendente",
-                        "painel": "pendente", "painel_padrao": "pendente", "zapsign": "pulado", "produto": "pendente",
+                        "painel": "pendente", "painel_padrao": "pulado", "zapsign": "pulado", "produto": "pendente",
                         "sincronizacao": "pendente"}
     assert conferido["completo"] is False and len(conferido["paineis"]) == 3
 
-    # Avançar: cria o webhook e as etiquetas, escolhe o painel pedido, sincroniza.
+    # Avançar: cria o webhook e as etiquetas, escolhe o painel pedido, sincroniza. A equipe só porque foi marcada.
     painel = conta["paineis"][0]
-    avancado = (await cliente.post(f"{base}/avancar", json={"id_painel": painel["id"]})).json()
+    avancado = (await cliente.post(f"{base}/avancar", json={"id_painel": painel["id"], "criar_equipe_ia": True})).json()
     situacao = {p["codigo"]: p["situacao"] for p in avancado["passos"]}
     assert situacao == {"token": "ok", "webhook": "feito", "canais": "feito", "etiquetas": "feito", "equipe": "feito",
                         "painel": "feito", "painel_padrao": "pulado", "zapsign": "pulado", "produto": "pendente",
@@ -355,7 +355,8 @@ async def test_onboarding_em_passos(ambiente):
     assert ids["token_final"] == token[-4:]
     assert len(conta["assinaturas"]) == 1 and len(conta["etiquetas"]) == len(ETIQUETAS_PADRAO) + 1
     guardado = (await cliente.get(base)).json()
-    assert guardado["passos"][1]["situacao"] == "feito" and guardado["concluido_em"] is None and guardado["sincronizado_em"]
+    # Primeiro produto não trava a conta: token, webhook, etiquetas e painel prontos = onboarding concluído.
+    assert guardado["passos"][1]["situacao"] == "feito" and guardado["concluido_em"] and guardado["sincronizado_em"]
     historico = (await cliente.get("/api/alteracoes", headers={"x-escritorio": id_escritorio})).json()
     assert any(h["acao"] == "onboarding" and h["situacao"] == "ok" for h in historico)
 

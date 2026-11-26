@@ -31,10 +31,10 @@ def test_horario_comercial_empurra_para_a_proxima_abertura():
 
 def test_cadencia_padrao_e_validacao():
     c = regras.Config.de({})
-    assert [p.apos_horas for p in c.passos] == [1, 5, 24, 72, 168, 360, 720] and not c.ativo
+    assert [p.apos_horas for p in c.passos] == [1, 24, 72, 168] and not c.ativo           # padrão OAB/Meta: 4 toques
     base = datetime(2026, 11, 24, 10, 0, tzinfo=BRT)                     # terça 10h
     assert regras.horario_do_passo(base, 0, c) == base + timedelta(hours=1)
-    assert regras.horario_do_passo(base, 7, c) is None
+    assert regras.horario_do_passo(base, 4, c) is None
     with pytest.raises(ValueError, match="início"):
         regras.validar({"horario": {"inicio": 20, "fim": 8}})
     with pytest.raises(ValueError, match="texto"):

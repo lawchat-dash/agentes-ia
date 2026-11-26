@@ -1,4 +1,4 @@
-import { StrictMode, useState } from "react";
+import { StrictMode, Suspense, lazy, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "./index.css";
@@ -9,41 +9,44 @@ import "./estilo.css";
 import "./estilo-navegacao.css";
 import { enviar } from "./api";
 import { Estrutura } from "./componentes/Estrutura";
-import { Alerta, Modal, ProvedorAvisos, useAcao } from "./componentes/ui";
+import { Alerta, Carregando, Modal, ProvedorAvisos, useAcao } from "./componentes/ui";
 import { ProvedorSessao, useSessao } from "./sessao";
-import { TelaAdminEscritorios } from "./telas/AdminEscritorios";
-import { TelaAdminFollowup } from "./telas/AdminFollowup";
-import { TelaAgente } from "./telas/Agente";
-import { TelaAgenteNovo } from "./telas/AgenteNovo";
-import { TelaAgentes } from "./telas/Agentes";
-import { TelaConfiguracoes } from "./telas/Configuracoes";
-import { TelaConversas } from "./telas/Conversas";
-import { TelaAtendimento } from "./telas/Atendimento";
-import { TelaFerramentas } from "./telas/Ferramentas";
-import { TelaMinhaConta } from "./telas/MinhaConta";
 import { CarregandoEntrada, Entrar } from "./telas/Entrar";
-import { TelaErros } from "./telas/Erros";
-import { TelaHistorico } from "./telas/Historico";
-import { TelaInicio } from "./telas/Inicio";
-import { TelaIntegracoes } from "./telas/Integracoes";
-import { TelaModelos, TelaModelo } from "./telas/Modelos";
-import { TelaEquipe } from "./telas/Equipe";
-import { TelaAvisos } from "./telas/Avisos";
-import { TelaCarteira } from "./telas/Carteira";
-import { TelaAdminCobranca } from "./telas/AdminCobranca";
-import Biblioteca from "@/pages/Biblioteca";
-import BibliotecaDetalhes from "@/pages/BibliotecaDetalhes";
-import MeusProdutos from "@/pages/MeusProdutos";
-import AdminProdutos from "@/pages/admin/AdminProdutos";
-import AdminProdutoEditor from "@/pages/admin/AdminProdutoEditor";
-import Ativar from "@/pages/Ativar";
-import ProdutoEditor from "@/pages/ProdutoEditor";
+// Cada tela vira um arquivo JS próprio, baixado só quando a pessoa abre a tela (antes era um bundle único de ~2,5 MB).
+const TelaAdminEscritorios = lazy(() => import("./telas/AdminEscritorios").then((m) => ({ default: m.TelaAdminEscritorios })));
+const TelaAdminFollowup = lazy(() => import("./telas/AdminFollowup").then((m) => ({ default: m.TelaAdminFollowup })));
+const TelaAgente = lazy(() => import("./telas/Agente").then((m) => ({ default: m.TelaAgente })));
+const TelaAgenteNovo = lazy(() => import("./telas/AgenteNovo").then((m) => ({ default: m.TelaAgenteNovo })));
+const TelaConfiguracoes = lazy(() => import("./telas/Configuracoes").then((m) => ({ default: m.TelaConfiguracoes })));
+const TelaConversas = lazy(() => import("./telas/Conversas").then((m) => ({ default: m.TelaConversas })));
+const TelaFerramentas = lazy(() => import("./telas/Ferramentas").then((m) => ({ default: m.TelaFerramentas })));
+const TelaRoteiro = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiro })));
+const TelaRoteiros = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiros })));
+const TelaMinhaConta = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaMinhaConta })));
+const TelaCrm = lazy(() => import("./telas/MinhaConta").then((m) => ({ default: m.TelaCrm })));
+const TelaErros = lazy(() => import("./telas/Erros").then((m) => ({ default: m.TelaErros })));
+const TelaHistorico = lazy(() => import("./telas/Historico").then((m) => ({ default: m.TelaHistorico })));
+const TelaInicio = lazy(() => import("./telas/Inicio").then((m) => ({ default: m.TelaInicio })));
+const TelaIntegracoes = lazy(() => import("./telas/Integracoes").then((m) => ({ default: m.TelaIntegracoes })));
+const TelaModelos = lazy(() => import("./telas/Modelos").then((m) => ({ default: m.TelaModelos })));
+const TelaModelo = lazy(() => import("./telas/Modelos").then((m) => ({ default: m.TelaModelo })));
+const TelaEquipe = lazy(() => import("./telas/Equipe").then((m) => ({ default: m.TelaEquipe })));
+const TelaAvisos = lazy(() => import("./telas/Avisos").then((m) => ({ default: m.TelaAvisos })));
+const TelaCarteira = lazy(() => import("./telas/Carteira").then((m) => ({ default: m.TelaCarteira })));
+const TelaAdminCobranca = lazy(() => import("./telas/AdminCobranca").then((m) => ({ default: m.TelaAdminCobranca })));
+const Biblioteca = lazy(() => import("@/pages/Biblioteca"));
+const BibliotecaDetalhes = lazy(() => import("@/pages/BibliotecaDetalhes"));
+const MeusProdutos = lazy(() => import("@/pages/MeusProdutos"));
+const AdminProdutos = lazy(() => import("@/pages/admin/AdminProdutos"));
+const AdminProdutoEditor = lazy(() => import("@/pages/admin/AdminProdutoEditor"));
+const Ativar = lazy(() => import("@/pages/Ativar"));
+const ProdutoEditor = lazy(() => import("@/pages/ProdutoEditor"));
 
 const TITULOS: [RegExp, string][] = [
-  [/^\/$/, "Início"], [/^\/agentes\/novo/, "Agentes › Criar"], [/^\/agentes\/./, "Agentes › Editar"], [/^\/agentes/, "Agentes"],
+  [/^\/$/, "Início"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
   [/^\/erros/, "Erros"], [/^\/conversas/, "Conversas"], [/^\/atendimento/, "Central de Atendimento"],
-  [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus produtos"],
-  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos à equipe"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
+  [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus agentes"],
+  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos à equipe"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
   [/^\/admin\/escritorios/, "LawChat › Escritórios"], [/^\/admin\/equipe/, "LawChat › Equipe"], [/^\/admin\/modelos/, "LawChat › Modelos de agente"],
   [/^\/admin\/produtos\/./, "LawChat › Produtos › Editar"], [/^\/admin\/produtos/, "LawChat › Produtos (catálogo)"], [/^\/admin\/erros/, "LawChat › Erros"], [/^\/admin\/followup/, "LawChat › Follow-up"],
 ];
@@ -81,6 +84,7 @@ function Rotas() {
   if (!eu) return <Entrar />;
   const precisaEscritorio = (tela: JSX.Element) => escritorio ? tela : <Alerta tipo="info">Abra uma conta em Admin › Contas (botão Acessar).</Alerta>;
   return (
+    <Suspense fallback={<CarregandoEntrada />}>
     <Routes>
       {/* Telas de tela cheia (fora da barra lateral), como no agents-lawchat-main */}
       {podeGerir && <>
@@ -89,6 +93,7 @@ function Rotas() {
       </>}
       <Route path="*" element={<ComEstrutura />} />
     </Routes>
+    </Suspense>
   );
 }
 
@@ -98,13 +103,15 @@ function ComEstrutura() {
   return (
     <Estrutura titulo={<Titulo />}>
       <TrocarSenha />
+      <Suspense fallback={<Carregando />}>
       <Routes>
         <Route path="/" element={<TelaInicio />} />
         {/* Conversas: todos os papéis do escritório (o atendente pausa e devolve a IA por aqui). */}
         <Route path="/conversas/:id?" element={precisaEscritorio(<TelaConversas />)} />
         <Route path="/atendimento" element={escritorio ? null : precisaEscritorio(<span />)} />
         {podeGerir && <>
-          <Route path="/agentes" element={precisaEscritorio(<TelaAgentes />)} />
+          <Route path="/agentes" element={<Navigate to="/meus-produtos" replace />} />
+          {/* ↑ "Meus agentes" é a lista única (Meus Produtos + Agentes): o /agentes antigo leva para lá. */}
           <Route path="/agentes/novo" element={precisaEscritorio(<TelaAgenteNovo />)} />
           <Route path="/agentes/:id" element={precisaEscritorio(<TelaAgente />)} />
           <Route path="/agentes/:id/:secao" element={precisaEscritorio(<TelaAgente />)} />
@@ -115,7 +122,12 @@ function ComEstrutura() {
           <Route path="/historico" element={precisaEscritorio(<TelaHistorico />)} />
           <Route path="/consumo" element={precisaEscritorio(<TelaCarteira />)} />
           <Route path="/ferramentas" element={precisaEscritorio(<TelaFerramentas />)} />
+          <Route path="/ferramentas/roteiros" element={precisaEscritorio(<TelaRoteiros />)} />
+          <Route path="/ferramentas/roteiros/:id" element={precisaEscritorio(<TelaRoteiro />)} />
           <Route path="/minha-conta" element={precisaEscritorio(<TelaMinhaConta />)} />
+          <Route path="/minha-conta/:pagina" element={precisaEscritorio(<TelaMinhaConta />)} />
+          <Route path="/crm" element={precisaEscritorio(<TelaCrm />)} />
+          <Route path="/crm/:pagina" element={precisaEscritorio(<TelaCrm />)} />
           <Route path="/biblioteca" element={precisaEscritorio(<Biblioteca />)} />
           <Route path="/biblioteca/:slug" element={precisaEscritorio(<BibliotecaDetalhes />)} />
           <Route path="/meus-produtos" element={precisaEscritorio(<MeusProdutos />)} />
@@ -138,6 +150,7 @@ function ComEstrutura() {
         <Route path="/acesso" element={<Navigate to={admin ? "/admin/escritorios" : "/"} replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </Estrutura>
   );
 }

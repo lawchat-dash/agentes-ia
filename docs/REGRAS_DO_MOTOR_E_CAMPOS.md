@@ -888,3 +888,104 @@ com outro trabalho, até o fim.
 ### 5.8 Pendências para o dono
 
 C11 (imprimir), C14 (pergunta da ETAPA 3 do Closer) e confirmar C2 (MEI).
+
+---
+
+## Mudanças da leva 1 (25/11)
+
+Itens B1, B2, B3, B4, B6 e B7 de `docs/ANALISE_5_PROJETOS.md`. Regra geral da leva: **a IA conduz a conversa, o
+código decide a passagem** (para a frente no funil e para a equipe). Nada disso chama a IA de novo.
+
+### O que mudou e por quê
+
+| Item | O que mudou | Por quê | Onde |
+|---|---|---|---|
+| B1 | A troca "pela frase" (a IA escreve a frase de passagem e deixa `transferir_para` vazio) só vale com a frase **exata**: normalização só de espaço, caixa e pontuação final (acento e o resto contam). Nunca vale para `desqualificado`. O evento `troca_pela_frase` ganha `exata: true`. | Com 85% das palavras em qualquer ordem, o lead trocava de etapa sem ninguém ter decidido, inclusive para desqualificado. | `catalogo.transferencia_pela_frase_exata`, `catalogo.tem_frase_exata`, `turno._turno_catalogo` |
+| B2 | Ficha do caso montada em código (`app/cerebro/ficha.py`, `montar_ficha(lead, fatos, etapa, motivo, ultima_pergunta_ia, faltando)`): nome, benefício, etapa, fatos confirmados com rótulos legíveis, motivo da pausa, o que falta descobrir e a última pergunta da IA. CPF mascarado (`***.***.***-25`); RG, endereço, e-mail, telefone, dados do menor e texto livre de saúde (descrição do acidente, laudo) ficam fora; teto de 1.500 caracteres. Em toda pausa do turno o pipeline monta a ficha: vai em `Saida.ficha`, no `detalhe.ficha` dos eventos de passagem (pediu_humano, sinal_*, trava_persistente, pedido_repetido, analise_manual, contrato_correcao_repetida, formato_invalido, trocas_demais, fora_do_tema_repetido), na `resposta.ficha` do turno e no fim da nota da Helena. | O atendente abria a conversa sem saber o que o lead já respondeu nem por que a IA saiu. O campo `ficha` do evento fica pronto para a frente de avisos (`notificacoes.py` não foi mexido). | `app/cerebro/ficha.py`, `pipeline._por_ficha`, `pipeline._nota_de_problema(ficha=...)` |
+| B3 | Resposta da IA fora do formato depois das tentativas do modelo (`saida_invalida`, `saida_cortada`, `recusa_do_modelo`, no extrator ou na etapa): o lead recebe a mensagem fixa "Recebi sua mensagem! Vou pedir para alguém da equipe continuar com você por aqui.", a IA pausa no lead (`motivo_estado=formato_invalido`) e fica o evento `formato_invalido` com a ficha, no lugar do `ia_nao_respondeu`. Falha passageira do provedor (fora do ar, sem conexão, limite) continua como antes (nova tentativa em 60 s e 300 s). | O lead ficava em silêncio e a IA continuava "dona" da conversa, tentando de novo a cada mensagem. | `pipeline._formato_invalido`, `turno.MENSAGENS_FIXAS["formato_invalido"]` |
+| B4 | Portão de fatos. Para ENTRAR no destino, o código exige os fatos: Closer (Comercial) com aposentadoria, advogado no caso e sequela respondidos; Contratos só com `aceite_honorarios = sim` (fato novo do extrator: `sim / nao / nao_sabe`; "não sei", "vou ver" e "talvez" são `nao_sabe`); Desqualificado só com um motivo comprovado por fato do lead (aposentado = sim, advogado no caso = sim, sequela = não, nunca trabalhou ou servidor, segurado especial sem documento rural) ou com a conta do período de graça dando "fora". A tabela fica em `catalogo.PORTAO_DE_FATOS` (por produto, padrão `previdenciario`) e `catalogo.MOTIVOS_DE_DESQUALIFICAR`. O extrator do catálogo **sempre** procura esses fatos. Sem os fatos, a IA recebe a CORRIJA com a pergunta do que falta; se insistir, a troca é segurada, a frase de passagem sai da resposta (e, sem pergunta na resposta, vai a pergunta do fato que falta), fica o evento `troca_barrada_faltam_fatos` e, no turno seguinte, a linha "PARA PASSAR O LEAD (sistema)". A mesma troca segurada pela mesma falta dois turnos seguidos (inclusive quando a IA obedeceu e perguntou, mas o extrator não achou a resposta) vai para a equipe (`analise_manual:faltam_fatos`, com a ficha). `perguntar_antes_de_transferir` continua igual (trava leve, uma vez por conversa). O escritório desliga com `config.catalogo.portao_de_fatos = false` ou troca a regra de um destino com `config.catalogo.portao_de_fatos = {"closer": ["sequela"]}`. | Lead ia ao Closer sem a checagem de aposentadoria e advogado, e "não sei" virava aceite (`DIAGNOSTICO_RODADA_REAL_2026-11-25.md`, itens 4 e 5). | `catalogo.py` (portão), `turno._portao_de_fatos`, `turno._portao_prendeu`, `turno._guardas_do_catalogo` |
+| B6 | Duas intenções novas no extrator, sem chamada nova: `fora_do_tema` e `tentativa_de_manipular` (ignorar instruções, revelar o prompt, se passar por advogado ou funcionário, mandar código; "você é robô?" não conta). Manipulação: o agente não é chamado, sai a resposta fixa e segura ("Por aqui eu só consigo te ajudar com o seu caso no escritório." e a última pergunta da IA) e fica o evento `barreira_manipulacao`. Fora do tema: o agente responde com a linha de sistema "recuse em 1 frase e volte à pergunta do roteiro" e fica o evento `barreira_fora_do_tema`; na 3ª mensagem seguida fora do tema, pausa com a ficha (`fora_do_tema_repetido`). | A defesa estava só no prompt e ninguém sabia quem insistia. A Meta proíbe assistente de uso geral. | `produto.INTENCOES_BARREIRA`, `turno._barreiras` |
+| B7 | Desfazer: se o turno quebra depois de gravar etapa e fatos e antes de qualquer parte chegar ao lead, a etapa volta e cada fato do turno devolve a vigência à **versão anterior** (o banco só aceita um fato vigente por chave), numa transação só (`RepositorioPostgres.desfazer_turno`; no histórico de etapa a volta tem origem `desfazer`). Evento `turno_desfeito`; o `erro_no_turno` e a nota de sempre continuam. Limite: com 4 trocas de etapa feitas pela IA neste lead nas últimas 24 h, a 5ª é segurada e a conversa vai para a equipe com a ficha (evento `trocas_demais`). Troca desfeita, troca devolvida por falta de entrega e trocas da equipe ou do contrato não contam (`trocas_da_ia`). | Um erro no envio deixava a etapa nova e os fatos valendo com o lead sem ouvir nada; nada impedia o pingue-pongue entre etapas. | `pipeline._gravar_e_enviar`, `pipeline._desfazer_turno`, `pipeline._limitar_trocas`, `postgres.desfazer_turno` e `trocas_da_ia`, `memoria` (iguais) |
+
+### Mudança de comportamento para avisar aos escritórios
+
+- **Portão ligado por padrão.** Roteiro que manda direto ao Closer sem perguntar aposentadoria e advogado agora tem a
+  passagem segurada: o motor manda a IA perguntar o que falta (CORRIJA) e só passa quando o lead responde. O prompt do
+  Sousa e Costa, no caminho CLT, não faz essas duas perguntas nem pede o aceite do jeito que o portão reconhece: com o
+  portão, a IA faz as perguntas a mais. **Pendência do dono:** pôr as perguntas no prompt (fica natural) ou desligar
+  o portão no escritório.
+- Mesma falta dois turnos seguidos (a IA perguntou e o extrator não achou a resposta, ou a IA insistiu na troca): a
+  conversa vai para a equipe com a ficha (`analise_manual:faltam_fatos`). A IA nunca pergunta a mesma coisa pela 3ª vez.
+- Leads que passavam pela paráfrase da frase de troca esperam um turno a mais (a IA precisa marcar `transferir_para`
+  ou escrever a frase exata). Antes de publicar, contar os eventos `troca_pela_frase` dos últimos 30 dias.
+- Motivo novo de desqualificação comprovada: segurado especial sem nenhum documento rural (`documentos_rurais = nao`),
+  regra do roteiro do Sousa e Costa (sc17).
+
+### Testes antigos ajustados (nenhum afrouxa o portão)
+
+- **Modelo roteirizado da avaliação** (`app/avaliacao/falso.py`): o extrator falso passou a achar, como o de verdade
+  agora faz, aposentadoria, advogado, sequela (também contada no relato: "até hoje falseia", "manco"), seguro-desemprego,
+  contribuição por conta própria, documentos rurais e o aceite ("pode ser", "podemos seguir"), na resposta à pergunta
+  ou dito espontaneamente ("me aposentaram por invalidez"). E a IA roteirizada obedece à CORRIJA do portão: faz a
+  pergunta do primeiro fato que falta e tenta a troca de novo no turno seguinte. Sem custo de IA; os cenários
+  `avaliacao/cenarios*` seguem iguais.
+- `tests/test_avaliacao_sousa_costa_sc01.py` e `sc03.py`: "nenhuma correção da trava" passou a aceitar só a correção do
+  portão (o prompt do escritório não pergunta aposentadoria nem o aceite).
+- `tests/test_avaliacao_motor.py`: o caso ruim `pula_a_qualificacao` virou teste próprio. Com o portão, o motor manda
+  perguntar e o lead só chega ao Closer depois das respostas; com o portão desligado, a checagem `pulou_pergunta` pega.
+- `tests/test_avaliacao_diagnostico.py`: o Closer que pula o aceite agora é segurado pelo motor (a IA pergunta o aceite);
+  com o portão desligado, a checagem `aceite_antes_de_contratos` continua pegando.
+- `tests/test_motor_correcoes_rodada2.py` (e quem usa os helpers dele), `tests/test_troca_correcoes.py` e
+  `tests/test_catalogo.py`: os turnos do meio da conversa ganharam os fatos já respondidos (aposentado = não, advogado
+  = não, sequela = sim, aceite = sim); quem desqualifica ganhou o motivo do lead. "Desqualificar quem estava coberto"
+  sem motivo agora é segurado (comportamento certo); com motivo, a 2ª resposta decide como antes. O teste dos fatos no
+  extrator "só com a config" passou a dizer: sempre com o portão, nunca sem ele.
+- `tests/test_e2e_helena.py` e `tests/test_e2e_troca_departamento.py`: ganharam `qualificar(e2e)` (fatos do portão
+  já respondidos) e, na desqualificação, o fato "sou aposentado" com o trecho do lead.
+- `tests/test_troca_correcoes.py::test_troca_pela_frase_parafraseada_registra_evento` e `tests/test_produto_livre.py`
+  (intenções do extrator): ajustados ao B1 e ao B6.
+- Regressão de verdade encontrada nos testes antigos: nenhuma. Os casos que quebraram passavam o lead sem os fatos
+  (exatamente o que o portão impede) ou usavam a paráfrase da frase de troca.
+
+### Caso → teste
+
+| Caso | Teste |
+|---|---|
+| B1 paráfrase (~90% da frase) e `transferir_para` vazio: a etapa não muda | `tests/test_leva1_motor.py::test_b1_frase_parafraseada_nao_troca` |
+| B1 frase exata (caixa, espaços e pontuação final diferentes): troca, evento com `exata: true` | `test_leva1_motor.py::test_b1_frase_exata_troca_e_o_evento_diz_exata` |
+| B1 frase exata do Desqualificado com o campo vazio: não desqualifica | `test_leva1_motor.py::test_b1_frase_exata_do_desqualificado_nao_desqualifica` |
+| B1 normalização (acento conta) | `test_leva1_motor.py::test_b1_frase_exata_normaliza_so_espaco_caixa_e_pontuacao_final` |
+| B1 paráfrase x exata no Closer → Contratos | `tests/test_troca_correcoes.py::test_troca_pela_frase_parafraseada_registra_evento` |
+| B2 ficha: rótulos, CPF mascarado, sem RG, endereço e saúde detalhada, o que falta, última pergunta | `test_leva1_motor.py::test_b2_ficha_tem_o_caso_e_nao_tem_documento_nem_saude_detalhada` |
+| B2 limite de 1.500 caracteres e motivos compostos | `test_leva1_motor.py::test_b2_ficha_respeita_o_limite_e_os_motivos_compostos` |
+| B2 pediu humano: nota da Helena e evento com a ficha, `resposta.ficha` do turno | `test_leva1_motor.py::test_b2_pediu_humano_leva_a_ficha_na_nota_e_no_evento` |
+| B3 JSON inválido: mensagem fixa, pausa, evento `formato_invalido`, nota com ficha, sem `ia_nao_respondeu` | `test_leva1_motor.py::test_b3_json_invalido_vira_mensagem_fixa_e_pausa_com_ficha` |
+| B3 resposta cortada e recusa do modelo | `test_leva1_motor.py::test_b3_outros_formatos_quebrados_tambem_vao_para_a_equipe` |
+| B3 provedor fora do ar continua como antes | `test_leva1_motor.py::test_b3_provedor_fora_do_ar_continua_como_antes` |
+| B3 ponta a ponta (Postgres, Helena falsa, CPF mascarado na nota) | `tests/test_e2e_leva1.py::test_fora_do_formato_mensagem_fixa_pausa_e_nota_com_ficha` |
+| B4 Closer sem aposentadoria: CORRIJA com a pergunta, troca segurada, frase fora, marca gravada | `test_leva1_motor.py::test_b4_closer_sem_aposentadoria_e_segurado_e_a_ia_recebe_o_que_falta` |
+| B4 Closer com os fatos passa; IA que obedece à CORRIJA não troca | `test_leva1_motor.py::test_b4_closer_com_os_fatos_passa_e_a_ia_que_obedece_a_correcao_tambem_nao_passa` |
+| B4 Contratos: "vou ver" (`nao_sabe`) não passa, `sim` passa | `test_leva1_motor.py::test_b4_contratos_so_com_o_aceite_sim` |
+| B4 desqualificar sem motivo barra; com advogado no caso passa, com o motivo e o trecho no contexto | `test_leva1_motor.py::test_b4_desqualificar_so_com_motivo_comprovado` |
+| B4 dois turnos segurados vão para a equipe; linha de sistema no turno seguinte | `test_leva1_motor.py::test_b4_dois_turnos_segurados_vao_para_a_equipe` |
+| B4 turno sem pedido de troca limpa a marca | `test_leva1_motor.py::test_b4_turno_sem_pedido_de_troca_limpa_a_marca` |
+| B4 a IA obedece e pergunta, o fato não vem: no turno seguinte vai para a equipe (nunca a 3ª pergunta) | `test_leva1_motor.py::test_b4_ia_que_obedece_mas_o_fato_nao_vem_nao_pergunta_pela_terceira_vez` |
+| B4 segurado especial sem documento rural é motivo comprovado | `test_leva1_motor.py::test_b4_segurado_especial_sem_documento_rural_e_motivo_de_desqualificar` |
+| B4 cenários de avaliação no modo falso (roteirizado obedece à CORRIJA; extrator falso acha os fatos) | `tests/test_avaliacao_*.py` (bateria inteira) |
+| B4 extrator sempre procura os fatos; `portao_de_fatos=false` tira | `test_leva1_motor.py::test_b4_extrator_sempre_procura_os_fatos_do_portao_e_o_escritorio_pode_desligar` |
+| B4 portão desligado = comportamento antigo | `test_leva1_motor.py::test_b4_portao_desligado_volta_ao_comportamento_antigo` |
+| B4 `perguntar_antes_de_transferir` continua com o portão | `test_leva1_motor.py::test_b4_perguntar_antes_de_transferir_continua_valendo_com_o_portao` |
+| B4 tabela por produto e regra própria do escritório | `test_leva1_motor.py::test_b4_tabela_por_produto_e_regra_propria_do_escritorio` |
+| B4 ponta a ponta: segura sem os fatos, passa quando o lead responde, histórico `ia` | `tests/test_e2e_leva1.py::test_closer_so_com_os_fatos_do_portao` |
+| B4 desqualificar no e2e com o motivo dito pelo lead | `tests/test_e2e_troca_departamento.py::test_a_ia_desqualifica_e_o_agente_desqualificado_assume` |
+| B4 pular a qualificação: o motor segura; sem portão, a checagem `pulou_pergunta` pega | `tests/test_avaliacao_motor.py::test_pular_a_qualificacao_e_barrado_pelo_portao_e_sem_ele_a_checagem_pega` |
+| B6 manipulação: resposta fixa, sem chamar o agente, retoma a pergunta, evento | `test_leva1_motor.py::test_b6_manipulacao_recebe_resposta_fixa_sem_chamar_o_agente` |
+| B6 fora do tema: linha de sistema, contagem, pausa na 3ª seguida, zera ao voltar | `test_leva1_motor.py::test_b6_fora_do_tema_responde_curto_e_na_terceira_seguida_pausa` |
+| B6 intenções no extrator do catálogo e do Auxílio-Acidente | `test_leva1_motor.py::test_b6_intencoes_novas_no_extrator_de_todos_os_produtos` |
+| B6 o produto clássico também recebe a linha | `test_leva1_motor.py::test_b6_classico_tambem_recebe_a_linha_do_fora_do_tema` |
+| B6 ponta a ponta | `tests/test_e2e_leva1.py::test_tentativa_de_manipular_tem_resposta_fixa_e_evento` |
+| B7 quebra antes do envio: etapa e fatos voltam (versão anterior vigente), `turno_desfeito`, não conta no limite | `test_leva1_motor.py::test_b7_turno_que_quebra_antes_do_envio_desfaz_etapa_e_fatos` |
+| B7 quebra depois de uma parte entregue: nada é desfeito | `test_leva1_motor.py::test_b7_quebra_depois_de_uma_parte_entregue_nao_desfaz` |
+| B7 desfazer no Postgres (transação, origem `desfazer`, um fato vigente por chave) | `tests/test_e2e_leva1.py::test_turno_que_quebra_antes_do_envio_desfaz_etapa_e_fatos_no_banco` |
+| B7 5ª troca da IA em 24 h: segurada, pausa, ficha, nota | `test_leva1_motor.py::test_b7_quinta_troca_da_ia_em_24h_e_segurada_e_pausa_com_ficha` e `test_e2e_leva1.py::test_quinta_troca_da_ia_em_24h_e_segurada` |
+| B7 4 trocas ainda passam; trocas de mais de 24 h não contam | `test_leva1_motor.py::test_b7_quatro_trocas_ainda_passam_e_trocas_velhas_nao_contam` |

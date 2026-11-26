@@ -262,7 +262,7 @@ async def test_dominio_da_helena_do_escritorio(ambiente):  # noqa: F811
 
     # Inválido é recusado sem mexer no que estava; vazio apaga.
     ruim = await cliente.patch("/api/escritorio", headers=h, json={"dominio_helena": "<script>"})
-    assert ruim.status_code == 400 and "Domínio da Helena" in ruim.json()["detail"]
+    assert ruim.status_code == 400 and "Domínio da LawChat" in ruim.json()["detail"]
     assert (await cliente.get("/api/escritorio", headers=h)).json()["config"]["dominio_helena"] == "meuescritorio.wts.chat"
     # Mudar outra coisa não apaga o domínio.
     assert (await cliente.patch("/api/escritorio", headers=h, json={"honorarios": "30%"})).json()["config"]["dominio_helena"]

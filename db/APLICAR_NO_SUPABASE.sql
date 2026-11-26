@@ -1614,3 +1614,146 @@ select policyname, permissive, cmd, roles from pg_policies where schemaname = 's
 --   drop policy if exists "agentesia_midia_sem_update_publico" on storage.objects;
 --   drop policy if exists "agentesia_midia_sem_delete_publico" on storage.objects;
 --   delete from storage.buckets where id = 'agentesia-midia';
+
+
+-- =============================== 008_agentesia_produto_versoes.sql
+-- =============================================================================
+-- 008_agentesia_produto_versoes.sql
+-- Versões dos prompts de um produto ativado (rascunho -> publicar -> voltar; docs/PESQUISA_PLATAFORMAS.md, item 3).
+--
+-- Cada vez que o produto é ativado ou salvo no editor (sincronizar), o servidor grava uma versão com:
+--   número (1, 2, 3... por produto), quem salvou, quando, o resumo das mudanças e o CONTEÚDO dos agentes
+--   (prompts, nomes, boas-vindas, frases de troca, FAQ, objeções, regras e dados do escritório).
+-- "Restaurar" no painel só copia o conteúdo de uma versão para o rascunho do editor: nada vai ao ar sozinho.
+--
+-- O código funciona sem esta migração (só não grava nem lista versões): pode aplicar com o servidor no ar.
+-- Pode rodar mais de uma vez. Só mexe em tabelas agentesia_*. Depende da 001 e da 002.
+-- RLS ligado, sem políticas: só o servidor (service_role) lê e grava, como nas outras tabelas agentesia_*.
+-- Para desfazer: desfazer_008.sql.
+-- =============================================================================
+
+begin;
+
+create table if not exists public.agentesia_produto_versoes (
+  id                  uuid primary key default gen_random_uuid(),
+  id_escritorio       uuid not null references public.agentesia_escritorios(id) on delete cascade,
+  id_produto_ativado  uuid not null references public.agentesia_produtos_ativados(id) on delete cascade,
+  numero              int not null,                       -- 1, 2, 3... dentro do produto
+  origem              text not null default 'sincronizou', -- ativou | sincronizou
+  id_usuario          uuid references public.agentesia_usuarios(id) on delete set null,
+  autor               text,                               -- nome de quem salvou (fica mesmo se o usuário sair)
+  resumo              jsonb not null default '[]'::jsonb, -- ["Prompt do Closer", "FAQ (+2)", ...]
+  conteudo            jsonb not null,                     -- {agentes: [...], faq, objecoes, regras_markdown, dados_escritorio}
+  criado_em           timestamptz not null default now(),
+  unique (id_produto_ativado, numero)
+);
+create index if not exists agentesia_produto_versoes_produto
+  on public.agentesia_produto_versoes (id_produto_ativado, numero desc);
+create index if not exists agentesia_produto_versoes_escritorio
+  on public.agentesia_produto_versoes (id_escritorio, criado_em desc);
+do $$ begin
+  alter table public.agentesia_produto_versoes add constraint agentesia_produto_versoes_origem
+    check (origem in ('ativou', 'sincronizou'));
+exception when duplicate_object then null; end $$;
+alter table public.agentesia_produto_versoes enable row level security;
+
+commit;
+
+
+-- =============================== 009_agentesia_roteiros.sql
+-- =============================================================================
+-- 009_agentesia_roteiros.sql
+-- Roteiros de áudio do escritório (Ferramentas > Roteiros).
+--
+-- Um roteiro é o texto que alguém da equipe vai gravar em áudio: título, texto, para qual agente/etapa/produto
+-- é (opcional) e a situação (a_gravar | gravado). Quando o áudio é gravado no navegador ou enviado, ele vira um
+-- item da biblioteca de mídia (agentesia_biblioteca_midia) e o roteiro guarda o id dele (id_midia); daí pode ser
+-- inserido no prompt como as outras mídias.
+--
+-- O código funciona sem esta migração (a tela de roteiros avisa que falta aplicar): pode aplicar com o servidor no ar.
+-- Pode rodar mais de uma vez. Só mexe em tabelas agentesia_*. Depende da 001 e da 002.
+-- RLS ligado, sem políticas: só o servidor (service_role) lê e grava, como nas outras tabelas agentesia_*.
+-- Para desfazer: desfazer_009.sql.
+-- =============================================================================
+
+begin;
+
+create table if not exists public.agentesia_roteiros (
+  id                  uuid primary key default gen_random_uuid(),
+  id_escritorio       uuid not null references public.agentesia_escritorios(id) on delete cascade,
+  titulo              text not null,
+  texto               text not null default '',
+  id_agente           uuid references public.agentesia_agentes(id) on delete set null,
+  etapa               text,                                -- código da etapa do agente (sdr, closer...), opcional
+  id_produto_ativado  uuid references public.agentesia_produtos_ativados(id) on delete set null,
+  status              text not null default 'a_gravar',    -- a_gravar | gravado
+  id_midia            uuid references public.agentesia_biblioteca_midia(id) on delete set null,
+  id_usuario          uuid references public.agentesia_usuarios(id) on delete set null,
+  criado_em           timestamptz not null default now(),
+  atualizado_em       timestamptz not null default now()
+);
+create index if not exists agentesia_roteiros_escritorio
+  on public.agentesia_roteiros (id_escritorio, criado_em desc);
+create index if not exists agentesia_roteiros_midia
+  on public.agentesia_roteiros (id_midia) where id_midia is not null;
+do $$ begin
+  alter table public.agentesia_roteiros add constraint agentesia_roteiros_status
+    check (status in ('a_gravar', 'gravado'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create trigger agentesia_roteiros_atualizado_em before update on public.agentesia_roteiros
+    for each row execute function public.agentesia_tocar_atualizado_em();
+exception when duplicate_object then null; end $$;
+alter table public.agentesia_roteiros enable row level security;
+
+commit;
+
+
+-- =============================== 010_agentesia_indices_painel.sql
+-- =============================================================================
+-- 010_agentesia_indices_painel.sql
+-- Índices para as telas do painel (Início, Conversas, Rastro, Contas). Só índices: nenhuma tabela ou coluna muda.
+--
+-- Sem eles o Postgres lê a tabela inteira (seq scan) a cada abertura do Início e da lista de Conversas:
+--   agentesia_leads      por escritório (lista de Conversas, resumo e métricas do Início) e por agente (funil, ranking)
+--   agentesia_mensagens  por escritório e data (métricas do Início, "respostas da IA em 24 h")
+--   agentesia_eventos    por lead (Conversa aberta, repetida a cada 8 s)
+--   agentesia_turnos     com erro nas últimas 24 h (resumo do Início)
+--   agentesia_eventos_recebidos  último webhook do escritório (resumo do Início)
+--   agentesia_followups  por escritório (métricas do Início)
+--   agentesia_contratos  por lead (assinados no funil, nas métricas e no Rastro)
+--
+-- Pode rodar mais de uma vez (if not exists) e com o servidor no ar. Depende da 001 e da 002.
+-- Para desfazer: desfazer_010.sql.
+-- =============================================================================
+
+begin;
+
+create index if not exists agentesia_leads_escritorio_recentes
+  on public.agentesia_leads (id_escritorio, (coalesce(ultima_mensagem_lead_em, criado_em)) desc);
+create index if not exists agentesia_leads_escritorio_criado
+  on public.agentesia_leads (id_escritorio, criado_em);
+create index if not exists agentesia_leads_agente_criado
+  on public.agentesia_leads (id_agente, criado_em);
+
+create index if not exists agentesia_mensagens_escritorio_enviada
+  on public.agentesia_mensagens (id_escritorio, enviada_em);
+create index if not exists agentesia_mensagens_escritorio_ia
+  on public.agentesia_mensagens (id_escritorio, registrada_em) where autor = 'ia';
+
+create index if not exists agentesia_eventos_lead
+  on public.agentesia_eventos (id_lead, criado_em desc) where id_lead is not null;
+
+create index if not exists agentesia_turnos_escritorio_erro
+  on public.agentesia_turnos (id_escritorio, iniciado_em) where situacao = 'erro';
+
+create index if not exists agentesia_eventos_recebidos_escritorio
+  on public.agentesia_eventos_recebidos (id_escritorio, recebido_em desc);
+
+create index if not exists agentesia_followups_escritorio
+  on public.agentesia_followups (id_escritorio);
+
+create index if not exists agentesia_contratos_lead
+  on public.agentesia_contratos (id_lead);
+
+commit;
