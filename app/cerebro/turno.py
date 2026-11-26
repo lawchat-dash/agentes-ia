@@ -231,6 +231,15 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
         saida.eventos.append(_evento("pediu_humano_ignorado", "info", "lawchat",
                                      "Pedido de humano ignorado: abertura do anúncio ou pedido de atendimento presencial.",
                                      texto=" ".join(entrada.novas)[:200]))
+    if (catalogo and extracao.intencoes.get("pediu_humano") and not entrada.fatos.get(MARCA_PEDIU_PESSOA)
+            and pedir_pessoa_na_segunda(getattr(produto, "config", {}))):
+        # 1º pedido de pessoa: a IA tenta resolver (a pessoa só entra em último caso). No 2º pedido, pausa como antes.
+        extracao.intencoes["pediu_humano"] = False
+        _gravar_controle(saida, MARCA_PEDIU_PESSOA, True)
+        saida.contexto.setdefault("orientacoes_sinal", []).append(ORIENTACAO_PRIMEIRO_PEDIDO)
+        saida.eventos.append(_evento("pediu_humano_primeira_vez", "info", "lead",
+                                     "Lead pediu uma pessoa pela 1ª vez: a IA tentou resolver por aqui.",
+                                     texto=" ".join(entrada.novas)[:200]))
     for intencao, estado in (("pediu_para_parar", "encerrado"), ("engano", "encerrado"), ("pediu_humano", "pausado")):
         if extracao.intencoes.get(intencao):
             saida.estado_lead, saida.motivo_estado, saida.motivo = estado, intencao, intencao
@@ -254,8 +263,8 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
             if "deficiencia_auditiva" in validos:
                 _gravar_controle(saida, MARCA_SO_TEXTO, True)
             from app.cerebro.sinais import ORIENTACAO_SEM_PAUSA
-            saida.contexto["orientacoes_sinal"] = [ORIENTACAO_SEM_PAUSA[s] for s in validos
-                                                   if s != "deficiencia_auditiva" and s in ORIENTACAO_SEM_PAUSA]
+            saida.contexto.setdefault("orientacoes_sinal", []).extend([ORIENTACAO_SEM_PAUSA[s] for s in validos
+                                                   if s != "deficiencia_auditiva" and s in ORIENTACAO_SEM_PAUSA])
             validos = []
         if validos:
             saida.estado_lead, saida.motivo_estado = "pausado", "sinal:" + ",".join(validos)
@@ -984,6 +993,10 @@ MARCA_DESTINOS_IGNORADOS = "_destinos_ignorados"        # ["assinatura>contratos
 MARCA_VOLTOU_AO_SDR = "_voltou_ao_sdr"                  # o Desqualificado já devolveu o lead ao SDR uma vez
 MARCA_VARIAVEIS_SEM_VALOR = "_variaveis_sem_valor"      # ["LINK AVALIACAO GOOGLE", ...]: evento já registrado
 MARCA_FORA_DO_TEMA = "_fora_do_tema_seguidas"           # quantas mensagens seguidas fora do tema (B6)
+MARCA_PEDIU_PESSOA = "_pediu_pessoa"                   # o lead já pediu uma pessoa uma vez (no 2º pedido, pausa)
+ORIENTACAO_PRIMEIRO_PEDIDO = ("O lead pediu para falar com uma pessoa. Diga em 1 frase, com simpatia, que você mesma "
+                              "consegue ajudar por aqui e responda a dúvida dele (ou pergunte qual é); não prometa "
+                              "chamar ninguém e siga a etapa.")
 MARCA_SO_TEXTO = "_so_texto"                           # lead com deficiência auditiva: nada de áudio na conversa
 MARCA_DADOS_CONFIRMADOS = "_dados_confirmados"          # hash dos dados do contrato que o lead confirmou (resumo + "sim")
 MARCA_DESQ_ESQUECIDA = "_desqualificacao_esquecida"     # a correção "o lead se desqualificou" já foi mandada uma vez
@@ -1686,6 +1699,11 @@ def desqualificar_modo(config: dict[str, Any] | None) -> str:
     para a equipe analisar, desliga neste lead e avisa)."""
     modo = str(_opcao_do_agente(config, "desqualificar_modo") or "").strip().lower()
     return modo if modo in MODOS_DE_DESQUALIFICAR else "desqualificar"
+
+
+def pedir_pessoa_na_segunda(config: dict[str, Any] | None) -> bool:
+    """O 1º pedido de pessoa fica com a IA (ela tenta resolver); só o 2º pausa. Padrão: ligado."""
+    return _opcao_do_agente(config, "pedir_pessoa_na_segunda") is not False
 
 
 def permitir_volta_sdr(config: dict[str, Any] | None) -> bool:

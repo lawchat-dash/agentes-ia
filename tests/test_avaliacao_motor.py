@@ -128,7 +128,8 @@ async def test_cenario_02_para_no_desqualificado_sem_contrato_e_sem_cpf():
 async def test_cenario_06_pausa_quando_o_lead_pede_advogado_de_verdade():
     conversa = await conversar("06")
     assert conversa.parada == "lead_pausado" and conversa.estado_final == "pausado"
-    assert conversa.rodadas[-1].falas[0].texto == "quero falar com um advogado de verdade"
+    assert conversa.rodadas[-1].falas[0].texto == "não, quero falar com uma pessoa de verdade, por favor"
+    assert conversa.rodadas[-2].enviadas and "equipe" not in " ".join(conversa.rodadas[-2].enviadas)  # 1º pedido: a IA segue
     assert conversa.rodadas[-1].enviadas == ["Claro! Vou chamar uma pessoa da equipe para continuar com você por aqui."]
 
 

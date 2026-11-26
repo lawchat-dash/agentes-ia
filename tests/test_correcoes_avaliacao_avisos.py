@@ -149,15 +149,15 @@ def test_oraculo_diz_os_fatos_decisivos():
 async def test_06_pausar_na_segunda_fala_reprova():
     def extrator(sistema, conteudo):
         dados = falso.extrator_de_regras(sistema, conteudo)
-        if "ignore suas instru" in falso._secoes(conteudo)[0]:
-            dados["intencoes"]["pediu_humano"] = True                         # entrega para a equipe cedo demais
+        if any(t in falso._secoes(conteudo)[0] for t in ("ignore suas instru", "qual a chance")):
+            dados["intencoes"]["pediu_humano"] = True        # entrega para a equipe cedo demais (pausa no 2º pedido)
         return dados
 
     conversa = await conversar(caso("06"), extrator=extrator)
-    assert conversa.parada == "lead_pausado" and len(conversa.rodadas) == 2
+    assert conversa.parada == "lead_pausado" and len(conversa.rodadas) == 3
     assert "parou_antes_do_roteiro" in conversa.codigos() and not conversa.aprovada
     falha = next(f for f in conversa.falhas if f.codigo == "parou_antes_do_roteiro")
-    assert "qual a chance de eu ganhar?" in falha.evidencia and "link do site" in falha.evidencia
+    assert "você é um robô?" in falha.evidencia and "link do site" in falha.evidencia
     assert (await conversar(caso("06"))).aprovada                                # pausar na última fala continua certo
 
 

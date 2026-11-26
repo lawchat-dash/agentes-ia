@@ -37,7 +37,7 @@ def test_presencial_deixa_de_estar_na_lista_do_que_nao_marca():
     assert "NÃO é: só perguntar onde fica o escritório" in guia
 
 
-@pytest.mark.parametrize("sinal", ("atendimento_presencial", "ligacao_telefonica", "parceria_comercial"))
+@pytest.mark.parametrize("sinal", ("ligacao_telefonica", "parceria_comercial"))
 async def test_sinal_novo_confirmado_pausa_e_avisa(sinal):
     modelo = ModeloFalso({"extrator": extrai(sinais_=[sinal]), "auditor": AUDITOR_OK, "etapa": resposta()})
     saida = await turno.processar(modelo, entrada(["posso ir aí no escritório?"], modelo_auditor="falso",
@@ -49,6 +49,16 @@ async def test_sinal_novo_confirmado_pausa_e_avisa(sinal):
     assert f"sinal:{sinal}" in automacoes.gatilhos_do_turno(
         primeira_resposta=False, etapa_antes="sdr", etapa_depois="sdr", motivo_estado=saida.motivo_estado,
         situacao="respondido", sinais=saida.sinais)
+
+
+async def test_atendimento_presencial_avisa_sem_pausar():
+    # "Posso ir aí?": o atendimento inicial é pelo WhatsApp; a equipe fica sabendo e a IA segue com os dados do escritório.
+    modelo = ModeloFalso({"extrator": extrai(sinais_=["atendimento_presencial"]), "auditor": AUDITOR_OK, "etapa": resposta()})
+    saida = await turno.processar(modelo, entrada(["posso ir aí no escritório?"], modelo_auditor="falso",
+                                                  historico=list(CONVERSA)))
+    assert saida.estado_lead != "pausado"
+    assert "sinal_atendimento_presencial" in [e["tipo"] for e in saida.eventos]
+    assert "etapa" in [p["papel"] for p in modelo.pedidos]                                 # a IA respondeu
 
 
 async def test_deficiencia_auditiva_avisa_sem_pausar_e_tira_o_audio():

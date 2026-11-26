@@ -399,6 +399,8 @@ ROTEIROS: dict[str, dict[str, list[dict[str, Any]]]] = {
             passo("Sou a assistente virtual do escritório, e a nossa equipe acompanha a conversa.",
                   "Posso te ajudar com o seu caso do INSS?"),
             passo("O nosso atendimento é por aqui mesmo, pelo WhatsApp.", "Quer me contar como foi o acidente?"),
+            # 1º pedido de pessoa: a IA tenta resolver por aqui (só o 2º pedido pausa).
+            passo("Eu mesma consigo te ajudar por aqui.", "Qual é a sua dúvida sobre o auxílio-acidente?"),
         ],
     },
 }

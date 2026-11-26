@@ -182,7 +182,8 @@ async def test_b2_pediu_humano_leva_a_ficha_na_nota_e_no_evento():
         return extrai([("aposentado", "nao", "não sou aposentado")])
 
     atendimento, repo, _helena = montar(extrator, resposta("Entendi! Você tem advogado cuidando deste caso?"))
-    await conversa(atendimento, "não sou aposentado", "quero falar com um advogado de verdade")
+    await conversa(atendimento, "não sou aposentado", "quero falar com um advogado de verdade",
+                   "quero falar com um advogado de verdade")                  # o 1º pedido fica com a IA; o 2º pausa
     assert lead_de(repo).estado == "pausado"
     nota = next(n for n in notas(repo) if n.startswith("🙋 O lead pediu para falar com uma pessoa"))
     assert "📋 Ficha do caso: o lead pediu para falar com uma pessoa" in nota
