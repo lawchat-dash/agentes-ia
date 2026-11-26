@@ -1375,6 +1375,15 @@ class Atendimento:
         else:
             await self._nota_de_problema(escritorio, lead, "ia_desativada", "", inteiro=True)
 
+    @staticmethod
+    def _motivo_da_nota(motivo: str | None) -> str:
+        """Linha "Motivo:" das notas das automações. A troca de agente comum ("transferencia:closer", "catalogo") não
+        leva motivo: a nota já diz para onde o lead foi, e o código cru ficava no chat da equipe em toda troca."""
+        motivo = str(motivo or "").strip()
+        if not motivo or motivo == "catalogo" or motivo.startswith("transferencia:"):
+            return ""
+        return f"Motivo: {motivo}"
+
     def _texto_desqualificado(self, agente: Agente, saida: cerebro.Saida) -> str:
         """Nota do lead desqualificado, com o motivo legível quando há (fato que desqualificou ou motivo do funil)."""
         motivo = ""
@@ -1540,7 +1549,13 @@ class Atendimento:
                 faltando = catalogo.faltam_para_seguir(getattr(produto, "config", {}), etapa, saida.fatos_depois)
             nome_etapa = catalogo.NOMES.get(etapa, etapa) if agente.produto == "catalogo" else \
                 next((e.nome for e in getattr(produto, "etapas", []) if e.codigo == etapa), etapa)
-            lead = {"nome": (entrada.fatos_sistema or {}).get("nome"),
+            # O nome do contato vem em fatos_do_sistema como "nome no WhatsApp" (não "nome"): sem isto a ficha dizia
+            # "Lead: sem nome" em toda passagem para humano em que o lead não digitou o nome. O nome dito na conversa
+            # (fato nome / nome_completo) continua valendo antes do nome do WhatsApp.
+            sistema = entrada.fatos_sistema or {}
+            do_whatsapp = str(sistema.get("nome") or sistema.get("nome no WhatsApp") or "").split(" (pode não ser")[0].strip()
+            dito = (saida.fatos_depois or {}).get("nome_completo") or (saida.fatos_depois or {}).get("nome")
+            lead = {"nome": None if dito else (do_whatsapp or None),
                     "beneficio": getattr(produto, "beneficio", None) or getattr(produto, "nome", None)}
             texto = ficha.montar_ficha(lead, saida.fatos_depois, nome_etapa, saida.motivo_estado,
                                        conhecimento.ultima_pergunta_da_ia(entrada.historico), faltando)
@@ -1603,8 +1618,7 @@ class Atendimento:
                                                 self.repo.eventos_com_aviso(escritorio.id))
         acoes = automacoes.montar_acoes(
             agente.config, config_crm, gatilhos,
-            id_lead=lead.id, id_turno=id_turno, contexto=f"Motivo: {saida.motivo}" if saida.motivo else "",
-            avisos=avisos,
+            id_lead=lead.id, id_turno=id_turno, contexto=self._motivo_da_nota(saida.motivo), avisos=avisos,
         )
         if lead.id_sessao_helena and "desqualific" in (saida.etapa_depois or "") \
                 and saida.etapa_depois != saida.etapa_antes and not any(a["tipo"] == "nota" for a in acoes):

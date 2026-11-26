@@ -61,7 +61,8 @@ async def _agente(pool: Any, id_agente: str, id_escritorio: str) -> dict[str, An
         _uuid(id_agente, "Agente"), id_escritorio)
     if not linha:
         raise HTTPException(404, "Agente não encontrado.")
-    return {**dict(linha), "config": _json(linha["config"])}
+    config = _json(linha["config"])
+    return {**dict(linha), "config": config, "nome_biblioteca": await cresumo.nome_da_biblioteca(pool, config)}
 
 
 def _numero(valor: Any) -> float:
@@ -95,7 +96,7 @@ async def _consumo(pool: Any, id_escritorio: str, id_agente: str | None = None) 
 
 def _visao(agente: dict[str, Any], config_zapsign: dict[str, Any]) -> dict[str, Any]:
     config = agente["config"]
-    caso = cresumo.nome_do_caso(agente.get("produto"), config)
+    caso = cresumo.nome_do_caso(agente.get("produto"), config, agente.get("nome_biblioteca"))
     salvo = cresumo.bloco_do_agente(config)
     contrato = config.get("contrato") if isinstance(config.get("contrato"), dict) else {}
     vale = cresumo.configuracao(config, config_zapsign, caso)
@@ -114,7 +115,8 @@ async def agentes_do_resumo(pedido: Request, ctx: Contexto = Depends(GESTAO)) ->
         ctx.escritorio())
     saida = []
     for x in linhas:
-        agente = {**dict(x), "config": _json(x["config"])}
+        config = _json(x["config"])
+        agente = {**dict(x), "config": config, "nome_biblioteca": await cresumo.nome_da_biblioteca(pool, config)}
         visao = _visao(agente, config_zapsign)
         saida.append({**visao["agente"], "situacao": x["situacao"], "ligado": visao["config"]["ligado"],
                       "prompt_proprio": visao["vale"]["origem"] == "agente"})
@@ -143,7 +145,7 @@ async def salvar_resumo(id_agente: str, dados: ResumoDoAgente, pedido: Request, 
     if dados.modelo and dados.modelo not in MODELOS_PERMITIDOS:
         raise HTTPException(400, "Modelo de IA não permitido para o resumo.")
     agente = await _agente(repo.pool, id_agente, ctx.escritorio())
-    caso = cresumo.nome_do_caso(agente.get("produto"), agente["config"])
+    caso = cresumo.nome_do_caso(agente.get("produto"), agente["config"], agente.get("nome_biblioteca"))
     prompt = (dados.prompt or "").strip()
     if prompt == cresumo.prompt_padrao(caso).strip():
         prompt = ""                                   # igual ao padrão: guarda vazio (segue o padrão se ele mudar)

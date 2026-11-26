@@ -29,7 +29,9 @@ ETIQUETA = "🤖 IA Desativada"
 MOTIVO = "desativada_pela_equipe"
 MOTIVO_SUSPEITO = "lead_suspeito"    # IA desligada sozinha por comportamento suspeito (app/canal/suspeito.py)
 ECO_MINUTOS = 3                      # etiqueta mexida pela LawChat há menos que isto: o evento é o eco dela
-ORIGENS = {"etiqueta": "pela etiqueta na Helena", "botao": "pelo botão da Helena", "painel": "pelo painel",
+# Vão na nota do chat e no histórico: sem o nome da plataforma ("Helena"), como todas as notas (a equipe só vê LawChat).
+ORIGENS = {"etiqueta": "pela etiqueta \"🤖 IA Desativada\" no contato", "botao": "pelo botão da IA na conversa",
+           "painel": "pelo painel",
            "link": "pelo link da conversa", "prazo": "porque o prazo acabou"}
 
 

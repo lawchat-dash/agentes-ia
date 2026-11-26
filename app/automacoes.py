@@ -191,6 +191,9 @@ PAPEL_PARA_TIPO = {
     "assinatura": "AGUARDANDO_ASSINATURA", "acompanhamento_assinatura": "AGUARDANDO_ASSINATURA",
     "contrato_assinado": "CONTRATO_ASSINADO", "desqualificado": "DESQUALIFICADO",
 }
+# Nome do papel na nota da troca quando o agente não gravou um (o mesmo de app/cerebro/catalogo.NOMES).
+_NOME_DO_PAPEL = {"sdr": "SDR", "periododegraca": "Período de Graça", "closer": "Closer", "contratos": "Contratos",
+                  "assinatura": "Assinatura", "desqualificado": "Desqualificado", "contrato_assinado": "Contrato assinado"}
 ETIQUETA_DO_TIPO = {
     "SDR": ETIQUETA_SDR, "COMERCIAL": "🛒 Comercial", "CONTRATO": "📄 Contrato em Elaboração",
     "AGUARDANDO_ASSINATURA": "✍️ Etapa de Assinatura", "CONTRATO_ASSINADO": "✅ Contrato Assinado",
@@ -219,10 +222,15 @@ def regras_automaticas(config_agente: dict[str, Any], config_crm: dict[str, Any]
         if not tipo:
             continue
         etiqueta = ETIQUETA_DO_TIPO[tipo]
-        nome = str((papeis_cfg.get(papel) or {}).get("nome") or papel).split("—")[0].strip()
+        nome = str((papeis_cfg.get(papel) or {}).get("nome") or _NOME_DO_PAPEL.get(papel) or papel).split("—")[0].strip()
         regra: dict[str, Any] = {"coluna_crm": por_tipo.get(tipo), "adicionar_etiquetas": [etiqueta],
                                  "remover_etiquetas": [e for e in todas if e != etiqueta],
                                  "nota": f"🔄 Lead passou para o agente {nome}.", "nota_sempre": True}
+        if papel == "contrato_assinado":
+            # Não é um agente: a nota "📄 Contrato Assinado!" (com o caso e o resumo) já conta. Antes saía
+            # "🔄 Lead passou para o agente contrato_assinado." no chat.
+            regra.pop("nota")
+            regra.pop("nota_sempre")
         if papel != "sdr" or tipo != "SDR":
             regras[f"etapa:{papel}"] = regra
     return regras

@@ -115,7 +115,23 @@ def canal_envia_aviso(tipo: str | None, tipo_helena: str | None) -> bool:
         return False
     return not helena or "whatsapp" in helena
 
-_MARCADOR = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
+# Maiúscula ou espaço no nome ({{Nome}}, {{ nome }}) também vale: antes {{Nome}} ia cru no WhatsApp da equipe.
+_MARCADOR_BRUTO = re.compile(r"\{\{\s*([A-Za-z_]+)\s*\}\}")
+
+
+class _Marcador:
+    """Os marcadores {{chave}} do modelo, sempre com a chave em minúsculas."""
+
+    @staticmethod
+    def findall(texto: str) -> list[str]:
+        return [c.lower() for c in _MARCADOR_BRUTO.findall(texto or "")]
+
+    @staticmethod
+    def sub(trocar: Any, texto: str) -> str:
+        return _MARCADOR_BRUTO.sub(trocar, texto)
+
+
+_MARCADOR = _Marcador()
 
 
 def fuso(nome: str = "America/Sao_Paulo") -> tzinfo:
@@ -157,7 +173,7 @@ def renderizar_modelo(modelo: str, valores: Mapping[str, Any]) -> str:
         chaves = _MARCADOR.findall(linha)
         if chaves and any(not str(valores.get(c) or "").strip() for c in chaves):
             continue
-        linhas.append(_MARCADOR.sub(lambda m: str(valores.get(m.group(1)) or "").strip(), linha))
+        linhas.append(_MARCADOR.sub(lambda m: str(valores.get(m.group(1).lower()) or "").strip(), linha))
     return re.sub(r"\n{3,}", "\n\n", "\n".join(linhas)).strip()
 
 

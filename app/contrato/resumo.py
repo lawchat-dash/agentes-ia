@@ -117,17 +117,45 @@ def bloco_do_agente(config_agente: dict[str, Any] | None) -> dict[str, Any]:
     return convertido
 
 
-def nome_do_caso(produto: str | None, config_agente: dict[str, Any] | None) -> str:
-    """O benefício do agente (📂 Caso: ...), para a nota e o aviso."""
+# Nomes que não dizem o benefício: o agente do catálogo carrega como "Produto do catálogo" (app/cerebro/catalogo.py) e
+# grava produto = 'catalogo'. Antes o aviso e a nota saíam com "📂 Caso: Produto do catálogo" e "Produto: catalogo".
+_NOMES_GENERICOS = {"catalogo", "catálogo", "produto do catálogo", "produto do catalogo", "proprio", "próprio"}
+
+
+def _nome_do_slug(slug: Any) -> str:
+    texto = " ".join(str(slug or "").replace("-", " ").replace("_", " ").split())
+    return texto[:1].upper() + texto[1:]
+
+
+def nome_do_caso(produto: str | None, config_agente: dict[str, Any] | None, nome_biblioteca: str | None = None) -> str:
+    """O benefício do agente (📂 Caso: ...), para a nota e o aviso.
+
+    Agente do catálogo: o nome do produto da biblioteca (nome_biblioteca, ver nome_da_biblioteca), senão o nome ou o
+    slug guardados no config.catalogo. Nunca o nome genérico."""
     nome = ""
     try:
         from app.cerebro import produto as produtos
         nome = str(produtos.carregar(produto, config_agente or {}).nome or "").strip()
     except Exception:                                    # produto sem definição válida
         nome = ""
-    if not nome or nome.lower() in ("catalogo", "catálogo"):
-        nome = str(_bloco((config_agente or {}).get("catalogo")).get("nome") or "").strip() or nome
-    return nome or str(produto or "").replace("_", " ").strip() or "não informado"
+    if not nome or nome.lower() in _NOMES_GENERICOS:
+        bloco = _bloco((config_agente or {}).get("catalogo"))
+        nome = (str(nome_biblioteca or "").strip() or str(bloco.get("nome") or "").strip()
+                or _nome_do_slug(bloco.get("slug")))
+    reserva = "" if str(produto or "").lower() in _NOMES_GENERICOS else _nome_do_slug(produto)
+    return nome or reserva or "não informado"
+
+
+async def nome_da_biblioteca(conexao: Any, config_agente: dict[str, Any] | None) -> str | None:
+    """Nome do produto da biblioteca do agente do catálogo (config.catalogo.id_produto_biblioteca). Falha = None."""
+    id_produto = _bloco(_bloco(config_agente).get("catalogo")).get("id_produto_biblioteca")
+    if not id_produto:
+        return None
+    try:
+        nome = await conexao.fetchval("select nome from agentesia_biblioteca_produtos where id::text = $1", str(id_produto))
+    except Exception:                                    # o nome é um enfeite: nunca derruba a nota ou o aviso
+        return None
+    return str(nome).strip() or None if nome else None
 
 
 def configuracao(config_agente: dict[str, Any] | None, config_zapsign: dict[str, Any] | None,

@@ -35,6 +35,20 @@ def _gatilhos_do_agente(produto: str | None, config: Any) -> dict[str, str]:
         return {}
 
 
+def _nome_da_etapa(produto: str | None, config: Any, codigo: str | None) -> str | None:
+    """Nome da etapa do lead no aviso ("SDR", "Primeiro atendimento"), não o código cru ("sdr")."""
+    from app.cerebro import produto as produtos
+
+    if not codigo:
+        return None
+    try:
+        if not isinstance(config, dict):
+            config = json.loads(config or "{}") if isinstance(config, str) else {}
+        return next((e.nome for e in produtos.carregar(produto, config).etapas if e.codigo == codigo and e.nome), codigo)
+    except Exception:                                    # produto sem definição válida: fica o código
+        return codigo
+
+
 class Executor:
     def __init__(self, pool: asyncpg.Pool, url_helena: str, helena_por_token=HelenaConta, zapsign_por_token=ZapSign,
                  modelo: Any = None, http: Any = None) -> None:
@@ -194,7 +208,7 @@ class Executor:
         from app import automacoes
         from app.banco.postgres import RepositorioPostgres
 
-        motivo = f"a Helena não criou o card do lead ({erro[:200]})."
+        motivo = f"a plataforma de atendimento não criou o card do lead ({erro[:200]})."      # nota do chat: sem "Helena"
         tentativa = acao["tentativas"]
         await self._pool.execute(
             """insert into agentesia_eventos (id_escritorio, id_lead, id_turno, tipo, gravidade, responsavel, descricao, detalhe)
@@ -253,6 +267,14 @@ class Executor:
         if isinstance(lead.get("config_agente"), str):
             lead["config_agente"] = json.loads(lead["config_agente"] or "{}")
         return lead
+
+    async def _nome_do_caso(self, produto: str | None, config_agente: Any) -> str:
+        """O benefício do agente para a nota e o aviso (agente do catálogo: o nome do produto da biblioteca)."""
+        from app.contrato import resumo as cresumo
+
+        if not isinstance(config_agente, dict):
+            config_agente = json.loads(config_agente or "{}") if isinstance(config_agente, str) else {}
+        return cresumo.nome_do_caso(produto, config_agente, await cresumo.nome_da_biblioteca(self._pool, config_agente))
 
     async def _enfileirar(self, contexto: dict[str, Any], tipo: str, chave: str, dados: dict[str, Any],
                           minutos: float = 0) -> None:
@@ -485,9 +507,12 @@ class Executor:
         config_escritorio = info["config_escritorio"]
         if not isinstance(config_escritorio, dict):
             config_escritorio = json.loads(config_escritorio or "{}")
+        # {{produto}} é o nome do benefício (o do painel, "Auxílio-Acidente"), nunca o código ("catalogo").
+        nome_produto = await self._nome_do_caso(info["produto"], info["config_agente"])
         valores = notificacoes.valores_do_aviso(
-            evento=dados["evento"], nome=info["nome"], telefone=info["telefone_normalizado"], produto=info["produto"],
-            etapa=notificacoes.NOMES_DE_EVENTO.get(f"etapa:{info['etapa']}", info["etapa"]),
+            evento=dados["evento"], nome=info["nome"], telefone=info["telefone_normalizado"],
+            produto="" if nome_produto == "não informado" else nome_produto,
+            etapa=notificacoes.NOMES_DE_EVENTO.get(f"etapa:{info['etapa']}") or _nome_da_etapa(info["produto"], info["config_agente"], info["etapa"]),
             valor=info["valor"], link_assinatura=info["link_assinatura"],
             origem=(origem or {}).get("origem") if isinstance(origem, dict) else None,
             link_conversa=sinais.link_da_conversa(config_escritorio, info["id_sessao_helena"]),
@@ -504,7 +529,7 @@ class Executor:
                 """select resumo from agentesia_contratos where id_lead = $1::uuid and situacao = 'assinado'
                    order by versao desc limit 1""", (contexto.get("lead") or {}).get("id"))
             config_agente = info["config_agente"] if isinstance(info["config_agente"], dict) else json.loads(info["config_agente"] or "{}")
-            caso = cresumo.nome_do_caso(info["produto"], config_agente)
+            caso = await self._nome_do_caso(info["produto"], config_agente)
             valores["resumo"] = resumo_no_aviso or ""
             valores["caso"] = caso
             _, config_zapsign = await self._zapsign(contexto["id_escritorio"])
@@ -1065,7 +1090,7 @@ class Executor:
             if config.get("guardar_pdf", True):
                 # O signed_file vence em 60 min: o PDF vai para o nosso armazenamento (link permanente no contrato).
                 await self._enfileirar(contexto, "guardar_pdf_assinado", f"{contrato['id']}:pdf:1", {"id_contrato": str(contrato["id"])})
-            caso = cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
+            caso = await self._nome_do_caso(lead.get("produto"), lead.get("config_agente"))
             ajustes = cresumo.configuracao(lead.get("config_agente"), config, caso)
             resumir = ajustes["ativo"] and self._modelo is not None
             # Resumo no aviso "contrato assinado": o aviso espera o resumo (que dispara no fim, com ou sem resumo).
@@ -1230,7 +1255,7 @@ class Executor:
                 "select resumo from agentesia_contratos where id = $1::uuid and id_escritorio = $2::uuid",
                 dados["id_contrato"], contexto["id_escritorio"])
             if dados.get("chave_nota"):
-                caso = dados.get("caso") or cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
+                caso = dados.get("caso") or await self._nome_do_caso(lead.get("produto"), lead.get("config_agente"))
                 await self._nota_unica(contexto, lead, dados["chave_nota"], cresumo.nota(resumo, caso, dados.get("avisos_nota")))
             if dados.get("aviso_depois"):
                 await self._disparar(contexto, lead, ["contrato_assinado", "etapa:contrato_assinado"],
@@ -1256,7 +1281,7 @@ class Executor:
             return {"resumo": cobranca.MOTIVO}             # sem saldo: segue sem resumo (a nota e o aviso saem)
         lead = await self._lead_completo(str(contrato["id_lead"]), contexto["id_escritorio"])
         _, config = await self._zapsign(contexto["id_escritorio"])
-        caso = dados.get("caso") or cresumo.nome_do_caso(lead.get("produto"), lead.get("config_agente"))
+        caso = dados.get("caso") or await self._nome_do_caso(lead.get("produto"), lead.get("config_agente"))
         ajustes = cresumo.configuracao(lead.get("config_agente"), config, caso)
         if not ajustes["ativo"]:
             return {"resumo": "desligado"}

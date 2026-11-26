@@ -336,7 +336,7 @@ async def test_postgres_card_com_titulo_descricao_falha_e_nota_sem_lead():
         assert (evento["tipo"], evento["responsavel"]) == ("card_nao_criado", "cadastro")
         nota = await pool.fetchrow("select dados from agentesia_acoes where id_lead = $1::uuid and tipo = 'nota'", lead2)
         texto = json.loads(nota["dados"])["texto"] if isinstance(nota["dados"], str) else nota["dados"]["texto"]
-        assert texto.startswith("⚠️ Card do lead não foi criado no CRM.\nMotivo: a Helena não criou o card do lead")
+        assert texto.startswith("⚠️ Card do lead não foi criado no CRM.\nMotivo: a plataforma de atendimento não criou o card do lead")
     finally:
         await repo.fechar()
 

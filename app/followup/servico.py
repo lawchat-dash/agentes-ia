@@ -165,7 +165,7 @@ async def reprogramar_do_agente(pool: asyncpg.Pool, id_agente: str, antes: dict[
         return {"reprogramados": 0, "cancelados": 0}
     antigo = regras.Config.de(antes)
     linhas = await pool.fetch(
-        """select id, id_lead, passo, base, agendado_para, motivo from agentesia_followups
+        """select id, id_lead, passo, base, agendado_para, motivo, criado_em from agentesia_followups
            where id_agente = $1::uuid and situacao = 'pendente'""", id_agente)
     reprogramados = cancelados = 0
     for r in linhas:
@@ -174,12 +174,27 @@ async def reprogramar_do_agente(pool: asyncpg.Pool, id_agente: str, antes: dict[
                 await pool.execute("update agentesia_followups set situacao = 'cancelado', motivo = 'cadencia_alterada' "
                                    "where id = $1 and situacao = 'pendente'", r["id"])
                 cancelados += 1
-            elif r["passo"] != len(novo.passos):
-                await pool.execute("update agentesia_followups set passo = $2 where id = $1 and situacao = 'pendente'",
-                                   r["id"], len(novo.passos))
+                continue
+            # A desistência foi agendada logo depois do último toque (criado_em): segue o tempo e o horário novos
+            # (antes só o passo mudava e o "desistir após X h" novo não valia para quem já estava esperando).
+            quando = r["agendado_para"]
+            if r["motivo"] != "lead_pediu_para_esperar":
+                quando = regras.ajustar_ao_horario(r["criado_em"] + timedelta(hours=novo.desistir_apos_horas), novo,
+                                                   str(r["id_lead"]))
+                quando = max(quando, r["criado_em"] + timedelta(minutes=novo.intervalo_minimo_min))
+            if r["passo"] != len(novo.passos) or abs((quando - r["agendado_para"]).total_seconds()) >= 60:
+                await pool.execute("update agentesia_followups set passo = $2, agendado_para = $3 "
+                                   "where id = $1 and situacao = 'pendente'", r["id"], len(novo.passos), quando)
                 reprogramados += 1
             continue
         quando = regras.horario_do_passo(r["base"], r["passo"], novo, str(r["id_lead"]))
+        if quando is not None and 0 < r["passo"] < len(novo.passos):
+            # Toque do meio: a mesma folga do _proximo, contada do envio do toque anterior (criado_em): metade do
+            # espaço da cadência e o intervalo mínimo. Sem isso, encurtar a cadência mandava dois lembretes seguidos.
+            metade = (novo.passos[r["passo"]].apos_horas - novo.passos[r["passo"] - 1].apos_horas) / 2
+            quando = max(quando, regras.ajustar_ao_horario(r["criado_em"] + timedelta(hours=metade), novo,
+                                                           f"{r['id_lead']}:{r['passo']}"))
+            quando = max(quando, r["criado_em"] + timedelta(minutes=novo.intervalo_minimo_min))
         if quando is not None and r["motivo"] == "lead_pediu_para_esperar":
             continue                                        # o lead pediu para esperar: guarda o adiamento
         if quando is None:
