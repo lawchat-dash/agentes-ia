@@ -1,12 +1,12 @@
 /*
- * Relatórios › Dashboard, no desenho do dashboard comercial original: saudação, filtros, indicadores com curva, etapas,
- * funil + melhores anúncios, tempo até assinar + atendimento da IA, evolução por dia, origem + estados, horários,
- * agentes, leads por etapa e os cards do CRM.
+ * Relatórios › Dashboard, no desenho e na lógica do dashboard comercial original: filtros, indicadores com curva e
+ * cartões de etapa pelos CARDS do painel do CRM, funil + melhores anúncios, atendimento e custo da IA (pelos leads),
+ * tempo até assinar, evolução por dia, origem + estados, horários, agentes, leads por etapa e os cards do CRM.
  * Dados: GET /api/relatorios/dashboard (e /api/relatorios/campanhas para o ranking de anúncios).
  */
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RTooltip, XAxis } from "recharts";
 import {
   Activity, AlertTriangle, AreaChart as IconeArea, ArrowDownRight, ArrowUpRight, Award, BarChart3, Bot, CalendarDays, ChevronDown,
@@ -15,17 +15,27 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { enviar } from "../api";
-import { Carregando, useCarregar } from "../componentes/ui";
+import { useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
-  Abas, BarraFiltros, BotoesExportar, CARTAO, CartaoHorarios, Contador, DetalheDoAnuncio, Dica, FunilDegraus, Insight, MapaEstados,
-  ModalTodosAnuncios, Posicao, SeloAtualizado, Vazio, baixarCsv, exportarAnuncios, fmtBRL, fmtData, fmtHoras, fmtNum, fmtPct, fmtSegundos,
-  infoPlataforma, textoPeriodo, useFiltros, type Anuncio, type EtapaFunil,
+  Abas, BarraFiltros, BotoesExportar, CARTAO, CartaoHorarios, Cascata, Contador, DetalheDoAnuncio, Dica, EsqueletoRelatorio, FunilDegraus,
+  ITEM_CASCATA, Insight, MapaEstados, ModalTodosAnuncios, Posicao, Vazio, baixarCsv, exportarAnuncios, fmtBRL, fmtData, fmtHoras, fmtNum,
+  fmtPct, fmtSegundos, infoPlataforma, useAnimaGrafico, useFiltros, useFundoRelatorios, type Anuncio, type EtapaFunil,
 } from "./relatoriosComum";
 
+interface CardsCrm {
+  total: number; total_variacao: number | null; assinados: number; assinados_variacao: number | null;
+  conversao: number | null; conversao_anterior: number | null; eficiencia: number | null; avancaram: number;
+  qualificados: number; qualificados_pct: number | null; desqualificados: number; desqualificados_pct: number | null;
+  por_fase: { fase: string; nome: string; total: number; pct: number | null }[];
+  funil: EtapaFunil[]; modo: "criacao" | "atualizacao"; todo_periodo: boolean; filtros_do_card: boolean;
+}
+
 interface Dashboard {
+  base: "cards" | "leads";
+  cards: CardsCrm | null;
   periodo: { de: string; ate: string; dias: number };
   kpis: {
     leads: number; leads_variacao: number | null; assinados: number; assinados_variacao: number | null;
@@ -42,7 +52,7 @@ interface Dashboard {
   tempo_ate_assinar: { media_horas: number | null; mediana_horas: number | null; faixas: { faixa: string; total: number }[] };
   ia: { turnos: number; respondidos: number; sem_resposta: number; erros: number; trocas: number; taxa_erro: number | null;
         duracao_media_s: number | null; duracao_mediana_s: number | null };
-  serie: { dia: string; leads: number; assinados: number; respostas_ia: number; mensagens_lead: number; mensagens_equipe: number;
+  serie: { dia: string; cards?: number; leads: number; assinados: number; respostas_ia: number; mensagens_lead: number; mensagens_equipe: number;
            turnos: number; erros: number; custo_brl: number; tokens: number }[];
   agentes: { id_agente: string | null; nome: string; leads: number; qualificados: number; contratos: number; assinados: number;
              desqualificados: number; conversao: number | null }[];
@@ -58,32 +68,37 @@ interface Dashboard {
 }
 
 export function TelaRelatorioDashboard() {
-  const { escritorio, eu } = useSessao();
+  const { escritorio } = useSessao();
   const { filtros, mudar, consulta } = useFiltros();
   const dados = useCarregar<Dashboard>(escritorio ? `/relatorios/dashboard?${consulta}` : null, [escritorio, consulta]);
   const camp = useCarregar<{ anuncios: Anuncio[] }>(escritorio ? `/relatorios/campanhas?${consulta}` : null, [escritorio, consulta]);
   const [anuncioAberto, setAnuncioAberto] = useState<string | null>(null);
   const [pedindo, setPedindo] = useState(false);
+  useFundoRelatorios();
   const d = dados.dados;
+  // Cada resposta nova (outro filtro) remonta o conteúdo: os cartões entram de novo e os números contam do zero.
+  const chaveDados = useMemo(() => `${consulta}|${d?.gerado_em ?? ""}`, [d]); // eslint-disable-line react-hooks/exhaustive-deps
   const atualizar = () => { dados.recarregar(); camp.recarregar(); };
 
   const exportar = () => {
     if (!d) return;
-    const k = d.kpis;
+    const k = d.kpis, c = d.cards;
     baixarCsv(`dashboard-${d.periodo.de}-a-${d.periodo.ate}.csv`, ["Seção", "Item", "Valor"], [
-      ["Indicadores", "Leads", k.leads], ["Indicadores", "Contratos assinados", k.assinados],
-      ["Indicadores", "Taxa de conversão (%)", k.conversao], ["Indicadores", "Taxa de eficiência (%)", k.eficiencia],
-      ["Indicadores", "Leads qualificados", k.qualificados], ["Indicadores", "Desqualificados", k.desqualificados],
-      ["Indicadores", "Respostas da IA", k.respostas_ia], ["Indicadores", "Primeira resposta (s)", k.primeira_resposta_s],
-      ["Indicadores", "Custo da IA (R$)", k.custo_brl], ["Indicadores", "Custo por lead (R$)", k.custo_por_lead],
-      ["Indicadores", "Custo por contrato (R$)", k.custo_por_contrato],
-      ...d.funil.map((e) => ["Funil", e.nome, e.chegaram] as (string | number)[]),
+      ...(c ? [["Cards do CRM", "Cards totais", c.total], ["Cards do CRM", "Contratos assinados", c.assinados],
+               ["Cards do CRM", "Taxa de conversão (%)", c.conversao], ["Cards do CRM", "Taxa de eficiência (%)", c.eficiencia],
+               ["Cards do CRM", "% lead qualificado", c.qualificados_pct],
+               ...c.por_fase.map((f) => ["Cards por etapa", f.nome, f.total] as (string | number)[])] as (string | number | null)[][] : []),
+      ["Leads da IA", "Leads", k.leads], ["Leads da IA", "Contratos assinados", k.assinados],
+      ["Leads da IA", "Taxa de conversão (%)", k.conversao], ["Leads da IA", "Desqualificados", k.desqualificados],
+      ["IA", "Custo da IA (R$)", k.custo_brl], ["IA", "Custo por lead (R$)", k.custo_por_lead],
+      ["IA", "Custo por contrato (R$)", k.custo_por_contrato], ["IA", "Chamadas à IA", k.chamadas_ia],
+      ...(c?.funil ?? d.funil).map((e) => ["Funil", e.nome, e.chegaram] as (string | number)[]),
       ...d.agentes.map((a) => ["Agentes", a.nome, `${a.leads} leads, ${a.assinados} contratos`] as (string | number)[]),
       ...d.plataformas.map((p) => ["Origem", p.nome, p.leads] as (string | number)[]),
     ]);
     baixarCsv(`dashboard-por-dia-${d.periodo.de}-a-${d.periodo.ate}.csv`,
-      ["Dia", "Leads", "Contratos assinados", "Respostas da IA", "Mensagens dos leads", "Mensagens da equipe", "Respostas com erro", "Custo da IA (R$)"],
-      d.serie.map((s) => [s.dia, s.leads, s.assinados, s.respostas_ia, s.mensagens_lead, s.mensagens_equipe, s.erros, s.custo_brl]));
+      ["Dia", "Cards no CRM", "Leads", "Contratos assinados", "Mensagens dos leads", "Mensagens da equipe", "Respostas com erro", "Custo da IA (R$)"],
+      d.serie.map((s) => [s.dia, s.cards ?? 0, s.leads, s.assinados, s.mensagens_lead, s.mensagens_equipe, s.erros, s.custo_brl]));
   };
 
   const pedirImportacao = async () => {
@@ -99,37 +114,30 @@ export function TelaRelatorioDashboard() {
     }
   };
 
-  const hora = new Date().getHours();
-  const emoji = hora < 6 ? "🌙" : hora < 12 ? "☀️" : hora < 18 ? "👋" : "🌆";
-  const saudacao = hora < 6 ? "Boa madrugada" : hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
-  const nome = (eu?.nome || "").trim().split(/\s+/)[0] || "time";
-
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="rl-relatorio space-y-5 pb-4">
-        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-          className="flex flex-wrap items-center justify-between gap-4 pb-1">
-          <div>
-            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight text-foreground md:text-[26px]">
-              {saudacao}, {nome}! <span className="rl-aceno" aria-hidden>{emoji}</span>
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Aqui está o desempenho {filtros.de === filtros.ate ? "do dia" : "do período"}
-              <span className="ml-1.5 text-xs text-muted-foreground/60">· leads que entraram {textoPeriodo(filtros.de, filtros.ate)}</span>
-            </p>
-          </div>
-          <SeloAtualizado data={d?.gerado_em} aoAtualizar={atualizar} atualizando={dados.carregando} />
-        </motion.div>
+    <MotionConfig reducedMotion="user">
+      <TooltipProvider delayDuration={150}>
+        <div className="rl-relatorio space-y-5 pb-4">
+          <BarraFiltros id="dashboard" filtros={filtros} mudar={mudar} aoAtualizar={atualizar} atualizando={dados.carregando}
+            gerado={d?.gerado_em} campos={["modo", "campanha", "painel", "etapa", "responsavel", "numero", "origem", "tags"]} />
 
-        <BarraFiltros id="dashboard" filtros={filtros} mudar={mudar} aoAtualizar={atualizar} atualizando={dados.carregando} />
-
-        {!d ? <Carregando erro={dados.erro} /> : (
-          <Conteudo d={d} anuncios={camp.dados?.anuncios ?? null} abrirAnuncio={setAnuncioAberto} pedirImportacao={pedirImportacao}
-            pedindo={pedindo} filtrando={Boolean(filtros.agente || filtros.campanha || filtros.fonte)} exportar={exportar} />
-        )}
-        <DetalheDoAnuncio chave={anuncioAberto} consulta={consulta} aoFechar={() => setAnuncioAberto(null)} />
-      </div>
-    </TooltipProvider>
+          <AnimatePresence mode="wait" initial={false}>
+            {!d ? (
+              <motion.div key="esqueleto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                <EsqueletoRelatorio erro={dados.erro} />
+              </motion.div>
+            ) : (
+              <motion.div key={chaveDados} initial={{ opacity: 0.6 }} animate={{ opacity: 1 }} exit={{ opacity: 0.6 }} transition={{ duration: 0.25 }}
+                className={cn("transition-opacity", dados.carregando && "opacity-80")}>
+                <Conteudo d={d} anuncios={camp.dados?.anuncios ?? null} abrirAnuncio={setAnuncioAberto} pedirImportacao={pedirImportacao}
+                  pedindo={pedindo} filtrando={Boolean(filtros.agente || filtros.campanha || filtros.fonte)} exportar={exportar} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <DetalheDoAnuncio chave={anuncioAberto} consulta={consulta} aoFechar={() => setAnuncioAberto(null)} />
+        </div>
+      </TooltipProvider>
+    </MotionConfig>
   );
 }
 
@@ -144,43 +152,47 @@ const CURVAS = {
 };
 
 interface Indicador {
-  rotulo: string; valor: number | null; tipo?: "num" | "pct" | "brl" | "seg"; sub: string; dica: string; icone: typeof Users;
-  fundo: string; fundoIcone: string; corIcone: string; traco: string; grad: [string, string]; curva: string; corValor?: string;
-  variacao?: number | null; inverter?: boolean;
+  rotulo: string; valor: number | null; tipo?: "num" | "pct" | "brl"; sub: string; dica: string; icone: typeof Users;
+  cor: [string, string]; curva: string; corValor?: boolean; variacao?: number | null; inverter?: boolean; destaque?: boolean;
 }
 
 function ValorIndicador({ i }: { i: Indicador }) {
   if (i.valor == null) return <>–</>;
   if (i.tipo === "pct") return <Contador valor={i.valor} casas={1} sufixo="%" />;
   if (i.tipo === "brl") return <Contador valor={i.valor} casas={2} prefixo="R$ " />;
-  if (i.tipo === "seg") return <>{fmtSegundos(i.valor)}</>;
   return <Contador valor={i.valor} />;
 }
 
 function CartaoIndicador({ i, n }: { i: Indicador; n: number }) {
   const gid = `rl-kpi-${n}`;
+  const [claro, forte] = i.cor;
   const subiu = i.variacao != null && i.variacao > 0;
   const bom = i.variacao == null || i.variacao === 0 ? null : i.inverter ? !subiu : subiu;
   return (
-    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: n * 0.06, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-      className={cn("group relative overflow-hidden rounded-2xl border border-border/50 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md", i.fundo)}>
+    <motion.div variants={ITEM_CASCATA} whileHover={{ y: -4 }} transition={{ type: "spring", stiffness: 300, damping: 22 }}
+      className={cn("rl-kpi group relative overflow-hidden rounded-2xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_28px_-16px_rgba(15,23,42,0.22)] hover:shadow-[0_18px_40px_-18px_var(--rl-sombra)]",
+        i.destaque ? "border-transparent ring-2" : "border-white")}
+      style={{ background: `linear-gradient(160deg, ${claro}3d 0%, ${claro}14 42%, #ffffff 78%)`, ["--rl-sombra" as string]: `${forte}66`,
+               ...(i.destaque ? { ["--tw-ring-color" as string]: `${forte}55` } : {}) }}>
+      <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${claro}, ${forte})` }} />
       <div className="relative flex items-start justify-between gap-2 px-5 pb-2 pt-5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="text-[11px] font-semibold text-foreground/80 md:text-xs">{i.rotulo}</span>
+          <span className="text-[11px] font-semibold text-slate-700 md:text-xs">{i.rotulo}</span>
           <Dica texto={i.dica} />
         </div>
-        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110", i.fundoIcone)}>
-          <i.icone className={cn("h-[18px] w-[18px]", i.corIcone)} />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white transition-transform duration-300 group-hover:rotate-[-6deg] group-hover:scale-110"
+          style={{ background: `linear-gradient(135deg, ${claro}, ${forte})`, boxShadow: `0 8px 16px -8px ${forte}` }}>
+          <i.icone className="h-[18px] w-[18px]" />
         </div>
       </div>
       <div className="relative px-5">
-        <div className={cn("text-3xl font-bold leading-none tracking-tight tabular-nums md:text-[34px]", i.corValor ?? "text-foreground")}>
+        <div className="text-3xl font-extrabold leading-none tracking-tight tabular-nums md:text-[34px]" style={{ color: i.corValor ? forte : "#0f172a" }}>
           <ValorIndicador i={i} />
         </div>
-        <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
           {i.variacao != null && (
-            <span className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-              bom === null ? "bg-muted text-muted-foreground" : bom ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-500")}
+            <span className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+              bom === null ? "bg-slate-100 text-slate-500" : bom ? "bg-emerald-500/15 text-emerald-700" : "bg-red-500/15 text-red-600")}
               title="Em relação ao período anterior do mesmo tamanho">
               {subiu ? <ArrowUpRight className="h-3 w-3" /> : i.variacao < 0 ? <ArrowDownRight className="h-3 w-3" /> : null}
               {i.variacao > 0 ? "+" : ""}{i.variacao}%
@@ -193,77 +205,88 @@ function CartaoIndicador({ i, n }: { i: Indicador; n: number }) {
         <svg className="absolute inset-0 h-full w-full" viewBox="0 0 320 80" preserveAspectRatio="none" fill="none">
           <defs>
             <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={i.grad[0]} stopOpacity="0.35" /><stop offset="100%" stopColor={i.grad[1]} stopOpacity="0" />
+              <stop offset="0%" stopColor={forte} stopOpacity="0.42" /><stop offset="100%" stopColor={claro} stopOpacity="0.02" />
             </linearGradient>
           </defs>
-          <path d={`${i.curva} L320,80 L0,80 Z`} fill={`url(#${gid})`} />
-          <path d={i.curva} stroke={i.traco} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <motion.path d={`${i.curva} L320,80 L0,80 Z`} fill={`url(#${gid})`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            transition={{ delay: 0.35 + n * 0.06, duration: 0.8 }} />
+          <motion.path d={i.curva} stroke={forte} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none"
+            initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ delay: 0.2 + n * 0.06, duration: 1.1, ease: [0.65, 0, 0.35, 1] }} />
         </svg>
       </div>
     </motion.div>
   );
 }
 
-// Etapas: ponto + tom pastel + cor da mini-curva (como no original)
-const ESTILO_FASE: Record<string, { ponto: string; tint: string; dica: string; corValor?: string }> = {
-  sdr: { ponto: "#3b82f6", tint: "from-blue-50/70", dica: "Leads na fase inicial de qualificação." },
-  closer: { ponto: "#06b6d4", tint: "from-cyan-50/70", dica: "Leads qualificados sendo atendidos pelo closer." },
-  analise: { ponto: "#a855f7", tint: "from-purple-50/70", dica: "Leads em análise da equipe." },
-  contratos: { ponto: "#f59e0b", tint: "from-amber-50/70", dica: "Leads na coleta de dados e confecção do contrato." },
-  assinatura: { ponto: "#16a34a", tint: "from-green-50/70", dica: "Leads aguardando a assinatura do contrato." },
-  assinado: { ponto: "#15bf41", tint: "from-emerald-50/70", dica: "Leads que assinaram o contrato.", corValor: "text-emerald-600" },
-  desqualificado: { ponto: "#ef4444", tint: "from-rose-50/70", dica: "Leads que não se encaixaram no perfil." },
-  nao_assinou: { ponto: "#ec4899", tint: "from-pink-50/70", dica: "Leads que tiveram contrato mas não assinaram." },
-  outra: { ponto: "#94a3b8", tint: "from-slate-50/70", dica: "Leads em colunas que não são do funil." },
-  sem_etapa: { ponto: "#cbd5e1", tint: "from-slate-50/70", dica: "Leads ainda sem etapa." },
+// Etapas: cor viva de cada fase (mesma do funil e do filtro de etapa)
+const ESTILO_FASE: Record<string, { ponto: string; claro: string; dica: string; corValor?: boolean }> = {
+  sdr: { ponto: "#2563eb", claro: "#60a5fa", dica: "Na fase inicial de qualificação." },
+  closer: { ponto: "#0891b2", claro: "#22d3ee", dica: "Qualificados, sendo atendidos pelo closer." },
+  analise: { ponto: "#7c3aed", claro: "#a78bfa", dica: "Em análise manual da equipe." },
+  contratos: { ponto: "#ea580c", claro: "#fb923c", dica: "Na coleta de dados e confecção do contrato." },
+  assinatura: { ponto: "#16a34a", claro: "#4ade80", dica: "Aguardando a assinatura do contrato." },
+  assinado: { ponto: "#ca8a04", claro: "#facc15", dica: "Assinaram o contrato.", corValor: true },
+  desqualificado: { ponto: "#dc2626", claro: "#f87171", dica: "Não se encaixaram no perfil.", corValor: true },
+  nao_assinou: { ponto: "#db2777", claro: "#f472b6", dica: "Tiveram contrato mas não assinaram." },
+  outra: { ponto: "#64748b", claro: "#94a3b8", dica: "Em colunas que não são do funil." },
+  sem_etapa: { ponto: "#94a3b8", claro: "#cbd5e1", dica: "Ainda sem etapa." },
 };
 const ORDEM_FASES = ["sdr", "closer", "analise", "contratos", "assinatura", "assinado", "desqualificado", "nao_assinou"];
 const NOME_FASE: Record<string, string> = {
-  sdr: "SDR", closer: "Closer", analise: "Análise da equipe", contratos: "Contratos", assinatura: "Assinatura",
-  assinado: "Contrato assinado", desqualificado: "Desqualificado", nao_assinou: "Não assinou", outra: "Outra etapa", sem_etapa: "Sem etapa",
+  sdr: "SDR", closer: "Closer", analise: "Análise Manual", contratos: "Confecção de Contrato", assinatura: "Aguardando Assinatura",
+  assinado: "Contrato Assinado", desqualificado: "Desqualificado", nao_assinou: "Não Assinou", outra: "Outra etapa", sem_etapa: "Sem etapa",
 };
 const MINI_CURVA = "M2,20 C12,18 20,14 30,10 C38,7 48,5 58,3";
 
 function Etapas({ d }: { d: Dashboard }) {
-  const contagem = new Map(d.por_fase.map((f) => [f.fase, f]));
-  const fases = [...ORDEM_FASES, ...d.por_fase.map((f) => f.fase).filter((f) => !ORDEM_FASES.includes(f) && (contagem.get(f)?.leads ?? 0) > 0)];
-  const total = d.kpis.leads;
+  // Pelos cards do CRM (como o original); conta sem cards: pelos leads da IA.
+  const lista = d.cards ? d.cards.por_fase.map((f) => ({ fase: f.fase, leads: f.total }))
+    : d.por_fase.map((f) => ({ fase: f.fase, leads: f.leads }));
+  const contagem = new Map(lista.map((f) => [f.fase, f.leads]));
+  const fases = [...ORDEM_FASES, ...lista.map((f) => f.fase).filter((f) => !ORDEM_FASES.includes(f) && (contagem.get(f) ?? 0) > 0)];
+  const total = d.cards ? d.cards.total : d.kpis.leads;
+  const unidade = d.cards ? "cards" : "leads";
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
-      {fases.map((fase, i) => {
+    <Cascata className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8" atraso={0.25} passo={0.05}>
+      {fases.map((fase) => {
         const s = ESTILO_FASE[fase] ?? ESTILO_FASE.outra;
-        const n = contagem.get(fase)?.leads ?? 0;
+        const n = contagem.get(fase) ?? 0;
         const gid = `rl-mini-${fase}`;
         return (
-          <motion.div key={fase} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            className={cn("group relative overflow-hidden rounded-xl border border-border/50 bg-card bg-gradient-to-br to-transparent transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm", s.tint)}>
+          <motion.div key={fase} variants={ITEM_CASCATA} whileHover={{ y: -3 }}
+            className="group relative overflow-hidden rounded-xl border border-white bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-14px_rgba(15,23,42,0.25)] transition-shadow hover:shadow-[0_14px_30px_-16px_var(--rl-sombra)]"
+            style={{ background: `linear-gradient(150deg, ${s.claro}33 0%, ${s.claro}10 45%, #fff 85%)`, ["--rl-sombra" as string]: `${s.ponto}77` }}>
+            <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: `linear-gradient(180deg, ${s.claro}, ${s.ponto})` }} />
             <div className="px-4 py-3.5">
               <div className="mb-2.5 flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: s.ponto }} />
-                <span className="truncate text-[11px] font-medium text-foreground/75">{contagem.get(fase)?.nome ?? NOME_FASE[fase] ?? fase}</span>
-                <Dica texto={s.dica} tamanho="h-2.5 w-2.5" />
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="rl-pulso absolute inline-flex h-full w-full rounded-full opacity-60" style={{ backgroundColor: s.ponto }} />
+                  <span className="relative h-2 w-2 rounded-full" style={{ backgroundColor: s.ponto }} />
+                </span>
+                <span className="line-clamp-2 text-[11px] font-semibold leading-tight text-slate-700">{NOME_FASE[fase] ?? fase}</span>
+                <Dica texto={`${s.dica} (${unidade})`} tamanho="h-2.5 w-2.5" />
               </div>
               <div className="flex items-end justify-between gap-2">
                 <div className="min-w-0">
-                  <div className={cn("text-2xl font-bold leading-none tracking-tight tabular-nums", s.corValor ?? "text-foreground")}><Contador valor={n} duracao={900} /></div>
-                  <p className="mt-1.5 text-[10.5px] text-muted-foreground">{fmtPct(total ? (n / total) * 100 : 0)} do total</p>
+                  <div className="text-2xl font-extrabold leading-none tracking-tight tabular-nums" style={{ color: s.corValor ? s.ponto : "#0f172a" }}><Contador valor={n} /></div>
+                  <p className="mt-1.5 text-[10.5px] font-medium" style={{ color: s.ponto }}>{fmtPct(total ? (n / total) * 100 : 0)} <span className="text-slate-500">do total</span></p>
                 </div>
-                <svg className="h-5 w-[52px] shrink-0 transition-transform duration-300 group-hover:scale-110" viewBox="0 0 60 24" fill="none" preserveAspectRatio="none" aria-hidden>
+                <svg className="h-6 w-[56px] shrink-0 transition-transform duration-300 group-hover:scale-110" viewBox="0 0 60 24" fill="none" preserveAspectRatio="none" aria-hidden>
                   <defs>
                     <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={s.ponto} stopOpacity="0.25" /><stop offset="100%" stopColor={s.ponto} stopOpacity="0" />
+                      <stop offset="0%" stopColor={s.ponto} stopOpacity="0.45" /><stop offset="100%" stopColor={s.ponto} stopOpacity="0" />
                     </linearGradient>
                   </defs>
                   <path d={`${MINI_CURVA} L58,24 L2,24 Z`} fill={`url(#${gid})`} />
-                  <motion.path d={MINI_CURVA} stroke={s.ponto} strokeWidth={1.8} strokeLinecap="round" fill="none"
-                    initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ delay: i * 0.04 + 0.25, duration: 0.7, ease: "easeInOut" }} />
+                  <motion.path d={MINI_CURVA} stroke={s.ponto} strokeWidth={2.2} strokeLinecap="round" fill="none"
+                    initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ delay: 0.5, duration: 0.8, ease: "easeInOut" }} />
                 </svg>
               </div>
             </div>
           </motion.div>
         );
       })}
-    </div>
+    </Cascata>
   );
 }
 
@@ -472,13 +495,14 @@ function TempoAteAssinar({ d }: { d: Dashboard }) {
         {!n ? <p className="py-6 text-center text-xs text-muted-foreground">Sem contratos assinados entre os leads do período.</p> : (
           <div className="flex flex-1 flex-wrap items-center justify-center gap-6">
             <div className="relative mx-auto h-[150px] w-[150px] shrink-0">
-              <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+              <motion.svg viewBox="0 0 120 120" className="h-full w-full" initial={{ rotate: -180, scale: 0.85, opacity: 0 }} animate={{ rotate: -90, scale: 1, opacity: 1 }}
+                transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}>
                 {segs.map((s, i) => (
                   <motion.circle key={s.faixa} cx={60} cy={60} r={R} fill="none" stroke={s.cor} strokeWidth={12}
                     strokeDasharray={`${s.seg} ${C}`} transform={`rotate(${s.rot} 60 60)`}
                     initial={{ strokeDashoffset: s.seg }} animate={{ strokeDashoffset: 0 }} transition={{ duration: 0.9, delay: 0.2 + i * 0.1, ease: "easeOut" }} />
                 ))}
-              </svg>
+              </motion.svg>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-xl font-bold leading-none text-foreground"><Contador valor={n} /></span>
                 <span className="text-[10px] text-muted-foreground">contratos</span>
@@ -509,6 +533,7 @@ function TempoAteAssinar({ d }: { d: Dashboard }) {
 // --------------------------------------------------------------------------- atendimento da IA (no lugar da "Meta de Vendas")
 function AtendimentoIA({ d }: { d: Dashboard }) {
   const ia = d.ia, k = d.kpis;
+  const anima = useAnimaGrafico(1000);
   const pct = ia.turnos ? (ia.respondidos / ia.turnos) * 100 : 0;
   const cor = (ia.taxa_erro ?? 0) > 5 ? "#ef4444" : (ia.taxa_erro ?? 0) > 1 ? "#f59e0b" : "#16a34a";
   const metricas = [
@@ -532,11 +557,11 @@ function AtendimentoIA({ d }: { d: Dashboard }) {
       </div>
       <div className="relative mt-4 flex items-end justify-between gap-3">
         <div>
-          <span className="text-4xl font-bold leading-none tracking-tight text-foreground"><Contador valor={k.respostas_ia} duracao={900} /></span>
-          <p className="mt-1 text-xs text-muted-foreground">respostas da IA</p>
+          <span className="text-4xl font-extrabold leading-none tracking-tight text-foreground"><Contador valor={ia.turnos} /></span>
+          <p className="mt-1 text-xs text-muted-foreground">atendimentos da IA</p>
         </div>
         <div className="text-right">
-          <p className="text-sm text-muted-foreground">em {fmtNum(ia.turnos)} atendimentos</p>
+          <p className="text-sm text-muted-foreground">{fmtNum(ia.respondidos)} com resposta</p>
           <span className="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
             {fmtPct(pct, 0)} respondidos
           </span>
@@ -548,8 +573,8 @@ function AtendimentoIA({ d }: { d: Dashboard }) {
             initial={{ width: 0 }} animate={{ width: `${Math.min(100, pct)}%` }} transition={{ duration: 1, ease: "easeOut" }} />
         </div>
         <div className="mt-1.5 flex justify-between text-[10px] tabular-nums text-muted-foreground">
-          <span>Primeira resposta: <b className="text-foreground">{fmtSegundos(k.primeira_resposta_s)}</b></span>
-          <span>Tempo para responder: <b className="text-foreground">{fmtSegundos(ia.duracao_media_s)}</b></span>
+          <span>Mediana para responder: <b className="text-foreground">{fmtSegundos(ia.duracao_mediana_s)}</b></span>
+          <span>Tempo médio para responder: <b className="text-foreground">{fmtSegundos(ia.duracao_media_s)}</b></span>
         </div>
       </div>
       <div className="relative mt-5 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
@@ -575,12 +600,15 @@ function AtendimentoIA({ d }: { d: Dashboard }) {
         </div>
         <div style={{ height: 150 }}>
           <ResponsiveContainer>
-            <BarChart data={d.serie} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+            <BarChart data={d.serie} margin={{ top: 4, right: 0, left: 0, bottom: 0 }} barCategoryGap="18%">
               <XAxis dataKey="dia" tickFormatter={(v: string) => `${v.slice(8, 10)}/${v.slice(5, 7)}`} tick={{ fontSize: 8, fill: "hsl(var(--muted-foreground))" }}
                 axisLine={false} tickLine={false} minTickGap={16} />
               <RTooltip cursor={{ fill: "hsl(var(--muted))" }} labelFormatter={(v) => fmtData(String(v) + "T12:00:00")} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Bar dataKey="turnos" name="Atendimentos" stackId="a" fill="#16a34a" />
-              <Bar dataKey="erros" name="Com erro" stackId="a" fill="#ef4444" radius={[3, 3, 0, 0]} />
+              <defs>
+                <linearGradient id="rl-ia-barra" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#34d399" /><stop offset="100%" stopColor="#059669" /></linearGradient>
+              </defs>
+              <Bar dataKey="turnos" name="Respondidos" stackId="a" fill="url(#rl-ia-barra)" {...anima} />
+              <Bar dataKey="erros" name="Com erro" stackId="a" fill="#ef4444" radius={[3, 3, 0, 0]} {...anima} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -597,11 +625,11 @@ function AtendimentoIA({ d }: { d: Dashboard }) {
 }
 
 // --------------------------------------------------------------------------- evolução por dia
-type SerieChave = "leads" | "assinados" | "respostas_ia" | "custo_brl";
+type SerieChave = "cards" | "leads" | "assinados" | "custo_brl";
 const SERIES: { valor: SerieChave; rotulo: string; unidade: string; cor: string }[] = [
+  { valor: "cards", rotulo: "Cards no CRM", unidade: "cards", cor: "#2563eb" },
   { valor: "leads", rotulo: "Novos leads", unidade: "leads", cor: "#15BF41" },
   { valor: "assinados", rotulo: "Contratos", unidade: "contratos", cor: "#8b5cf6" },
-  { valor: "respostas_ia", rotulo: "Respostas da IA", unidade: "respostas", cor: "#3b82f6" },
   { valor: "custo_brl", rotulo: "Custo da IA", unidade: "", cor: "#f59e0b" },
 ];
 const FAIXAS = [{ valor: "7", rotulo: "7 dias" }, { valor: "30", rotulo: "30 dias" }, { valor: "90", rotulo: "90 dias" }, { valor: "tudo", rotulo: "Tudo" }] as const;
@@ -616,10 +644,11 @@ const longa = (dia: string) => fmtData(dia + "T12:00:00");
 function Evolucao({ d }: { d: Dashboard }) {
   const [faixa, setFaixa] = useState<Faixa>("tudo");
   const [tipo, setTipo] = useState<"area" | "linha">("area");
-  const [chave, setChave] = useState<SerieChave>("leads");
+  const [chave, setChave] = useState<SerieChave>(d.cards ? "cards" : "leads");
+  const series = d.cards ? SERIES : SERIES.filter((x) => x.valor !== "cards");
   const [sobre, setSobre] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const conf = SERIES.find((s) => s.valor === chave)!;
+  const conf = series.find((s) => s.valor === chave) ?? series[0];
   const brl = chave === "custo_brl";
   const fmtV = (v: number) => (brl ? fmtBRL(v) : fmtNum(v));
   const k = d.kpis;
@@ -639,13 +668,13 @@ function Evolucao({ d }: { d: Dashboard }) {
     let anterior: number | null = null;
     if (faixa !== "tudo" && tudo.length >= 2 * n) anterior = tudo.slice(-2 * n, -n).reduce((s, p) => s + p.v, 0);
     else if (faixa === "tudo" || n === tudo.length) {
-      const varia = chave === "leads" ? k.leads_variacao : chave === "assinados" ? k.assinados_variacao : chave === "custo_brl" ? k.custo_variacao : null;
+      const varia = chave === "cards" ? d.cards?.total_variacao ?? null : chave === "leads" ? k.leads_variacao : chave === "assinados" ? k.assinados_variacao : chave === "custo_brl" ? k.custo_variacao : null;
       if (varia != null && varia > -100) anterior = total / (1 + varia / 100);
     }
     const crescimento = anterior ? ((total - anterior) / anterior) * 100 : null;
     const top = [...pontos].sort((a, b) => b.v - a.v).slice(0, 5).filter((p) => p.v > 0);
     return { pontos, total, porDia, melhor, ma, tendencia, anterior, crescimento, top, n, previsao: fim * 7 };
-  }, [d.serie, chave, faixa, k]);
+  }, [d.serie, d.cards, chave, faixa, k]);
 
   const grafico = useMemo(() => {
     const W = 1000, H = 300, pL = 46, pR = 16, pT = 16, pB = 28;
@@ -701,8 +730,8 @@ function Evolucao({ d }: { d: Dashboard }) {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {kpis.map((c, i) => (
-          <motion.div key={c.rotulo} initial={{ opacity: 0, y: 14, filter: "blur(6px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            transition={{ delay: i * 0.06, duration: 0.5 }} whileHover={{ y: -3 }} className={cn(CARTAO, "overflow-hidden p-4")}>
+          <motion.div key={`${chave}-${faixa}-${c.rotulo}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.06, duration: 0.5, ease: [0.16, 1, 0.3, 1] }} whileHover={{ y: -3 }} className={cn(CARTAO, "overflow-hidden p-4")}>
             <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl" style={{ background: c.brilho }} />
             <div className="relative">
               <div className="mb-2 flex items-center justify-between">
@@ -724,7 +753,7 @@ function Evolucao({ d }: { d: Dashboard }) {
             <p className="text-[11px] text-muted-foreground">Por dia · linha tracejada = média móvel de 7 dias</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 print:hidden">
-            <Abas valor={chave} aoMudar={(v) => { setChave(v); setSobre(null); }} opcoes={SERIES.map((s) => ({ valor: s.valor, rotulo: s.rotulo }))} />
+            <Abas valor={chave} aoMudar={(v) => { setChave(v); setSobre(null); }} opcoes={series.map((s) => ({ valor: s.valor, rotulo: s.rotulo }))} />
             <Abas valor={tipo} aoMudar={setTipo} opcoes={[
               { valor: "linha", rotulo: <><IconeLinha className="h-3.5 w-3.5" /> Linha</> }, { valor: "area", rotulo: <><IconeArea className="h-3.5 w-3.5" /> Área</> }]} />
           </div>
@@ -803,7 +832,8 @@ function Evolucao({ d }: { d: Dashboard }) {
           <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground"><Sun className="h-4 w-4 text-amber-500" /> Novos leads por período do dia</h3>
           <div className="flex flex-wrap items-center gap-5">
             <div className="relative mx-auto h-[150px] w-[150px] shrink-0">
-              <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+              <motion.svg viewBox="0 0 120 120" className="h-full w-full" initial={{ rotate: -180, scale: 0.85, opacity: 0 }} animate={{ rotate: -90, scale: 1, opacity: 1 }}
+                transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}>
                 {(() => {
                   const R = 46, C = 2 * Math.PI * R;
                   let acum = 0;
@@ -814,7 +844,7 @@ function Evolucao({ d }: { d: Dashboard }) {
                       transform={`rotate(${rot} 60 60)`} initial={{ strokeDashoffset: seg }} animate={{ strokeDashoffset: 0 }} transition={{ duration: 0.9, delay: 0.2 + i * 0.1, ease: "easeOut" }} />;
                   });
                 })()}
-              </svg>
+              </motion.svg>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-xl font-bold leading-none text-foreground"><Contador valor={partes.reduce((s, x) => s + x.n, 0)} /></span>
                 <span className="text-[10px] text-muted-foreground">leads</span>
@@ -936,6 +966,7 @@ const COR_PLATAFORMA: Record<string, string> = {
 };
 
 function OrigemLeads({ d }: { d: Dashboard }) {
+  const anima = useAnimaGrafico(1300);
   const dados = d.plataformas.map((p) => ({ ...p, cor: COR_PLATAFORMA[p.plataforma] ?? "hsl(220, 10%, 70%)" }));
   const total = dados.reduce((s, p) => s + p.leads, 0);
   const topo = [...dados].filter((p) => p.plataforma !== "direto").sort((a, b) => b.leads - a.leads)[0] ?? dados[0];
@@ -952,7 +983,8 @@ function OrigemLeads({ d }: { d: Dashboard }) {
             <div className="relative h-56 w-56 flex-shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={dados} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={3} dataKey="leads" nameKey="nome" strokeWidth={0}>
+                  <Pie data={dados} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={3} dataKey="leads" nameKey="nome" strokeWidth={0}
+                    startAngle={90} endAngle={-270} {...anima}>
                     {dados.map((p) => <Cell key={p.plataforma} fill={p.cor} />)}
                   </Pie>
                   <RTooltip formatter={(v: number, n: string) => [`${fmtNum(v)} leads`, n]} contentStyle={{ borderRadius: 8, fontSize: 13 }} />
@@ -1025,7 +1057,8 @@ function Agentes({ d }: { d: Dashboard }) {
                   <td className="py-2.5 pr-3">
                     {a.id_agente ? <Link to={`/agentes/${a.id_agente}`} className="font-medium text-foreground hover:text-primary">{a.nome}</Link> : <span className="font-medium text-foreground">{a.nome}</span>}
                     <div className="mt-1 h-1.5 w-full max-w-[220px] overflow-hidden rounded-full bg-muted/60">
-                      <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-purple-500" style={{ width: `${(a.leads / max) * 100}%` }} />
+                      <motion.div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-purple-600" initial={{ width: 0 }}
+                        whileInView={{ width: `${(a.leads / max) * 100}%` }} viewport={{ once: true }} transition={{ duration: 0.9, ease: "easeOut" }} />
                     </div>
                   </td>
                   <td className="py-2.5 text-right font-medium tabular-nums text-foreground">{fmtNum(a.leads)}</td>
@@ -1203,50 +1236,65 @@ function Conteudo({ d, anuncios, abrirAnuncio, pedirImportacao, pedindo, filtran
   d: Dashboard; anuncios: Anuncio[] | null; abrirAnuncio: (c: string) => void; pedirImportacao: () => void; pedindo: boolean;
   filtrando: boolean; exportar: () => void;
 }) {
-  const k = d.kpis;
-  const linha1: Indicador[] = [
-    { rotulo: "Leads no período", valor: k.leads, sub: `${fmtNum(k.com_origem)} de anúncio ou UTM`, dica: "Leads que entraram no período (primeiro contato).", icone: Users,
-      fundo: "bg-blue-50/70", fundoIcone: "bg-blue-100", corIcone: "text-blue-600", traco: "#60a5fa", grad: ["#93c5fd", "#3b82f6"], curva: CURVAS.sobe, variacao: k.leads_variacao },
+  const k = d.kpis, c = d.cards;
+  const modo = c?.modo === "atualizacao" ? "atualizados" : "criados";
+  // Linha 1: pelos cards do CRM (como o original); conta sem cards espelhados: pelos leads da IA.
+  const linha1: Indicador[] = c ? [
+    { rotulo: "Cards Totais (no painel)", valor: c.total, sub: c.todo_periodo ? "todo o período" : `${modo} no período`,
+      dica: "Cards do painel do CRM (todos os painéis da conta, sem os arquivados), pela data escolhida em Modo.", icone: Layers,
+      cor: ["#60a5fa", "#2563eb"], curva: CURVAS.sobe, variacao: c.total_variacao },
+    { rotulo: "Contratos Assinados", valor: c.assinados, sub: "cards em contrato assinado", dica: "Cards que estão numa coluna de contrato assinado.", icone: Trophy,
+      cor: ["#4ade80", "#16a34a"], curva: CURVAS.arco, corValor: true, variacao: c.assinados_variacao, destaque: true },
+    { rotulo: "Taxa de Conversão", valor: c.conversao ?? 0, tipo: "pct", sub: c.conversao_anterior != null ? `Total → Fechado (antes ${fmtPct(c.conversao_anterior)})` : "Total → Fechado",
+      dica: "Cards em contrato assinado ÷ cards totais.", icone: TrendingUp, cor: ["#a78bfa", "#7c3aed"], curva: CURVAS.onda },
+    { rotulo: "Taxa de Eficiência", valor: c.eficiencia ?? 0, tipo: "pct", sub: "Assinados / Avançaram do SDR",
+      dica: `Cards assinados ÷ cards que passaram do SDR (${fmtNum(c.avancaram)}: todas as etapas menos SDR, Desqualificado e colunas fora do funil).`,
+      icone: Target, cor: ["#22d3ee", "#0891b2"], curva: CURVAS.suave },
+    { rotulo: "% Lead Qualificado", valor: c.qualificados_pct ?? 0, tipo: "pct", sub: `${fmtNum(c.qualificados)} qualificados`,
+      dica: "Cards em Closer, Análise Manual, Confecção de Contrato, Aguardando Assinatura ou Contrato Assinado ÷ cards totais.",
+      icone: UserCheck, cor: ["#fbbf24", "#d97706"], curva: CURVAS.firme },
+  ] : [
+    { rotulo: "Leads no período", valor: k.leads, sub: `${fmtNum(k.com_origem)} de anúncio ou UTM`, dica: "Leads que entraram no período (primeiro contato). Esta conta ainda não tem cards do CRM conferidos.", icone: Users,
+      cor: ["#60a5fa", "#2563eb"], curva: CURVAS.sobe, variacao: k.leads_variacao },
     { rotulo: "Contratos Assinados", valor: k.assinados, sub: "contratos assinados", dica: "Leads do período que já assinaram o contrato.", icone: Trophy,
-      fundo: "bg-emerald-50/70", fundoIcone: "bg-emerald-100", corIcone: "text-emerald-600", traco: "#15bf41", grad: ["#86efac", "#15bf41"], curva: CURVAS.arco,
-      corValor: "text-emerald-600", variacao: k.assinados_variacao },
+      cor: ["#4ade80", "#16a34a"], curva: CURVAS.arco, corValor: true, variacao: k.assinados_variacao, destaque: true },
     { rotulo: "Taxa de Conversão", valor: k.conversao ?? 0, tipo: "pct", sub: k.conversao_anterior != null ? `Total → Assinado (antes ${fmtPct(k.conversao_anterior)})` : "Total → Assinado",
-      dica: "Contratos assinados ÷ leads do período.", icone: TrendingUp,
-      fundo: "bg-violet-50/70", fundoIcone: "bg-violet-100", corIcone: "text-violet-600", traco: "#8b5cf6", grad: ["#c4b5fd", "#7c3aed"], curva: CURVAS.onda },
+      dica: "Contratos assinados ÷ leads do período.", icone: TrendingUp, cor: ["#a78bfa", "#7c3aed"], curva: CURVAS.onda },
     { rotulo: "Taxa de Eficiência", valor: k.eficiencia ?? 0, tipo: "pct", sub: "Assinados / Avançaram do SDR", dica: "Contratos assinados ÷ leads que passaram do SDR (sem os desqualificados).", icone: Target,
-      fundo: "bg-cyan-50/70", fundoIcone: "bg-cyan-100", corIcone: "text-cyan-600", traco: "#06b6d4", grad: ["#a5f3fc", "#0891b2"], curva: CURVAS.suave },
+      cor: ["#22d3ee", "#0891b2"], curva: CURVAS.suave },
     { rotulo: "% Lead Qualificado", valor: k.qualificados_pct ?? 0, tipo: "pct", sub: `${fmtNum(k.qualificados)} qualificados`, dica: "Leads que chegaram ao Closer ou além ÷ leads do período.", icone: UserCheck,
-      fundo: "bg-amber-50/70", fundoIcone: "bg-amber-100", corIcone: "text-amber-600", traco: "#f59e0b", grad: ["#fde68a", "#d97706"], curva: CURVAS.firme },
+      cor: ["#fbbf24", "#d97706"], curva: CURVAS.firme },
   ];
-  const linha2: Indicador[] = [
-    { rotulo: "Desqualificados", valor: k.desqualificados_pct ?? 0, tipo: "pct", sub: `${fmtNum(k.desqualificados)} leads`, dica: "Leads desqualificados ÷ leads do período.", icone: UserX,
-      fundo: "bg-rose-50/70", fundoIcone: "bg-red-100", corIcone: "text-red-600", traco: "#ef4444", grad: ["#fca5a5", "#ef4444"], curva: CURVAS.desce, corValor: "text-red-600" },
-    { rotulo: "Respostas da IA", valor: k.respostas_ia, sub: `${fmtNum(k.mensagens_lead)} mensagens dos leads`, dica: "Mensagens que a IA enviou no período.", icone: MessageSquare,
-      fundo: "bg-sky-50/70", fundoIcone: "bg-sky-100", corIcone: "text-sky-600", traco: "#0ea5e9", grad: ["#7dd3fc", "#0284c7"], curva: CURVAS.sobe },
-    { rotulo: "Primeira Resposta", valor: k.primeira_resposta_s, tipo: "seg", sub: k.primeira_resposta_mediana_s != null ? `mediana ${fmtSegundos(k.primeira_resposta_mediana_s)}` : "tempo até a IA responder",
-      dica: "Tempo médio entre a primeira mensagem do lead e a primeira resposta da IA.", icone: Clock,
-      fundo: "bg-teal-50/70", fundoIcone: "bg-teal-100", corIcone: "text-teal-600", traco: "#14b8a6", grad: ["#99f6e4", "#0d9488"], curva: CURVAS.suave },
-    { rotulo: "Custo da IA", valor: k.custo_brl, tipo: "brl", sub: `${fmtBRL(k.custo_por_lead)} por lead`, dica: "Quanto as chamadas à IA custaram no período.", icone: CircleDollarSign,
-      fundo: "bg-orange-50/70", fundoIcone: "bg-orange-100", corIcone: "text-orange-600", traco: "#f97316", grad: ["#fdba74", "#ea580c"], curva: CURVAS.onda,
-      variacao: k.custo_variacao, inverter: true },
-    { rotulo: "Custo por Contrato", valor: k.custo_por_contrato, tipo: "brl", sub: `${fmtNum(k.chamadas_ia)} chamadas à IA`, dica: "Custo da IA ÷ contratos assinados.", icone: Gauge,
-      fundo: "bg-slate-50/70", fundoIcone: "bg-slate-100", corIcone: "text-slate-600", traco: "#64748b", grad: ["#cbd5e1", "#475569"], curva: CURVAS.firme },
+  // Linha da IA: leads atendidos e custo (sem "Respostas da IA" e "Primeira resposta", que o dono tirou).
+  const linhaIA: Indicador[] = [
+    { rotulo: "Leads atendidos pela IA", valor: k.leads, sub: `${fmtNum(k.assinados)} assinaram · ${fmtNum(k.desqualificados)} desqualificados`,
+      dica: "Leads que entraram no período e conversaram com a IA.", icone: Bot, cor: ["#38bdf8", "#0284c7"], curva: CURVAS.sobe, variacao: k.leads_variacao },
+    { rotulo: "Custo da IA", valor: k.custo_brl, tipo: "brl", sub: `${fmtNum(k.chamadas_ia)} chamadas à IA`, dica: "Quanto as chamadas à IA custaram no período.", icone: CircleDollarSign,
+      cor: ["#fb923c", "#ea580c"], curva: CURVAS.onda, variacao: k.custo_variacao, inverter: true },
+    { rotulo: "Custo por Lead", valor: k.custo_por_lead, tipo: "brl", sub: "custo da IA ÷ leads", dica: "Custo da IA ÷ leads que entraram no período.", icone: Gauge,
+      cor: ["#f472b6", "#db2777"], curva: CURVAS.suave },
+    { rotulo: "Custo por Contrato", valor: k.custo_por_contrato, tipo: "brl", sub: `${fmtNum(k.assinados)} contratos da IA`, dica: "Custo da IA ÷ contratos assinados pelos leads do período.", icone: FileSignature,
+      cor: ["#94a3b8", "#475569"], curva: CURVAS.firme },
   ];
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <Cascata className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5" passo={0.07}>
         {linha1.map((i, n) => <CartaoIndicador key={i.rotulo} i={i} n={n} />)}
-      </div>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-        {linha2.map((i, n) => <CartaoIndicador key={i.rotulo} i={i} n={n + 5} />)}
-      </div>
+      </Cascata>
       <Etapas d={d} />
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-5">
         <div className="lg:col-span-3">
-          <FunilDegraus etapas={d.funil} total={k.leads} titulo="Funil de Vendas" subtitulo="Visualização do fluxo de leads por etapa (até onde cada lead já chegou)"
+          <FunilDegraus etapas={c?.funil ?? d.funil} total={c ? c.total : k.leads} titulo="Funil de Vendas"
+            subtitulo={c ? "Fluxo dos cards do CRM por etapa (até onde cada card chegou)" : "Visualização do fluxo de leads por etapa (até onde cada lead já chegou)"}
             dica="Cada etapa conta quem chegou a ela ou foi além. O selo entre as etapas mostra quantos passaram da anterior para esta." classe="lg:min-h-[700px]" />
         </div>
         <div className="lg:col-span-2"><MelhoresAnuncios anuncios={anuncios} abrir={abrirAnuncio} de={d.periodo.de} ate={d.periodo.ate} gerado={d.gerado_em} /></div>
+      </div>
+      <div>
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-[0.08em] text-slate-500"><Bot className="h-4 w-4 text-emerald-600" />Atendimento da IA</h2>
+        <Cascata className="grid grid-cols-2 gap-4 lg:grid-cols-4" passo={0.07} atraso={0.1}>
+          {linhaIA.map((i, n) => <CartaoIndicador key={i.rotulo} i={i} n={n + 5} />)}
+        </Cascata>
       </div>
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
         <TempoAteAssinar d={d} />
@@ -1262,8 +1310,10 @@ function Conteudo({ d, anuncios, abrirAnuncio, pedirImportacao, pedindo, filtran
       <LeadsPorEtapa d={d} />
       <CardsDoCrm d={d} pedirImportacao={pedirImportacao} pedindo={pedindo} />
       <p className="flex flex-wrap items-center justify-center gap-1.5 text-center text-[11px] text-muted-foreground/80">
-        <Bot className="h-3.5 w-3.5" />Números calculados a partir do que a LawChat registrou (mensagens, etapas, contratos e chamadas da IA).
-        {filtrando && <><Filter className="h-3 w-3" />Com filtro de agente, campanha ou origem, a IA e o custo contam só os leads filtrados.</>}
+        <Bot className="h-3.5 w-3.5" />
+        {c ? "Indicadores principais pelos cards do painel do CRM; quadros da IA pelos leads, mensagens e chamadas da IA."
+          : "Números calculados a partir do que a LawChat registrou (mensagens, etapas, contratos e chamadas da IA)."}
+        {filtrando && <><Filter className="h-3 w-3" />Com filtro de campanha ou origem, a IA e o custo contam só os leads filtrados.</>}
         <span>Atualizado em {new Date(d.gerado_em).toLocaleTimeString("pt-BR")}.</span>
       </p>
       <BotoesExportar csv={[{ rotulo: "Baixar CSV", aoClicar: exportar }]} />

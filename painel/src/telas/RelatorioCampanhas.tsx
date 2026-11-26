@@ -1,26 +1,25 @@
 /*
- * Relatórios › Rastreamento de campanhas, no desenho da "Análise de Campanhas" do dashboard original: cabeçalho com o
- * filtro de campanha, cartões de qualificação, funil por campanha + ranking de anúncios, comparação, tabela de
+ * Relatórios › Rastreamento de campanhas, no desenho da "Análise de Campanhas" do dashboard original (leads com UTM;
+ * quando o lead tem card no CRM, a coluna do card também conta até onde ele chegou): cabeçalho com o filtro de campanha, cartões de qualificação, funil por campanha + ranking de anúncios, comparação, tabela de
  * campanhas, alertas, tempo até converter + plataformas, horários, leads por dia + teste A/B e o detalhe do anúncio.
  * Dados: GET /api/relatorios/campanhas e /api/relatorios/campanhas/anuncio/{chave}.
  */
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import {
   Activity, AlertTriangle, ChevronDown, ChevronUp, FileCheck, FileX, Filter, FlaskConical, GitCompareArrows, Megaphone, Minus,
   PieChart as IconePizza, Search, Table2, Timer, TrendingDown, Trophy, UserCheck, UserX, Users,
 } from "lucide-react";
-import { Carregando, useCarregar } from "../componentes/ui";
+import { useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
-  Abas, BarraFiltros, BotoesExportar, CARTAO, CartaoHorarios, Contador, DetalheDoAnuncio, FunilDegraus, ModalTodosAnuncios, Posicao,
-  SeloAtualizado, Vazio, baixarCsv, exportarAnuncios, fmtBRL, fmtData, fmtHoras, fmtNum, fmtPct, infoPlataforma, textoPeriodo,
-  useFiltros, useOpcoesFiltro, type Anuncio, type EtapaFunil,
+  Abas, BarraFiltros, BotoesExportar, CARTAO, CartaoHorarios, Cascata, Contador, DetalheDoAnuncio, EsqueletoRelatorio, FunilDegraus,
+  ITEM_CASCATA, MenuFiltro, ModalTodosAnuncios, Posicao, Vazio, baixarCsv, exportarAnuncios, fmtBRL, fmtData, fmtHoras, fmtNum, fmtPct,
+  infoPlataforma, textoPeriodo, useAnimaGrafico, useFiltros, useFundoRelatorios, useOpcoesFiltro, type Anuncio, type EtapaFunil,
 } from "./relatoriosComum";
 
 interface Grupo {
@@ -56,6 +55,7 @@ export function TelaRelatorioCampanhas() {
   const { filtros, mudar, consulta } = useFiltros();
   const dados = useCarregar<Campanhas>(escritorio ? `/relatorios/campanhas?${consulta}` : null, [escritorio, consulta]);
   const [anuncioAberto, setAnuncioAberto] = useState<string | null>(null);
+  useFundoRelatorios();
   const d = dados.dados;
 
   const exportarCampanhas = () => {
@@ -67,86 +67,68 @@ export function TelaRelatorioCampanhas() {
                               c.horas_ate_assinar, c.custo_brl, c.custo_por_contrato]));
   };
 
+  const chaveDados = useMemo(() => `${consulta}|${d?.gerado_em ?? ""}`, [d]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="rl-relatorio space-y-6 pb-4">
-        <BarraFiltros id="campanhas" filtros={filtros} mudar={mudar} aoAtualizar={dados.recarregar} atualizando={dados.carregando} recolhidaDeInicio />
-
-        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-          className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#8ED393] to-[#15BF41] text-white shadow-sm shadow-emerald-500/20">
-                <Megaphone className="h-[18px] w-[18px]" />
-              </span>
-              Rastreamento de campanhas
-            </h1>
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                {d ? `${fmtNum(d.kpis.leads)} leads de anúncio ou UTM` : "Carregando…"}
-              </span>
-              <span className="text-muted-foreground/40">·</span>
-              {textoPeriodo(filtros.de, filtros.ate)}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <SeloAtualizado data={d?.gerado_em} aoAtualizar={dados.recarregar} atualizando={dados.carregando} />
+    <MotionConfig reducedMotion="user">
+      <TooltipProvider delayDuration={150}>
+        <div className="rl-relatorio space-y-6 pb-4">
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+            className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="flex items-center gap-2.5 text-xl font-extrabold tracking-tight text-foreground md:text-2xl">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-[0_8px_18px_-8px_rgba(16,185,129,0.8)]"
+                  style={{ background: "linear-gradient(135deg,#34d36b,#0ea64a)" }}>
+                  <Megaphone className="h-[18px] w-[18px]" />
+                </span>
+                Análise de Campanhas
+              </h1>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                  {d ? `${fmtNum(d.kpis.leads)} leads sincronizados` : "Carregando…"}
+                </span>
+                <span className="text-muted-foreground/40">·</span>
+                Leads com dados UTM reais · {filtros.periodo === "tudo" ? "todo o período" : textoPeriodo(filtros.de, filtros.ate)}
+              </p>
+            </div>
             <FiltroCampanha valor={filtros.campanha} aoEscolher={(c) => mudar({ campanha: c })} />
-          </div>
-        </motion.div>
+          </motion.div>
 
-        {!d ? <Carregando erro={dados.erro} /> : (
-          <Conteudo d={d} abrir={setAnuncioAberto} filtrarCampanha={(c) => mudar({ campanha: c })}
-            exportarCampanhas={exportarCampanhas} exportarAnuncios={() => exportarAnuncios(d.anuncios, d.periodo.de, d.periodo.ate)} />
-        )}
-        <DetalheDoAnuncio chave={anuncioAberto} consulta={consulta} aoFechar={() => setAnuncioAberto(null)} />
-      </div>
-    </TooltipProvider>
+          <BarraFiltros id="campanhas" filtros={filtros} mudar={mudar} aoAtualizar={dados.recarregar} atualizando={dados.carregando}
+            gerado={d?.gerado_em} campos={["agente", "origem"]} />
+
+          <AnimatePresence mode="wait" initial={false}>
+            {!d ? (
+              <motion.div key="esqueleto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+                <EsqueletoRelatorio erro={dados.erro} cartoes={4} />
+              </motion.div>
+            ) : (
+              <motion.div key={chaveDados} initial={{ opacity: 0.6 }} animate={{ opacity: 1 }} exit={{ opacity: 0.6 }} transition={{ duration: 0.25 }}>
+                <Conteudo d={d} abrir={setAnuncioAberto} filtrarCampanha={(c) => mudar({ campanha: c })}
+                  exportarCampanhas={exportarCampanhas} exportarAnuncios={() => exportarAnuncios(d.anuncios, d.periodo.de, d.periodo.ate)} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <DetalheDoAnuncio chave={anuncioAberto} consulta={consulta} aoFechar={() => setAnuncioAberto(null)} />
+        </div>
+      </TooltipProvider>
+    </MotionConfig>
   );
 }
 
-/** Seletor de campanha do original (botão com funil + lista com busca). */
+/** Seletor de campanha do original (botão com funil + lista com busca, total de leads à direita). */
 function FiltroCampanha({ valor, aoEscolher }: { valor: string; aoEscolher: (c: string) => void }) {
   const opcoes = useOpcoesFiltro();
-  const [aberto, setAberto] = useState(false);
-  const [busca, setBusca] = useState("");
-  const lista = opcoes.dados?.campanhas ?? [];
+  const lista = [...(opcoes.dados?.campanhas ?? [])].sort((a, b) => b.leads - a.leads);
   const total = lista.reduce((s, c) => s + c.leads, 0);
-  const filtradas = busca ? lista.filter((c) => c.campanha.toLowerCase().includes(busca.toLowerCase())) : lista;
-  const escolher = (c: string) => { aoEscolher(c); setAberto(false); setBusca(""); };
   return (
-    <Popover open={aberto} onOpenChange={setAberto}>
-      <PopoverTrigger asChild>
-        <button type="button" className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-card transition-colors hover:bg-muted/40 print:hidden">
-          <Filter className="h-4 w-4 text-primary" />
-          <span className="max-w-[180px] truncate sm:max-w-[250px]">{valor || "Todas as Campanhas"}</span>
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[340px] p-0" align="end">
-        <div className="border-b border-border p-2">
-          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar campanha..."
-              className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground" />
-          </div>
-        </div>
-        <div className="max-h-[300px] overflow-y-auto p-1">
-          <button type="button" onClick={() => escolher("")}
-            className={cn("flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors", !valor ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-muted/40")}>
-            Todas as Campanhas<span className="text-xs tabular-nums text-muted-foreground">{fmtNum(total)} leads</span>
-          </button>
-          {filtradas.map((c) => (
-            <button key={c.campanha} type="button" onClick={() => escolher(c.campanha)}
-              className={cn("flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors", valor === c.campanha ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-muted/40")}>
-              <span className="mr-2 truncate">{c.campanha}</span><span className="shrink-0 text-xs tabular-nums text-muted-foreground">{fmtNum(c.leads)} leads</span>
-            </button>
-          ))}
-          {!filtradas.length && <p className="px-3 py-4 text-center text-xs text-muted-foreground">Nenhuma campanha encontrada</p>}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <div className="print:hidden">
+      <MenuFiltro icone={<Filter className="h-4 w-4" />} textoTodos="Todas as Campanhas" buscaRotulo="Buscar campanha…" largura={360}
+        totalTodos={`${fmtNum(total)} leads`} valor={valor ? [valor] : []} aoMudar={(v) => aoEscolher(v[0] ?? "")}
+        vazio="Nenhuma campanha com UTM ainda"
+        opcoes={[...(valor && !lista.some((c) => c.campanha === valor) ? [{ campanha: valor, leads: 0 }] : []), ...lista]
+          .map((c) => ({ valor: c.campanha, rotulo: c.campanha, sub: `${fmtNum(c.leads)} leads` }))} />
+    </div>
   );
 }
 
@@ -161,53 +143,51 @@ const CURVAS = {
 function CartoesQualificacao({ d }: { d: Campanhas }) {
   const k = d.kpis;
   const itens = [
-    { rotulo: "Total de Leads", valor: k.leads, pct: false, sub: `${fmtNum(k.campanhas)} campanhas · ${fmtNum(k.anuncios)} anúncios`, icone: Users, traco: "#3b82f6", fill: "#93c5fd",
-      fundoIcone: "bg-blue-100", corIcone: "text-blue-600", corValor: "text-blue-600", tint: "from-blue-50/70", curva: CURVAS.sobe },
-    { rotulo: "Qualificados", valor: k.qualificados_pct ?? 0, pct: true, sub: `${fmtNum(k.qualificados)} leads`, icone: UserCheck, traco: "#0ea5e9", fill: "#7dd3fc",
-      fundoIcone: "bg-sky-100", corIcone: "text-sky-600", corValor: "text-sky-600", tint: "from-sky-50/70", curva: CURVAS.onda },
-    { rotulo: "Contratos Assinados", valor: k.conversao ?? 0, pct: true, sub: `${fmtNum(k.assinados)} leads`, icone: FileCheck, traco: "#15bf41", fill: "#86efac",
-      fundoIcone: "bg-emerald-100", corIcone: "text-emerald-600", corValor: "text-emerald-600", tint: "from-emerald-50/70", curva: CURVAS.arco, destaque: true },
-    { rotulo: "Desqualificados", valor: k.desqualificados_pct ?? 0, pct: true, sub: `${fmtNum(k.desqualificados)} leads`, icone: UserX, traco: "#ef4444", fill: "#fca5a5",
-      fundoIcone: "bg-red-100", corIcone: "text-red-600", corValor: "text-red-600", tint: "from-rose-50/70", curva: CURVAS.desce },
+    { rotulo: "Total de Leads", valor: k.leads, pct: false, sub: "com dados UTM", icone: Users, cor: ["#60a5fa", "#2563eb"], curva: CURVAS.sobe },
+    { rotulo: "Qualificados", valor: k.qualificados_pct ?? 0, pct: true, sub: `${fmtNum(k.qualificados)} leads`, icone: UserCheck, cor: ["#38bdf8", "#0284c7"], curva: CURVAS.onda },
+    { rotulo: "Contratos Assinados", valor: k.conversao ?? 0, pct: true, sub: `${fmtNum(k.assinados)} leads`, icone: FileCheck, cor: ["#4ade80", "#16a34a"], curva: CURVAS.arco, destaque: true },
+    { rotulo: "Desqualificados", valor: k.desqualificados_pct ?? 0, pct: true, sub: `${fmtNum(k.desqualificados)} leads`, icone: UserX, cor: ["#f87171", "#dc2626"], curva: CURVAS.desce },
   ];
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+    <Cascata className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4" passo={0.08}>
       {itens.map((it, i) => {
         const gid = `rl-camp-kpi-${i}`;
+        const [claro, forte] = it.cor;
         return (
-          <motion.div key={it.rotulo} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-            className={cn("group relative overflow-hidden rounded-2xl border bg-card bg-gradient-to-br to-transparent transition-all duration-300 hover:-translate-y-1 hover:shadow-md", it.tint,
-              it.destaque ? "col-span-2 border-emerald-200 ring-1 ring-emerald-500/20 md:col-span-1" : "border-border/50")}>
-            <div className="pointer-events-none absolute -bottom-8 left-1/2 h-16 w-[130%] -translate-x-1/2 opacity-[0.10] blur-2xl transition-opacity duration-500 group-hover:opacity-20"
-              style={{ background: it.traco }} />
+          <motion.div key={it.rotulo} variants={ITEM_CASCATA} whileHover={{ y: -4 }}
+            className={cn("group relative overflow-hidden rounded-2xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_28px_-16px_rgba(15,23,42,0.22)] transition-shadow hover:shadow-[0_18px_40px_-18px_var(--rl-sombra)]",
+              it.destaque ? "col-span-2 border-emerald-300 ring-2 ring-emerald-500/25 md:col-span-1" : "border-white")}
+            style={{ background: `linear-gradient(160deg, ${claro}3d 0%, ${claro}14 42%, #ffffff 78%)`, ["--rl-sombra" as string]: `${forte}66` }}>
+            <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${claro}, ${forte})` }} />
             <div className="relative px-4 pb-2 pt-4 md:px-5">
               <div className="flex items-start justify-between gap-2">
-                <p className="text-[11px] font-semibold text-foreground/75 md:text-xs">{it.rotulo}</p>
-                <div className={cn("flex h-9 w-9 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110", it.fundoIcone)}>
-                  <it.icone className={cn("h-[18px] w-[18px]", it.corIcone)} />
+                <p className="text-[11px] font-semibold text-slate-700 md:text-xs">{it.rotulo}</p>
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl text-white transition-transform duration-300 group-hover:rotate-[-6deg] group-hover:scale-110"
+                  style={{ background: `linear-gradient(135deg, ${claro}, ${forte})`, boxShadow: `0 8px 16px -8px ${forte}` }}>
+                  <it.icone className="h-[18px] w-[18px]" />
                 </div>
               </div>
-              <div className={cn("mt-2 text-2xl font-bold leading-none tracking-tight tabular-nums md:text-[32px]", it.corValor)}>
+              <div className="mt-2 text-2xl font-extrabold leading-none tracking-tight tabular-nums md:text-[32px]" style={{ color: forte }}>
                 <Contador valor={it.valor} casas={it.pct ? 1 : 0} sufixo={it.pct ? "%" : ""} />
               </div>
-              <p className="mt-1.5 text-xs text-muted-foreground">{it.sub}</p>
+              <p className="mt-1.5 text-xs text-slate-500">{it.sub}</p>
             </div>
-            <div className="relative mt-1 h-[42px] w-full" aria-hidden>
+            <div className="relative mt-1 h-[46px] w-full" aria-hidden>
               <svg className="absolute inset-0 h-full w-full" viewBox="0 0 320 80" preserveAspectRatio="none" fill="none">
                 <defs>
                   <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={it.fill} stopOpacity="0.4" /><stop offset="100%" stopColor={it.fill} stopOpacity="0" />
+                    <stop offset="0%" stopColor={forte} stopOpacity="0.42" /><stop offset="100%" stopColor={claro} stopOpacity="0.02" />
                   </linearGradient>
                 </defs>
-                <path d={`${it.curva} L320,80 L0,80 Z`} fill={`url(#${gid})`} />
-                <motion.path d={it.curva} stroke={it.traco} strokeWidth={2} strokeLinecap="round" fill="none"
-                  initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ delay: i * 0.07 + 0.3, duration: 0.9, ease: "easeInOut" }} />
+                <motion.path d={`${it.curva} L320,80 L0,80 Z`} fill={`url(#${gid})`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 + i * 0.08, duration: 0.8 }} />
+                <motion.path d={it.curva} stroke={forte} strokeWidth={2.6} strokeLinecap="round" fill="none"
+                  initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ delay: 0.2 + i * 0.08, duration: 1.1, ease: [0.65, 0, 0.35, 1] }} />
               </svg>
             </div>
           </motion.div>
         );
       })}
-    </div>
+    </Cascata>
   );
 }
 
@@ -399,7 +379,7 @@ function Alertas({ d }: { d: Campanhas }) {
     const c = dados(a);
     return (
       <motion.button type="button" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} onClick={() => setAberto(a)}
-        className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-emerald-500/30 hover:bg-emerald-500/10">
+        className="flex w-full items-center gap-3 rounded-xl border border-white bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md">
         <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full", a.gravidade === "alta" ? "bg-red-500/10 text-red-500" : "bg-yellow-500/10 text-yellow-500")}>{icone(a)}</div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{a.campanha}</p>
@@ -413,7 +393,7 @@ function Alertas({ d }: { d: Campanhas }) {
   const c = aberto ? dados(aberto) : null;
   return (
     <>
-      <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4">
+      <div className={cn("rounded-2xl border border-amber-300/70 bg-gradient-to-br from-amber-50 to-yellow-50/60 p-4 shadow-[0_10px_28px_-18px_rgba(217,119,6,0.45)]")}>
         <div className="mb-3 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-yellow-500" />
           <h3 className="text-sm font-semibold text-foreground">Campanhas que Precisam de Atenção</h3>
@@ -475,6 +455,7 @@ const LIMITE = 6;
 
 function TempoConversao({ d }: { d: Campanhas }) {
   const [todos, setTodos] = useState(false);
+  const anima = useAnimaGrafico(1100);
   const dados = d.campanhas.filter((c) => c.horas_ate_assinar != null && c.assinados > 0)
     .map((c) => ({ nome: c.campanha.length > 30 ? c.campanha.slice(0, 30) + "…" : c.campanha, completo: c.campanha, horas: c.horas_ate_assinar as number,
                    dias: (c.horas_ate_assinar as number) / 24, contratos: c.assinados }))
@@ -503,7 +484,7 @@ function TempoConversao({ d }: { d: Campanhas }) {
                   </div>
                 );
               }} />
-              <Bar dataKey="dias" radius={[0, 6, 6, 0]} barSize={24}>
+              <Bar dataKey="dias" radius={[0, 8, 8, 0]} barSize={24} {...anima}>
                 {visiveis.map((_, i) => <Cell key={i} fill={CORES_TEMPO[i % CORES_TEMPO.length]} />)}
               </Bar>
             </BarChart>
@@ -540,7 +521,8 @@ function Plataformas({ d }: { d: Campanhas }) {
       <div className="mb-4 flex items-center gap-2"><IconePizza className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold text-foreground">Distribuição por Plataforma</h3></div>
       <div className="mb-5 flex items-center justify-center">
         <div className="relative h-40 w-40">
-          <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" role="img" aria-label="Leads por plataforma">
+          <motion.svg viewBox="0 0 100 100" className="h-full w-full" role="img" aria-label="Leads por plataforma"
+            initial={{ rotate: -270, scale: 0.8, opacity: 0 }} animate={{ rotate: -90, scale: 1, opacity: 1 }} transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}>
             {lista.map((p) => {
               const pct = (p.leads / (total || 1)) * util;
               const el = <circle key={p.plataforma} cx="50" cy="50" r="38" fill="none" stroke={infoPlataforma(p.plataforma, p.nome).cor} strokeWidth="12"
@@ -548,9 +530,9 @@ function Plataformas({ d }: { d: Campanhas }) {
               desloc += pct + folga;
               return el;
             })}
-          </svg>
+          </motion.svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-2xl font-bold text-foreground">{fmtNum(total)}</span>
+            <span className="text-2xl font-extrabold text-foreground"><Contador valor={total} /></span>
             <span className="text-[10px] text-muted-foreground">leads</span>
           </div>
         </div>
@@ -579,6 +561,7 @@ function Plataformas({ d }: { d: Campanhas }) {
 
 // --------------------------------------------------------------------------- leads por dia e A/B
 function LeadsPorDia({ d }: { d: Campanhas }) {
+  const anima = useAnimaGrafico(1400);
   return (
     <div className={cn(CARTAO, "p-5")}>
       <div className="mb-1 flex items-center gap-2"><Activity className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold text-foreground">Leads de Campanhas por Dia</h3></div>
@@ -591,15 +574,15 @@ function LeadsPorDia({ d }: { d: Campanhas }) {
         <ResponsiveContainer>
           <AreaChart data={d.serie} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
             <defs>
-              <linearGradient id="rl-camp-leads" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#15BF41" stopOpacity={0.3} /><stop offset="100%" stopColor="#15BF41" stopOpacity={0} /></linearGradient>
-              <linearGradient id="rl-camp-assin" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.3} /><stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient>
+              <linearGradient id="rl-camp-leads" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#15BF41" stopOpacity={0.45} /><stop offset="100%" stopColor="#15BF41" stopOpacity={0} /></linearGradient>
+              <linearGradient id="rl-camp-assin" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.45} /><stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient>
             </defs>
             <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="dia" tickFormatter={(v: string) => `${v.slice(8, 10)}/${v.slice(5, 7)}`} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} minTickGap={18} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} width={40} axisLine={false} tickLine={false} />
             <RTooltip labelFormatter={(v) => fmtData(String(v) + "T12:00:00")} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-            <Area type="monotone" dataKey="leads" name="Leads" stroke="#15BF41" fill="url(#rl-camp-leads)" strokeWidth={2.4} />
-            <Area type="monotone" dataKey="assinados" name="Contratos" stroke="#8b5cf6" fill="url(#rl-camp-assin)" strokeWidth={2.4} />
+            <Area type="monotone" dataKey="leads" name="Leads" stroke="#15BF41" fill="url(#rl-camp-leads)" strokeWidth={2.6} {...anima} />
+            <Area type="monotone" dataKey="assinados" name="Contratos" stroke="#8b5cf6" fill="url(#rl-camp-assin)" strokeWidth={2.6} {...anima} />
           </AreaChart>
         </ResponsiveContainer>
       </div>

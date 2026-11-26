@@ -128,7 +128,7 @@ function tempo(segundos: number | null): string {
 }
 
 export function TelaInicio() {
-  const { escritorio, podeGerir, admin, eu } = useSessao();
+  const { escritorio, podeGerir, admin, eu, lawchat } = useSessao();
   const inicio = useCarregar<Inicio>(escritorio ? "/inicio" : null, [escritorio]);
   const metricas = useCarregar<Metricas>(escritorio ? `/inicio/metricas?dias=${DIAS}` : null, [escritorio]);
   const carteira = useCarregar<CarteiraResumo>(escritorio && podeGerir ? "/carteira" : null, [escritorio]);
@@ -191,7 +191,7 @@ export function TelaInicio() {
       acao: { rotulo: "Conectar webhook", para: "/integracoes" },
       nota: `Última mensagem recebida: ${quando(dadosInicio.resumo.ultimo_webhook)}`,
     });
-    if (dadosInicio.resumo.erros_abertos > 0 && podeGerir) alertas.push({
+    if (dadosInicio.resumo.erros_abertos > 0 && lawchat) alertas.push({   // erros: só a equipe LawChat
       chave: "erros", tom: "atencao", icone: Bug,
       titulo: dadosInicio.resumo.erros_abertos === 1 ? "1 erro aberto no atendimento" : `${dadosInicio.resumo.erros_abertos} erros abertos no atendimento`,
       texto: `Veja o que travou e quem precisa agir. Nas últimas 24 h, ${dadosInicio.resumo.turnos_com_erro_24h} ${dadosInicio.resumo.turnos_com_erro_24h === 1 ? "resposta falhou" : "respostas falharam"}.`,

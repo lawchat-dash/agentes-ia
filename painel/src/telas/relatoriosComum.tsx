@@ -1,16 +1,19 @@
 /*
  * Peças comuns das telas de Relatórios (Dashboard e Rastreamento de campanhas), no visual do dashboard comercial
- * original da LawChat: barra de filtros (período em pílulas, "Mais", minimizar), saudação com o selo "Atualizado há",
- * contador animado, funil em degraus coloridos, mapa de calor, mapa do Brasil, detalhe do anúncio, exportar CSV e PDF.
+ * original da LawChat: barra de filtros (período em pílulas, "Mais" com calendário, modo e menus próprios com busca,
+ * checkboxes e teclado), selo "Atualizado há", contador animado, entrada em cascata, esqueleto com brilho, funil em
+ * degraus coloridos, mapa de calor, mapa do Brasil, detalhe do anúncio, exportar CSV e PDF. Animações respeitam
+ * prefers-reduced-motion (MotionConfig nas telas + CSS).
  * Os números vêm prontos do servidor (/api/relatorios/*); aqui só formata e desenha.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import {
-  Calendar, Check, ChevronDown, Clock, ChevronUp, Copy, Download, ExternalLink, Facebook, FileCheck, FileDown, FileText, Filter,
-  Info, Instagram, Megaphone, PenLine, RefreshCw, Search, Sparkles, TrendingUp, Trophy, UserCheck, Users, X, Youtube,
+  Bot, Calendar, Check, ChevronDown, Clock, Copy, Download, ExternalLink, Facebook, FileCheck, FileDown, FileText, Filter, Globe,
+  Info, Instagram, Kanban, Layers, Megaphone, MousePointerClick, Music2, PenLine, Phone, RefreshCw, Search, Sparkles, Tag, TrendingUp,
+  Trophy, UserCheck, UserRound, Users, X, Youtube,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCarregar } from "../componentes/ui";
@@ -46,14 +49,77 @@ export function fmtSegundos(s: number | null | undefined): string {
   return fmtHoras(s / 3600);
 }
 
-// Cartão padrão (mesmas bordas, raio e sombra do dashboard original)
-export const CARTAO = "relative rounded-2xl border border-border/60 bg-card shadow-[0_1px_3px_rgba(15,23,42,0.05)]";
+// Cartão padrão (mesmas bordas, raio e sombra do dashboard original, com elevação no hover)
+export const CARTAO = "rl-cartao relative rounded-2xl border border-white/70 bg-card shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-12px_rgba(15,23,42,0.10)]";
+
+// --------------------------------------------------------------------------- movimento
+/** true quando a pessoa pediu menos movimento no sistema (prefers-reduced-motion). */
+export function useReduzMovimento() {
+  const consulta = "(prefers-reduced-motion: reduce)";
+  const [reduz, setReduz] = useState(() => typeof window !== "undefined" && Boolean(window.matchMedia?.(consulta)?.matches));
+  useEffect(() => {
+    const m = window.matchMedia?.(consulta);
+    if (!m) return;
+    const mudou = () => setReduz(m.matches);
+    m.addEventListener?.("change", mudou);
+    return () => m.removeEventListener?.("change", mudou);
+  }, []);
+  return reduz;
+}
+
+/** Animação dos gráficos do recharts (desligada com prefers-reduced-motion). */
+export function useAnimaGrafico(duracao = 1100) {
+  const reduz = useReduzMovimento();
+  return { isAnimationActive: !reduz, animationDuration: duracao, animationEasing: "ease-out" as const };
+}
+
+/** Fundo próprio da área dos Relatórios (só enquanto a tela está aberta; na impressão, branco). */
+export function useFundoRelatorios() {
+  useEffect(() => {
+    document.documentElement.classList.add("rl-fundo-ativo");
+    return () => document.documentElement.classList.remove("rl-fundo-ativo");
+  }, []);
+}
+
+/** Entrada em cascata: cada filho sobe um pouco e aparece, um depois do outro. */
+export function Cascata({ children, className, atraso = 0, passo = 0.06 }: { children: ReactNode; className?: string; atraso?: number; passo?: number }) {
+  return (
+    <motion.div className={className} initial="fora" animate="dentro"
+      variants={{ fora: {}, dentro: { transition: { staggerChildren: passo, delayChildren: atraso } } }}>
+      {children}
+    </motion.div>
+  );
+}
+export const ITEM_CASCATA: Variants = {
+  fora: { opacity: 0, y: 16, scale: 0.985 },
+  dentro: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.55, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] } },
+};
+
+/** Esqueleto com brilho enquanto os números chegam (mesma grade da tela). */
+export function EsqueletoRelatorio({ erro, cartoes = 5 }: { erro?: string | null; cartoes?: number }) {
+  if (erro) return <div className={cn(CARTAO, "p-6 text-sm text-destructive")}>{erro}</div>;
+  const Bloco = ({ className }: { className?: string }) => <div className={cn("rl-brilho rounded-2xl", className)} />;
+  return (
+    <div className="space-y-5" role="status" aria-label="Carregando os números">
+      <div className={cn("grid grid-cols-2 gap-4 md:grid-cols-3", cartoes === 4 ? "lg:grid-cols-4" : "xl:grid-cols-5")}>
+        {Array.from({ length: cartoes }, (_, i) => <Bloco key={i} className="h-[150px]" />)}
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+        {Array.from({ length: 8 }, (_, i) => <Bloco key={i} className="h-[86px] rounded-xl" />)}
+      </div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+        <Bloco className="h-[420px] lg:col-span-3" /><Bloco className="h-[420px] lg:col-span-2" />
+      </div>
+    </div>
+  );
+}
 
 // --------------------------------------------------------------------------- filtros (na URL)
 export const PERIODOS: { valor: string; rotulo: string }[] = [
   { valor: "hoje", rotulo: "Hoje" }, { valor: "ontem", rotulo: "Ontem" }, { valor: "7", rotulo: "7 dias" },
   { valor: "30", rotulo: "30 dias" }, { valor: "mes", rotulo: "Este mês" },
-  { valor: "90", rotulo: "Últimos 90 dias" }, { valor: "mes_passado", rotulo: "Mês passado" }, { valor: "ano", rotulo: "Últimos 12 meses" },
+  { valor: "tudo", rotulo: "Todo Período" }, { valor: "90", rotulo: "Últimos 90 dias" }, { valor: "mes_passado", rotulo: "Mês passado" },
+  { valor: "ano", rotulo: "Últimos 12 meses" },
 ];
 const NA_LINHA = ["hoje", "ontem", "7", "30", "mes"];
 
@@ -68,6 +134,7 @@ export function intervaloDoPeriodo(periodo: string): { de: string; ate: string }
     case "7": return { de: iso(menos(6)), ate: iso(hoje) };
     case "90": return { de: iso(menos(89)), ate: iso(hoje) };
     case "ano": return { de: iso(menos(364)), ate: iso(hoje) };
+    case "tudo": return { de: iso(menos(399)), ate: iso(hoje) };
     case "mes": return { de: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), ate: iso(hoje) };
     case "mes_passado": return {
       de: iso(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)), ate: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 0)) };
@@ -75,7 +142,13 @@ export function intervaloDoPeriodo(periodo: string): { de: string; ate: string }
   }
 }
 
-export interface Filtros { periodo: string; de: string; ate: string; agente: string; campanha: string; fonte: string }
+export interface Filtros {
+  periodo: string; de: string; ate: string; agente: string; campanha: string; fonte: string;
+  modo: "criacao" | "atualizacao"; painel: string[]; etapa: string[]; responsavel: string[]; numero: string[]; tag: string[];
+}
+type Lista = "painel" | "etapa" | "responsavel" | "numero" | "tag";
+const LISTAS: Lista[] = ["painel", "etapa", "responsavel", "numero", "tag"];
+type Mudanca = Partial<Omit<Filtros, Lista>> & Partial<Record<Lista, string[]>>;
 
 export function useFiltros() {
   const [params, setParams] = useSearchParams();
@@ -84,28 +157,38 @@ export function useFiltros() {
     const intervalo = periodo === "personalizado"
       ? { de: params.get("de") || intervaloDoPeriodo("30").de, ate: params.get("ate") || iso(new Date()) }
       : intervaloDoPeriodo(periodo);
+    const lista = (k: string) => (params.get(k) || "").split(",").map((x) => x.trim()).filter(Boolean);
     return { periodo, ...intervalo, agente: params.get("agente") || "", campanha: params.get("campanha") || "",
-             fonte: params.get("fonte") || "" };
+             fonte: params.get("fonte") || "", modo: params.get("modo") === "atualizacao" ? "atualizacao" : "criacao",
+             painel: lista("painel"), etapa: lista("etapa"), responsavel: lista("responsavel"), numero: lista("numero"), tag: lista("tag") };
   }, [params]);
-  const mudar = (novo: Partial<Filtros>) => {
+  const mudar = (novo: Mudanca) => {
     const proximo = new URLSearchParams(params);
     for (const [chave, valor] of Object.entries(novo)) {
-      if (valor) proximo.set(chave, valor); else proximo.delete(chave);
+      const texto = Array.isArray(valor) ? valor.join(",") : valor;
+      if (texto && !(chave === "modo" && texto === "criacao")) proximo.set(chave, texto); else proximo.delete(chave);
     }
     if (novo.periodo && novo.periodo !== "personalizado") { proximo.delete("de"); proximo.delete("ate"); }
     if (novo.periodo === "30") proximo.delete("periodo");
     setParams(proximo, { replace: true });
   };
-  const consulta = new URLSearchParams({ de: filtros.de, ate: filtros.ate,
-    ...(filtros.agente ? { agente: filtros.agente } : {}), ...(filtros.campanha ? { campanha: filtros.campanha } : {}),
-    ...(filtros.fonte ? { fonte: filtros.fonte } : {}) }).toString();
-  return { filtros, mudar, consulta };
+  const q = new URLSearchParams({ de: filtros.de, ate: filtros.ate });
+  if (filtros.periodo === "tudo") q.set("tudo", "1");
+  for (const k of ["agente", "campanha", "fonte"] as const) if (filtros[k]) q.set(k, filtros[k]);
+  if (filtros.modo === "atualizacao") q.set("modo", "atualizacao");
+  for (const k of LISTAS) for (const v of filtros[k]) q.append(k, v);
+  return { filtros, mudar, consulta: q.toString() };
 }
 
 export interface OpcoesFiltro {
   agentes: { id: string; nome: string; situacao: string }[];
   campanhas: { campanha: string; leads: number }[];
   plataformas: { valor: string; rotulo: string }[];
+  etapas?: { valor: string; rotulo: string }[];
+  paineis?: { id: string; titulo: string | null; cards: number }[];
+  responsaveis?: { id: string; nome: string; cards: number }[];
+  numeros?: { numero: string; cards: number }[];
+  tags?: { nome: string; cards: number }[];
 }
 
 export function useOpcoesFiltro() {
@@ -113,166 +196,310 @@ export function useOpcoesFiltro() {
   return useCarregar<OpcoesFiltro>(escritorio ? "/relatorios/filtros" : null, [escritorio]);
 }
 
-const PILULA = { background: "linear-gradient(135deg, #8ED393, #15BF41)", boxShadow: "0 4px 10px -3px rgba(21,191,65,0.28)" };
-const CAMPO = "h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring";
+/** (31) 95347-1309 a partir de 5531953471309. */
+export function fmtTelefone(n: string) {
+  const d = n.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return n;
+}
+
+/** Selo colorido de cada origem (ícone branco no fundo da cor da plataforma). */
+export function SeloOrigem({ valor, tamanho = "h-5 w-5" }: { valor: string; tamanho?: string }) {
+  const visual: Record<string, { fundo: string; icone: ReactNode }> = {
+    instagram: { fundo: "linear-gradient(135deg,#f58529,#dd2a7b 55%,#8134af)", icone: <Instagram className="h-3 w-3" /> },
+    facebook: { fundo: "linear-gradient(135deg,#3b82f6,#1d4ed8)", icone: <Facebook className="h-3 w-3" /> },
+    google: { fundo: "conic-gradient(from 200deg,#ea4335,#fbbc05,#34a853,#4285f4,#ea4335)", icone: <span className="text-[10px] font-black leading-none">G</span> },
+    youtube: { fundo: "linear-gradient(135deg,#f87171,#dc2626)", icone: <Youtube className="h-3 w-3" /> },
+    tiktok: { fundo: "linear-gradient(135deg,#0f172a,#334155)", icone: <Music2 className="h-3 w-3" /> },
+    outro: { fundo: "linear-gradient(135deg,#22d3ee,#0891b2)", icone: <Globe className="h-3 w-3" /> },
+    direto: { fundo: "linear-gradient(135deg,#cbd5e1,#94a3b8)", icone: <MousePointerClick className="h-3 w-3" /> },
+  };
+  const v = visual[valor] ?? visual.outro;
+  return <span className={cn("flex shrink-0 items-center justify-center rounded-md text-white shadow-sm", tamanho)} style={{ background: v.fundo }}>{v.icone}</span>;
+}
+
+export const COR_ETAPA: Record<string, string> = {
+  sdr: "#2563eb", closer: "#0891b2", analise: "#7c3aed", contratos: "#ea580c", assinatura: "#16a34a", assinado: "#eab308",
+  desqualificado: "#dc2626", nao_assinou: "#db2777", outra: "#64748b",
+};
+
+interface OpcaoMenu { valor: string; rotulo: string; sub?: string; icone?: ReactNode }
+
+/**
+ * Menu de filtro no estilo do painel: botão com ícone, valor escolhido e seta; painel flutuante arredondado com
+ * sombra, item "Todos…" em destaque, busca quando a lista é longa, checkboxes na multi-seleção (com Selecionar
+ * todos / Limpar), marcação do escolhido, setas do teclado, Esc e clique fora fecham.
+ */
+export function MenuFiltro({ icone, textoTodos, opcoes, valor, aoMudar, multi = false, totalTodos, buscaRotulo, largura = 300, vazio, resumo }: {
+  icone: ReactNode; textoTodos: string; opcoes: OpcaoMenu[]; valor: string[]; aoMudar: (v: string[]) => void; multi?: boolean;
+  totalTodos?: string; buscaRotulo?: string; largura?: number; vazio?: string; resumo?: (escolhidas: OpcaoMenu[]) => string;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [busca, setBusca] = useState("");
+  const lista = useRef<HTMLDivElement>(null);
+  const comBusca = opcoes.length > 8;
+  const q = busca.trim().toLowerCase();
+  const filtradas = q ? opcoes.filter((o) => `${o.rotulo} ${o.sub ?? ""}`.toLowerCase().includes(q)) : opcoes;
+  const escolhidas = opcoes.filter((o) => valor.includes(o.valor));
+  const texto = !valor.length ? textoTodos
+    : resumo ? resumo(escolhidas)
+    : escolhidas.length === 1 ? escolhidas[0].rotulo
+    : escolhidas.length ? `${escolhidas.length} selecionados` : valor[0];
+  const escolher = (v: string) => {
+    if (!multi) { aoMudar(v ? [v] : []); setAberto(false); setBusca(""); return; }
+    aoMudar(!v ? [] : valor.includes(v) ? valor.filter((x) => x !== v) : [...valor, v]);
+  };
+  const mover = (e: React.KeyboardEvent) => {
+    const itens = Array.from(lista.current?.querySelectorAll<HTMLElement>("[data-opcao]") ?? []);
+    if (!itens.length) return;
+    const atual = itens.indexOf(document.activeElement as HTMLElement);
+    let prox = -1;
+    if (e.key === "ArrowDown") prox = atual < 0 ? 0 : Math.min(itens.length - 1, atual + 1);
+    else if (e.key === "ArrowUp") prox = atual <= 0 ? 0 : atual - 1;
+    else if (e.key === "Home") prox = 0;
+    else if (e.key === "End") prox = itens.length - 1;
+    if (prox >= 0) { e.preventDefault(); itens[prox].focus(); }
+  };
+  const Marca = ({ ativo }: { ativo: boolean }) => multi
+    ? <span className={cn("flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors",
+        ativo ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white")}>{ativo && <Check className="h-3 w-3" strokeWidth={3} />}</span>
+    : <Check className={cn("h-4 w-4 shrink-0 text-emerald-600 transition-opacity", ativo ? "opacity-100" : "opacity-0")} />;
+  return (
+    <Popover open={aberto} onOpenChange={(v) => { setAberto(v); if (!v) setBusca(""); }}>
+      <PopoverTrigger asChild>
+        <button type="button" aria-haspopup="listbox"
+          className={cn("rl-menu-botao group inline-flex h-9 max-w-[240px] items-center gap-2 max-sm:w-full max-sm:max-w-none rounded-xl border bg-white px-3 text-sm font-medium text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-px hover:border-emerald-300 hover:shadow-md data-[state=open]:border-emerald-500 data-[state=open]:ring-2 data-[state=open]:ring-emerald-500/20",
+            valor.length ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200")}>
+          <span className="shrink-0 text-emerald-600">{icone}</span>
+          <span className="truncate">{texto}</span>
+          {multi && valor.length > 1 && <span className="rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white">{valor.length}</span>}
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={6} className="rl-menu overflow-hidden rounded-2xl border border-slate-200/80 p-0 shadow-[0_18px_48px_-12px_rgba(15,23,42,0.28)]"
+        style={{ width: largura }} onKeyDown={mover} onOpenAutoFocus={(e) => { if (!comBusca) { e.preventDefault(); lista.current?.querySelector<HTMLElement>("[data-opcao]")?.focus(); } }}>
+        {comBusca && (
+          <div className="border-b border-slate-100 p-2">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/15">
+              <Search className="h-3.5 w-3.5 text-muted-foreground" />
+              <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder={buscaRotulo ?? "Buscar…"} aria-label={buscaRotulo ?? "Buscar"}
+                className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground" />
+            </div>
+          </div>
+        )}
+        {multi && (
+          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5 text-xs">
+            <button type="button" onClick={() => aoMudar(Array.from(new Set([...valor, ...filtradas.map((o) => o.valor)])))}
+              className="font-semibold text-emerald-600 transition-colors hover:text-emerald-700">Selecionar todos</button>
+            <button type="button" onClick={() => aoMudar([])} className="text-muted-foreground transition-colors hover:text-foreground">Limpar</button>
+          </div>
+        )}
+        <div ref={lista} role="listbox" aria-multiselectable={multi || undefined} className="max-h-[300px] space-y-0.5 overflow-y-auto p-1.5">
+          <button type="button" data-opcao role="option" aria-selected={!valor.length} onClick={() => escolher("")}
+            className={cn("flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/40",
+              !valor.length ? "bg-emerald-50 font-semibold text-emerald-700" : "text-foreground hover:bg-slate-50")}>
+            <Marca ativo={!valor.length} /><span className="flex-1 truncate">{textoTodos}</span>
+            {totalTodos && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{totalTodos}</span>}
+          </button>
+          {filtradas.map((o) => {
+            const ativo = valor.includes(o.valor);
+            return (
+              <button key={o.valor} type="button" data-opcao role="option" aria-selected={ativo} onClick={() => escolher(o.valor)} title={o.rotulo}
+                className={cn("flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/40",
+                  ativo ? "bg-emerald-50/70 font-medium text-foreground" : "text-foreground hover:bg-slate-50")}>
+                <Marca ativo={ativo} />
+                {o.icone}
+                <span className="min-w-0 flex-1 truncate">{o.rotulo}</span>
+                {o.sub && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{o.sub}</span>}
+              </button>
+            );
+          })}
+          {!filtradas.length && <p className="px-3 py-5 text-center text-xs text-muted-foreground">{q ? "Nada encontrado" : vazio ?? "Nenhuma opção ainda"}</p>}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function GrupoFiltro({ rotulo, children, className }: { rotulo: string; children: ReactNode; className?: string }) {
   return (
-    <div className={cn("flex flex-col gap-1 min-w-0", className)}>
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{rotulo}</span>
-      <div className="flex items-center gap-1.5 flex-wrap">{children}</div>
+    <div className={cn("flex min-w-0 flex-col gap-1", rotulo !== "Período" && "max-sm:basis-[calc(50%-0.5rem)]", className)}>
+      <span className="pl-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{rotulo}</span>
+      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
     </div>
   );
 }
 
 const fmtCurta = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
-/** Barra de filtros no desenho do original: período em pílulas + "Mais", campanha; agente e origem; Limpar e Atualizar. */
-export function BarraFiltros({ filtros, mudar, aoAtualizar, atualizando, recolhidaDeInicio = false, id }: {
-  filtros: Filtros; mudar: (f: Partial<Filtros>) => void; aoAtualizar: () => void; atualizando?: boolean;
-  recolhidaDeInicio?: boolean; id: string;
+export type CampoFiltro = "modo" | "campanha" | "painel" | "etapa" | "responsavel" | "numero" | "origem" | "tags" | "agente";
+
+/** Barra de filtros: período em pílulas + "Mais" (com calendário) e os menus, numa barra limpa que quebra no celular. */
+export function BarraFiltros({ filtros, mudar, aoAtualizar, atualizando, id, campos, gerado }: {
+  filtros: Filtros; mudar: (f: Mudanca) => void; aoAtualizar: () => void; atualizando?: boolean; id: string;
+  campos: CampoFiltro[]; gerado?: string | null;
 }) {
   const opcoes = useOpcoesFiltro();
-  const [recolhida, setRecolhida] = useState(recolhidaDeInicio);
+  const o = opcoes.dados;
   const [maisAberto, setMaisAberto] = useState(false);
-  const qtdFiltros = [filtros.agente, filtros.campanha, filtros.fonte].filter(Boolean).length;
+  const tem = (c: CampoFiltro) => campos.includes(c);
   const ativoNaLinha = NA_LINHA.includes(filtros.periodo);
-  const ativoNoMais = !ativoNaLinha && filtros.periodo !== "personalizado";
-  const rotuloMais = ativoNoMais ? PERIODOS.find((p) => p.valor === filtros.periodo)?.rotulo ?? "Mais"
-    : filtros.periodo === "personalizado" ? `${fmtCurta(filtros.de)} → ${fmtCurta(filtros.ate)}` : "Mais";
-  const rotuloPeriodo = filtros.periodo === "personalizado" ? `${fmtCurta(filtros.de)} → ${fmtCurta(filtros.ate)}`
-    : PERIODOS.find((p) => p.valor === filtros.periodo)?.rotulo ?? "";
-  const limpar = () => mudar({ agente: "", campanha: "", fonte: "", periodo: "30" });
-
-  const BotaoAtualizar = ({ pequeno }: { pequeno?: boolean }) => (
-    <button type="button" onClick={aoAtualizar} disabled={atualizando}
-      className={cn("btn-lawchat flex items-center gap-1.5 rounded-lg font-semibold", pequeno ? "h-8 px-3 text-xs" : "h-9 px-4 text-sm")}>
-      <RefreshCw className={cn("relative z-10 h-3.5 w-3.5", atualizando && "animate-spin")} />
-      <span className="relative z-10">Atualizar</span>
-    </button>
-  );
-
-  if (recolhida) {
-    return (
-      <div className="relative z-30 flex items-center gap-3 border-b border-border/40 px-0.5 pb-3 print:hidden">
-        <Filter className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium text-foreground">{rotuloPeriodo}</span>
-        {qtdFiltros > 0 && (
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">{qtdFiltros}</span>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          <BotaoAtualizar pequeno />
-          <button type="button" onClick={() => setRecolhida(false)}
-            className="flex h-8 items-center gap-1 rounded-lg border border-border bg-background px-2.5 text-xs text-muted-foreground hover:bg-secondary transition-colors">
-            <ChevronDown className="h-3.5 w-3.5" />Expandir
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const rotuloMais = filtros.periodo === "personalizado" ? `${fmtCurta(filtros.de)} → ${fmtCurta(filtros.ate)}`
+    : !ativoNaLinha ? PERIODOS.find((p) => p.valor === filtros.periodo)?.rotulo ?? "Mais" : "Mais";
+  const qtd = [filtros.agente, filtros.campanha, filtros.fonte, ...LISTAS.map((k) => filtros[k].join(""))].filter(Boolean).length
+    + (filtros.modo === "atualizacao" ? 1 : 0);
+  const limpar = () => mudar({ agente: "", campanha: "", fonte: "", periodo: "30", modo: "criacao", painel: [], etapa: [], responsavel: [], numero: [], tag: [] });
+  const totalCampanhas = (o?.campanhas ?? []).reduce((s, c) => s + c.leads, 0);
+  const periodoTexto = filtros.periodo === "tudo" ? "todo o período" : textoPeriodo(filtros.de, filtros.ate);
+  const pilula = (ativo: boolean) => cn("relative z-10 inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition-colors",
+    ativo ? "text-white" : "text-slate-600 hover:bg-white hover:text-foreground");
+  const Fundo = () => <motion.span layoutId={`pilula-periodo-${id}`} className="absolute inset-0 -z-10 rounded-lg"
+    style={{ background: "linear-gradient(135deg,#34d36b,#0ea64a)", boxShadow: "0 6px 14px -6px rgba(16,185,129,.55)" }}
+    transition={{ type: "spring", stiffness: 420, damping: 32 }} />;
 
   return (
-    <div className="relative z-30 space-y-3 border-b border-border/40 px-0.5 pb-4 print:hidden" role="group" aria-label="Filtros do relatório">
-      <div className="flex flex-wrap items-end gap-3">
-        <Filter className="h-4 w-4 text-muted-foreground self-center mt-3" />
+    <div className="rl-barra relative z-30 rounded-2xl border border-white/80 bg-white/75 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_30px_-18px_rgba(15,23,42,0.25)] backdrop-blur-md print:hidden md:p-4"
+      role="group" aria-label="Filtros do relatório">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
         <GrupoFiltro rotulo="Período">
-          <div className="relative flex flex-wrap items-center gap-1" role="radiogroup" aria-label="Período">
+          <div className="flex flex-wrap items-center gap-0.5 rounded-xl bg-slate-100/80 p-0.5" role="radiogroup" aria-label="Período">
             {PERIODOS.filter((p) => NA_LINHA.includes(p.valor)).map((p) => {
               const ativo = filtros.periodo === p.valor;
               return (
-                <button key={p.valor} type="button" role="radio" aria-checked={ativo} onClick={() => mudar({ periodo: p.valor })}
-                  className={cn("relative z-10 h-8 whitespace-nowrap rounded-md px-2.5 text-xs font-medium transition-colors",
-                    ativo ? "text-primary-foreground" : "border border-border bg-background text-muted-foreground hover:bg-secondary")}>
-                  {ativo && <motion.div layoutId={`pilula-periodo-${id}`} className="absolute inset-0 rounded-md" style={{ zIndex: -1, ...PILULA }}
-                    transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
-                  {p.rotulo}
+                <button key={p.valor} type="button" role="radio" aria-checked={ativo} onClick={() => mudar({ periodo: p.valor })} className={pilula(ativo)}>
+                  {ativo && <Fundo />}{p.rotulo}
                 </button>
               );
             })}
             <Popover open={maisAberto} onOpenChange={setMaisAberto}>
               <PopoverTrigger asChild>
-                <button type="button"
-                  className={cn("relative z-10 inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium transition-colors",
-                    ativoNoMais || filtros.periodo === "personalizado" ? "text-primary-foreground" : "border border-border bg-background text-foreground hover:bg-secondary")}>
-                  {(ativoNoMais || filtros.periodo === "personalizado") && (
-                    <motion.div layoutId={`pilula-periodo-${id}`} className="absolute inset-0 rounded-md" style={{ zIndex: -1, ...PILULA }}
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }} />
-                  )}
+                <button type="button" className={pilula(!ativoNaLinha)} aria-label="Mais períodos">
+                  {!ativoNaLinha && <Fundo />}
                   <Calendar className="h-3.5 w-3.5" />{rotuloMais}<ChevronDown className="h-3 w-3" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <div className="min-w-[220px] space-y-0.5 p-2">
+              <PopoverContent className="w-auto overflow-hidden rounded-2xl border-slate-200/80 p-0 shadow-[0_18px_48px_-12px_rgba(15,23,42,0.28)]" align="start" sideOffset={6}>
+                <div className="min-w-[240px] space-y-0.5 p-1.5">
                   {PERIODOS.filter((p) => !NA_LINHA.includes(p.valor)).map((p) => (
                     <button key={p.valor} type="button" onClick={() => { mudar({ periodo: p.valor }); setMaisAberto(false); }}
-                      className={cn("flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors",
-                        filtros.periodo === p.valor ? "bg-primary font-medium text-primary-foreground" : "text-foreground hover:bg-muted")}>
-                      {p.rotulo}
+                      className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+                        filtros.periodo === p.valor ? "bg-emerald-50 font-semibold text-emerald-700" : "text-foreground hover:bg-slate-50")}>
+                      <Check className={cn("h-4 w-4 text-emerald-600", filtros.periodo === p.valor ? "opacity-100" : "opacity-0")} />{p.rotulo}
                     </button>
                   ))}
                 </div>
-                <div className="space-y-2 border-t border-border p-3">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Intervalo personalizado</span>
+                <div className="space-y-2 border-t border-slate-100 bg-slate-50/60 p-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Intervalo personalizado</span>
                   <div className="flex items-center gap-2">
                     <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">De
-                      <input type="date" value={filtros.de} max={filtros.ate} className={cn(CAMPO, "h-8 px-2 text-xs")}
+                      <input type="date" value={filtros.de} max={filtros.ate} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-foreground focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/15"
                         onChange={(e) => e.target.value && mudar({ periodo: "personalizado", de: e.target.value, ate: filtros.ate })} />
                     </label>
                     <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">Até
-                      <input type="date" value={filtros.ate} min={filtros.de} className={cn(CAMPO, "h-8 px-2 text-xs")}
+                      <input type="date" value={filtros.ate} min={filtros.de} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-foreground focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/15"
                         onChange={(e) => e.target.value && mudar({ periodo: "personalizado", de: filtros.de, ate: e.target.value })} />
                     </label>
                   </div>
-                  {filtros.periodo === "personalizado" && (
-                    <div className="pt-1 text-xs font-medium text-primary">{fmtData(filtros.de + "T12:00:00")} → {fmtData(filtros.ate + "T12:00:00")}</div>
-                  )}
                 </div>
               </PopoverContent>
             </Popover>
           </div>
         </GrupoFiltro>
 
-        <div className="hidden sm:block h-8 self-end border-l border-border" />
+        {tem("modo") && (
+          <GrupoFiltro rotulo="Modo">
+            <div className="flex items-center gap-0.5 rounded-xl bg-slate-100/80 p-0.5 max-sm:w-full" role="radiogroup" aria-label="Data do card que conta">
+              {([["criacao", "Criação"], ["atualizacao", "Atualização"]] as const).map(([v, r]) => (
+                <button key={v} type="button" role="radio" aria-checked={filtros.modo === v} onClick={() => mudar({ modo: v })} className={pilula(filtros.modo === v)}
+                  title={v === "criacao" ? "Conta os cards pela data de criação" : "Conta os cards pela data da última atualização"}>
+                  {filtros.modo === v && <motion.span layoutId={`pilula-modo-${id}`} className="absolute inset-0 -z-10 rounded-lg"
+                    style={{ background: "linear-gradient(135deg,#34d36b,#0ea64a)" }} transition={{ type: "spring", stiffness: 420, damping: 32 }} />}
+                  {r}
+                </button>
+              ))}
+            </div>
+          </GrupoFiltro>
+        )}
 
-        <GrupoFiltro rotulo="Campanha">
-          <select value={filtros.campanha} onChange={(e) => mudar({ campanha: e.target.value })} className={cn(CAMPO, "max-w-[260px]")}>
-            <option value="">Todas as campanhas</option>
-            {filtros.campanha && !opcoes.dados?.campanhas.some((c) => c.campanha === filtros.campanha) && (
-              <option value={filtros.campanha}>{filtros.campanha}</option>
-            )}
-            {opcoes.dados?.campanhas.map((c) => <option key={c.campanha} value={c.campanha}>{c.campanha} ({fmtNum(c.leads)})</option>)}
-          </select>
-        </GrupoFiltro>
+        {tem("campanha") && (
+          <GrupoFiltro rotulo="Campanha">
+            <MenuFiltro icone={<Filter className="h-4 w-4" />} textoTodos="Todas campanhas" buscaRotulo="Buscar campanha…" largura={360}
+              totalTodos={`${fmtNum(totalCampanhas)} leads`} valor={filtros.campanha ? [filtros.campanha] : []}
+              aoMudar={(v) => mudar({ campanha: v[0] ?? "" })} vazio="Nenhuma campanha com UTM ainda"
+              opcoes={[...(filtros.campanha && !(o?.campanhas ?? []).some((c) => c.campanha === filtros.campanha) ? [{ campanha: filtros.campanha, leads: 0 }] : []),
+                ...(o?.campanhas ?? [])].sort((a, b) => b.leads - a.leads).map((c) => ({ valor: c.campanha, rotulo: c.campanha, sub: `${fmtNum(c.leads)} leads` }))} />
+          </GrupoFiltro>
+        )}
+        {tem("painel") && (
+          <GrupoFiltro rotulo="Painel CRM">
+            <MenuFiltro multi icone={<Kanban className="h-4 w-4" />} textoTodos="Todos os Painéis" valor={filtros.painel} aoMudar={(v) => mudar({ painel: v })}
+              vazio="Os painéis aparecem depois da conferência do CRM"
+              opcoes={(o?.paineis ?? []).map((p) => ({ valor: p.id, rotulo: p.titulo || "Painel sem nome", sub: fmtNum(p.cards) }))} />
+          </GrupoFiltro>
+        )}
+        {tem("etapa") && (
+          <GrupoFiltro rotulo="Etapa">
+            <MenuFiltro multi icone={<Layers className="h-4 w-4" />} textoTodos="Todas etapas" valor={filtros.etapa} aoMudar={(v) => mudar({ etapa: v })}
+              opcoes={(o?.etapas ?? []).filter((e) => e.valor !== "outra").map((e) => ({ valor: e.valor, rotulo: e.rotulo,
+                icone: <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: COR_ETAPA[e.valor] }} /> }))} />
+          </GrupoFiltro>
+        )}
+        {tem("responsavel") && (
+          <GrupoFiltro rotulo="Responsável">
+            <MenuFiltro multi icone={<UserRound className="h-4 w-4" />} textoTodos="Todos" buscaRotulo="Buscar atendente…" valor={filtros.responsavel}
+              aoMudar={(v) => mudar({ responsavel: v })} vazio="Nenhum card com responsável ainda"
+              opcoes={(o?.responsaveis ?? []).map((r) => ({ valor: r.id, rotulo: r.nome, sub: fmtNum(r.cards),
+                icone: <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[9px] font-bold text-white">{(r.nome || "?").slice(0, 1).toUpperCase()}</span> }))} />
+          </GrupoFiltro>
+        )}
+        {tem("numero") && (
+          <GrupoFiltro rotulo="Número">
+            <MenuFiltro multi icone={<Phone className="h-4 w-4" />} textoTodos="Todos os números" buscaRotulo="Buscar número…" valor={filtros.numero}
+              aoMudar={(v) => mudar({ numero: v })} vazio="Nenhum número de WhatsApp ligado"
+              opcoes={(o?.numeros ?? []).map((n) => ({ valor: n.numero, rotulo: fmtTelefone(n.numero), sub: n.cards ? fmtNum(n.cards) : undefined }))} />
+          </GrupoFiltro>
+        )}
+        {tem("agente") && (
+          <GrupoFiltro rotulo="Agente">
+            <MenuFiltro icone={<Bot className="h-4 w-4" />} textoTodos="Todos os agentes" valor={filtros.agente ? [filtros.agente] : []}
+              aoMudar={(v) => mudar({ agente: v[0] ?? "" })}
+              opcoes={(o?.agentes ?? []).map((a) => ({ valor: a.id, rotulo: a.nome, sub: a.situacao !== "ativo" ? "pausado" : undefined }))} />
+          </GrupoFiltro>
+        )}
+        {tem("origem") && (
+          <GrupoFiltro rotulo="Origem">
+            <MenuFiltro icone={<Megaphone className="h-4 w-4" />} textoTodos="Todas as origens" valor={filtros.fonte ? [filtros.fonte] : []}
+              aoMudar={(v) => mudar({ fonte: v[0] ?? "" })}
+              opcoes={(o?.plataformas ?? []).map((p) => ({ valor: p.valor, rotulo: p.rotulo, icone: <SeloOrigem valor={p.valor} /> }))} />
+          </GrupoFiltro>
+        )}
+        {tem("tags") && (
+          <GrupoFiltro rotulo="Tags">
+            <MenuFiltro multi icone={<Tag className="h-4 w-4" />} textoTodos="Todas as tags" buscaRotulo="Buscar tag…" valor={filtros.tag}
+              aoMudar={(v) => mudar({ tag: v })} vazio="Nenhuma etiqueta nos cards ainda"
+              opcoes={(o?.tags ?? []).map((t) => ({ valor: t.nome, rotulo: t.nome, sub: fmtNum(t.cards),
+                icone: <Tag className="h-3.5 w-3.5 shrink-0 text-emerald-500" /> }))} />
+          </GrupoFiltro>
+        )}
 
-        <div className="ml-auto self-end">
-          <button type="button" onClick={() => setRecolhida(true)}
-            className="flex h-8 items-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground hover:bg-secondary transition-colors">
-            <ChevronUp className="h-3.5 w-3.5" />Minimizar
+        <div className="ml-auto flex items-end gap-2">
+          {qtd > 0 && (
+            <button type="button" onClick={limpar}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition-all hover:-translate-y-px hover:bg-red-50 active:translate-y-0">
+              <X className="h-3.5 w-3.5" />Limpar<span className="rounded-full bg-red-100 px-1.5 text-[10px] font-bold">{qtd}</span>
+            </button>
+          )}
+          <button type="button" onClick={aoAtualizar} disabled={atualizando}
+            className="btn-lawchat inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-sm font-semibold active:scale-[0.98]">
+            <RefreshCw className={cn("relative z-10 h-3.5 w-3.5", atualizando && "animate-spin")} />
+            <span className="relative z-10">Atualizar</span>
           </button>
         </div>
       </div>
-
-      <div className="flex flex-wrap items-end gap-3 border-t border-border/50 pt-3">
-        <GrupoFiltro rotulo="Agente">
-          <select value={filtros.agente} onChange={(e) => mudar({ agente: e.target.value })} className={CAMPO}>
-            <option value="">Todos os agentes</option>
-            {opcoes.dados?.agentes.map((a) => <option key={a.id} value={a.id}>{a.nome}{a.situacao !== "ativo" ? " (pausado)" : ""}</option>)}
-          </select>
-        </GrupoFiltro>
-        <div className="hidden sm:block h-8 self-end border-l border-border" />
-        <GrupoFiltro rotulo="Origem">
-          <select value={filtros.fonte} onChange={(e) => mudar({ fonte: e.target.value })} className={CAMPO}>
-            <option value="">Todas as origens</option>
-            {opcoes.dados?.plataformas.map((p) => <option key={p.valor} value={p.valor}>{p.rotulo}</option>)}
-          </select>
-        </GrupoFiltro>
-        <div className="ml-auto flex items-end gap-2">
-          <button type="button" onClick={limpar}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-destructive/30 bg-background px-3 text-sm text-destructive transition-all hover:-translate-y-0.5 hover:border-destructive/50 hover:bg-destructive/10">
-            <X className="h-3.5 w-3.5" />Limpar
-          </button>
-          <BotaoAtualizar />
-        </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+        <span className="inline-flex items-center gap-1.5"><Calendar className="h-3 w-3" />Mostrando {periodoTexto}</span>
+        {gerado && <SeloAtualizado data={gerado} aoAtualizar={aoAtualizar} atualizando={atualizando} discreto />}
       </div>
     </div>
   );
@@ -289,7 +516,7 @@ function relativo(d: Date): string {
 }
 
 /** Selo "Atualizado há X min" (verde = recente; âmbar = mais de 2 h). Clique busca os números de novo. */
-export function SeloAtualizado({ data, aoAtualizar, atualizando }: { data: string | null | undefined; aoAtualizar: () => void; atualizando?: boolean }) {
+export function SeloAtualizado({ data, aoAtualizar, atualizando, discreto }: { data: string | null | undefined; aoAtualizar: () => void; atualizando?: boolean; discreto?: boolean }) {
   const [, setTique] = useState(0);
   useEffect(() => { const id = window.setInterval(() => setTique((t) => t + 1), 30000); return () => window.clearInterval(id); }, []);
   if (!data) return null;
@@ -297,7 +524,9 @@ export function SeloAtualizado({ data, aoAtualizar, atualizando }: { data: strin
   const velho = Date.now() - quando.getTime() > 2 * 3600000;
   return (
     <button type="button" onClick={aoAtualizar} title={`Dados de ${quando.toLocaleString("pt-BR")}. Clique para atualizar.`}
-      className="flex shrink-0 items-center gap-2 rounded-full border border-border/60 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:bg-secondary hover:text-foreground print:hidden">
+      className={cn("flex shrink-0 items-center gap-2 font-medium transition-colors print:hidden",
+        discreto ? "text-[11px] text-slate-500 hover:text-foreground"
+          : "rounded-full border border-border/60 bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-secondary hover:text-foreground")}>
       <span className="relative flex h-2 w-2">
         <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-75", velho ? "bg-amber-400" : "bg-emerald-400")} />
         <span className={cn("relative inline-flex h-2 w-2 rounded-full", velho ? "bg-amber-500" : "bg-emerald-500")} />
@@ -309,7 +538,8 @@ export function SeloAtualizado({ data, aoAtualizar, atualizando }: { data: strin
 }
 
 // --------------------------------------------------------------------------- contador animado
-export function Contador({ valor, casas = 0, sufixo = "", prefixo = "", duracao = 1000 }: {
+/** Número que conta de 0 até o valor (ao montar) e do valor antigo ao novo; sem animação com prefers-reduced-motion. */
+export function Contador({ valor, casas = 0, sufixo = "", prefixo = "", duracao = 1200 }: {
   valor: number; casas?: number; sufixo?: string; prefixo?: string; duracao?: number;
 }) {
   const [mostrado, setMostrado] = useState(0);
@@ -323,7 +553,7 @@ export function Contador({ valor, casas = 0, sufixo = "", prefixo = "", duracao 
     const passo = (t: number) => {
       if (inicio === null) inicio = t;
       const p = Math.min((t - inicio) / duracao, 1);
-      const v = de + (valor - de) * (p === 1 ? 1 : 1 - Math.pow(2, -10 * p));
+      const v = de + (valor - de) * (p === 1 ? 1 : 1 - Math.pow(1 - p, 4));
       atual.current = v;
       setMostrado(v);
       if (p < 1) quadro = requestAnimationFrame(passo);
@@ -354,16 +584,19 @@ export function Vazio({ children, icone }: { children: ReactNode; icone?: ReactN
   );
 }
 
-/** Abas em "pílula" (fundo cinza, aba ativa branca com sombra). */
+/** Abas em "pílula": a aba ativa desliza (fundo branco com sombra) e o conteúdo troca sem piscar. */
 export function Abas<T extends string>({ valor, opcoes, aoMudar, cheia }: {
   valor: T; opcoes: { valor: NoInfer<T>; rotulo: ReactNode }[]; aoMudar: (v: NoInfer<T>) => void; cheia?: boolean;
 }) {
+  const id = useId();
   return (
-    <div className={cn("flex gap-1 rounded-lg bg-muted/50 p-1", !cheia && "w-fit")} role="tablist">
+    <div className={cn("flex gap-1 rounded-xl bg-slate-100/80 p-1", !cheia && "w-fit")} role="tablist">
       {opcoes.map((o) => (
         <button key={o.valor} type="button" role="tab" aria-selected={valor === o.valor} onClick={() => aoMudar(o.valor)}
-          className={cn("flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors", cheia && "flex-1",
-            valor === o.valor ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+          className={cn("relative z-10 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors", cheia && "flex-1",
+            valor === o.valor ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
+          {valor === o.valor && <motion.span layoutId={`aba-${id}`} className="absolute inset-0 -z-10 rounded-lg bg-white shadow-[0_1px_3px_rgba(15,23,42,0.12)]"
+            transition={{ type: "spring", stiffness: 420, damping: 34 }} />}
           {o.rotulo}
         </button>
       ))}

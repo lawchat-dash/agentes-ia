@@ -317,3 +317,151 @@ async def test_varredura_do_crm_importa_e_so_grava_o_que_mudou(ambiente, monkeyp
     # limite alto: o banco de teste tem contas de outros testes na frente da fila
     contas = await rc.contas_para_varrer(pool, agora + timedelta(hours=1), limite=100000)
     assert id_esc in contas and id_esc not in await rc.contas_para_varrer(pool, agora, limite=100000)
+
+
+# ------------------------------------------------------------------ Dashboard pelos cards do CRM (migração 013)
+def test_ler_card_com_responsavel_etiquetas_e_painel():
+    card = rc.ler_card({"id": "c1", "stepId": "s1", "panelId": "p", "panelTitle": "Comercial", "stepPhase": "WON",
+                        "status": "ACTIVE", "responsibleUserId": "u1", "responsibleUser": {"id": "u1", "name": "Bia"},
+                        "tagIds": ["t1", "t2"], "sessionId": "sess"})
+    assert (card["titulo_painel"], card["id_responsavel"], card["responsavel_nome"]) == ("Comercial", "u1", "Bia")
+    assert card["ids_etiquetas"] == ["t1", "t2"] and card["id_sessao"] == "sess" and card["fase_helena"] == "WON"
+    # fase pelo tipo da coluna (painel de colunas fixas) vence o nome
+    assert rc.fase_do_card("col-x", "Coluna qualquer", {"CONTRATO_ASSINADO": "col-x"}) == "assinado"
+    assert rc.fase_do_card("col-y", "Closer", {"CONTRATO_ASSINADO": "col-x"}) == "closer"
+
+
+def test_filtros_dos_cards_validam():
+    with pytest.raises(Exception):
+        rel.Filtros(None, None, None, None, None, modo="ontem")
+    with pytest.raises(Exception):
+        rel.Filtros(None, None, None, None, None, etapa=["inventada"])
+    f = rel.Filtros(None, None, None, None, None, tudo=True, numero=["(31) 95347-1309", "5531953471309"], tag=["VIP", "VIP"])
+    assert f.numero == ["31953471309", "5531953471309"] and f.tag == ["VIP"] and f.dias == rel.MAX_DIAS
+
+
+async def _card(pool, id_esc, id_card, fase, *, painel="p1", titulo_painel="Painel 1", criado=None, atualizado=None,
+                id_lead=None, resp=None, etiquetas=(), numero=None, arquivado=False):
+    agora = datetime.now(timezone.utc)
+    await pool.execute(
+        """insert into agentesia_crm_espelho (id_escritorio, id_card_helena, id_painel_helena, titulo_painel, etapa_titulo, fase,
+                                              id_lead, arquivado, criado_em_helena, atualizado_em_helena, id_responsavel,
+                                              responsavel_nome, etiquetas, numero_canal)
+           values ($1::uuid, $2, $3, $4, $5, $5, $6::uuid, $7, $8, $9, $10, $11, $12::text[], $13)""",
+        id_esc, id_card, painel, titulo_painel, fase, id_lead, arquivado, criado or agora - timedelta(days=1),
+        atualizado or agora - timedelta(hours=1), resp, {"u1": "Bia", "u2": "Caio"}.get(resp or ""), list(etiquetas), numero)
+
+
+@pg
+async def test_dashboard_conta_pelos_cards_do_crm(ambiente):  # noqa: F811
+    cliente, _simulada, email_admin, banco = ambiente
+    cliente._transport.app.include_router(rel.api)
+    pool = banco._pool
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    s = await _semear(cliente, pool, f"Cards {uuid.uuid4().hex[:5]}")
+    id_esc, h = s["escritorio"], s["h"]
+    m = uuid.uuid4().hex[:6]
+    agora = datetime.now(timezone.utc)
+    plano = [("sdr", {}), ("sdr", {"resp": "u1"}), ("closer", {"resp": "u1", "etiquetas": ["VIP"]}),
+             ("analise", {"painel": "p2", "titulo_painel": "Painel 2"}), ("contratos", {"id_lead": s["a"]}),
+             ("assinatura", {}), ("assinado", {"resp": "u2", "etiquetas": ["VIP", "Indicação"], "numero": "5531900000001"}),
+             ("assinado", {"id_lead": s["c"]}), ("desqualificado", {}), ("nao_assinou", {}),
+             ("assinado", {"arquivado": True}),                                   # arquivado não conta
+             ("assinado", {"criado": agora - timedelta(days=200), "atualizado": agora - timedelta(hours=2)})]
+    for i, (fase, extra) in enumerate(plano):
+        await _card(pool, id_esc, f"k{i}-{m}", fase, **extra)
+
+    async def dash(**params):
+        r = await cliente.get("/api/relatorios/dashboard", headers=h, params=params)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    d = await dash()
+    c = d["cards"]
+    assert d["base"] == "cards"
+    assert (c["total"], c["assinados"], c["qualificados"], c["avancaram"], c["desqualificados"]) == (10, 2, 6, 7, 1)
+    assert c["conversao"] == 20.0 and c["eficiencia"] == round(2 / 7 * 100, 1) and c["qualificados_pct"] == 60.0
+    fases = {x["fase"]: x["total"] for x in c["por_fase"]}
+    assert fases == {"sdr": 2, "closer": 1, "analise": 1, "contratos": 1, "assinatura": 1, "assinado": 2,
+                     "desqualificado": 1, "nao_assinou": 1}
+    assert [e["chegaram"] for e in c["funil"]] == [10, 7, 5, 4, 2]
+    assert sum(x["cards"] for x in d["serie"]) == 10
+    assert d["kpis"]["leads"] == 4                         # os quadros da IA continuam pelos leads
+
+    # modo: pela data de atualização entra o card criado há 200 dias; todo o período também
+    assert (await dash(modo="atualizacao"))["cards"]["total"] == 11
+    assert (await dash(tudo="1"))["cards"]["total"] == 11
+    # filtros só dos cards
+    assert (await dash(painel="p2"))["cards"]["total"] == 1
+    assert (await dash(etapa=["sdr", "closer"]))["cards"]["total"] == 3
+    assert (await dash(responsavel="u1"))["cards"]["total"] == 2
+    assert (await dash(tag="VIP"))["cards"]["assinados"] == 1
+    assert (await dash(numero="5531900000001"))["cards"]["total"] == 1
+    # campanha e origem pelo lead ligado ao card (card sem lead = sem origem)
+    assert (await dash(campanha="Campanha Auxílio"))["cards"]["total"] == 2
+    assert (await dash(fonte="direto"))["cards"]["total"] == 8
+    assert (await cliente.get("/api/relatorios/dashboard", headers=h, params={"modo": "x"})).status_code == 400
+
+    f = (await cliente.get("/api/relatorios/filtros", headers=h)).json()
+    assert {p["id"]: p["titulo"] for p in f["paineis"]} == {"p1": "Painel 1", "p2": "Painel 2"}
+    assert {r["nome"] for r in f["responsaveis"]} == {"Bia", "Caio"}
+    assert {t["nome"]: t["cards"] for t in f["tags"]} == {"VIP": 2, "Indicação": 1}
+    assert any(n["numero"] == "5531900000001" for n in f["numeros"])
+    assert [e["valor"] for e in f["etapas"]][:8] == ["sdr", "closer", "analise", "contratos", "assinatura", "assinado",
+                                                     "desqualificado", "nao_assinou"]
+    # Campanhas: o card ligado ao lead C (só SDR na IA) está em Contrato assinado -> conta como assinado
+    camp = (await cliente.get("/api/relatorios/campanhas", headers=h)).json()
+    assert camp["kpis"]["assinados"] == 2
+
+    # Conta sem cards: os mesmos indicadores saem dos leads
+    outro = await _semear(cliente, pool, f"Sem cards {uuid.uuid4().hex[:5]}")
+    d2 = (await cliente.get("/api/relatorios/dashboard", headers=outro["h"])).json()
+    assert d2["base"] == "leads" and d2["cards"] is None
+
+
+class _PlataformaDoisPaineis(_PlataformaFalsa):
+    async def paineis(self):
+        return [{"id": "painel-2", "titulo": "Pós-venda", "etapas": [{"id": "pv-1", "titulo": "Desqualificado"}]},
+                {"id": "painel-1", "titulo": "Comercial", "etapas": [{"id": "col-sdr", "titulo": "SDR"},
+                                                                    {"id": "col-ok", "titulo": "Coluna final"}]}]
+
+    async def etiquetas(self):
+        return [{"id": "t1", "nome": "VIP"}]
+
+    async def _pedir(self, metodo, caminho, **kw):
+        self.pedidos.append(kw["params"])
+        return {"items": [c for c in self.cards if c["panelId"] == kw["params"]["PanelId"]], "hasMorePages": False}
+
+
+@pg
+async def test_varredura_le_todos_os_paineis_responsavel_e_etiquetas(ambiente):  # noqa: F811
+    cliente, _simulada, email_admin, banco = ambiente
+    pool = banco._pool
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    s = await _semear(cliente, pool, f"Varredura 2 {uuid.uuid4().hex[:5]}")
+    id_esc = s["escritorio"]
+    m = uuid.uuid4().hex[:6]
+    await pool.execute(
+        """insert into agentesia_integracoes (id_escritorio, tipo, config, situacao)
+           values ($1::uuid, 'crm', '{"id_painel": "painel-1", "etapas_por_tipo": {"CONTRATO_ASSINADO": "col-ok"}}', 'ok')
+           on conflict (id_escritorio, tipo) do update set config = excluded.config""", id_esc)
+    contato_a = await pool.fetchval(
+        "select c.id_contato_helena from agentesia_leads l join agentesia_contatos c on c.id = l.id_contato where l.id = $1::uuid", s["a"])
+    agora = datetime.now(timezone.utc).isoformat()
+    falsa = _PlataformaDoisPaineis([
+        {"id": f"a-{m}", "panelId": "painel-1", "stepId": "col-ok", "contactIds": [contato_a], "updatedAt": agora,
+         "responsibleUserId": "u9", "responsibleUser": {"name": "Rita"}, "tagIds": ["t1", "t-sem-nome"], "sessionId": "s1"},
+        {"id": f"b-{m}", "panelId": "painel-2", "stepId": "pv-1", "updatedAt": agora}])
+    r = await rc.varrer_escritorio(pool, id_esc, falsa)
+    assert r["paineis"] == 2 and r["vistos"] == 2 and r["mudados"] == 2
+    assert [p["PanelId"] for p in falsa.pedidos] == ["painel-1", "painel-2"]   # o painel da IA primeiro
+    linhas = {x["id_card_helena"]: dict(x) for x in await pool.fetch(
+        """select id_card_helena, fase, titulo_painel, responsavel_nome, etiquetas, ids_etiquetas, numero_canal, id_sessao_helena
+             from agentesia_crm_espelho where id_escritorio = $1::uuid""", id_esc)}
+    a = linhas[f"a-{m}"]
+    assert a["fase"] == "assinado" and a["titulo_painel"] == "Comercial" and a["responsavel_nome"] == "Rita"
+    assert a["etiquetas"] == ["VIP"] and a["ids_etiquetas"] == ["t1", "t-sem-nome"] and a["id_sessao_helena"] == "s1"
+    assert a["numero_canal"]                                # número do canal do lead ligado
+    assert linhas[f"b-{m}"]["fase"] == "desqualificado" and linhas[f"b-{m}"]["titulo_painel"] == "Pós-venda"
+    # de novo, igual: nada muda
+    assert (await rc.varrer_escritorio(pool, id_esc, falsa))["mudados"] == 0

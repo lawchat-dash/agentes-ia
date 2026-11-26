@@ -9,15 +9,26 @@
   GET  /api/relatorios/campanhas/anuncio/{chave}   detalhe de um anúncio (série, etapas e os leads dele)
   POST /api/relatorios/crm/importar                pede a importação completa dos cards do CRM (roda em segundo plano)
 
-Filtros comuns (query): de, ate (AAAA-MM-DD, horário de Brasília; padrão: últimos 30 dias), agente (id), campanha
-(texto exato), fonte (plataforma: instagram, facebook, google, youtube, tiktok, outro, direto).
+Filtros comuns (query): de, ate (AAAA-MM-DD, horário de Brasília; padrão: últimos 30 dias), tudo=1 (todo o período),
+agente (id), campanha (texto exato), fonte (plataforma: instagram, facebook, google, youtube, tiktok, outro, direto).
+Só dos cards do CRM (Dashboard): modo (criacao | atualizacao: qual data do card conta para o período), e listas
+(parâmetro repetido) painel (id do painel), etapa (fase: sdr, closer, analise, contratos, assinatura, assinado,
+desqualificado, nao_assinou, outra), responsavel (id do usuário), numero (número do canal, só dígitos) e tag (nome).
 
 De onde vem cada número: só das nossas tabelas (nada de chamada externa ao abrir a tela).
   agentesia_leads + agentesia_contatos + agentesia_agente_etapas   o lead, a etapa atual, a origem (UTM/anúncio)
   agentesia_lead_etapas                                            por quais etapas o lead já passou
   agentesia_contratos                                              contrato gerado e assinado (data da assinatura)
   agentesia_turnos / agentesia_mensagens / agentesia_chamadas_ia   respostas, tempos e custo da IA
-  agentesia_crm_espelho / agentesia_crm_varredura (migração 012)   cards do CRM, inclusive os antigos
+  agentesia_crm_espelho / agentesia_crm_varredura (migração 012)   cards do CRM, inclusive os antigos (013: painel,
+                                                                   responsável, etiquetas e número do canal)
+
+Dashboard, como o original: os indicadores principais (Cards Totais, Contratos Assinados, conversão, eficiência,
+% qualificado, cartões de etapa e funil) contam os CARDS do painel do CRM (agentesia_crm_espelho, todos os painéis
+da conta, sem os arquivados); a fase de cada card vem do tipo da coluna (etapas_por_tipo) ou do nome da coluna.
+Conta sem nenhum card espelhado (CRM desligado): os mesmos indicadores saem dos leads da IA ("base": "leads").
+Os quadros da IA (respostas, tempo, custo) continuam contando os leads, turnos e chamadas da IA.
+Em leads com card ligado, a fase do card também conta para até onde o lead chegou (Rastreamento de campanhas).
 
 O grupo de leads é a "safra" do período: os leads que ENTRARAM entre de e ate; o funil conta até onde cada um já foi
 (a etapa mais adiante que alcançou, hoje). Os números da IA (respostas, turnos, custo) são do que aconteceu no período.
@@ -32,7 +43,7 @@ from datetime import time as dtime
 from typing import Any
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.gestao.cache_curto import CacheCurto
 from app.gestao.metricas import uf_do_telefone, variacao
@@ -51,6 +62,7 @@ FUNIL = [("sdr", "SDR"), ("closer", "Closer"), ("contratos", "Contratos"), ("ass
          ("assinado", "Contrato assinado")]
 NOMES_FASE = dict(FUNIL) | {"desqualificado": "Desqualificado", "analise": "Análise da equipe",
                             "nao_assinou": "Não assinou", "outra": "Outra etapa", "sem_etapa": "Sem etapa"}
+NOMES_ETAPA_CARD = {"analise": "Análise Manual", "contratos": "Confecção de Contrato", "assinatura": "Aguardando Assinatura"}
 PLATAFORMAS = {"instagram": "Instagram", "facebook": "Facebook / Meta", "google": "Google", "youtube": "YouTube",
                "tiktok": "TikTok", "outro": "Outra origem", "direto": "Sem origem (direto)"}
 
@@ -71,7 +83,9 @@ _CODIGOS_FASE = {
     "assinado": ("contratoassinado", "assinado"),
     "desqualificado": ("desqualificado", "foradoperfil", "encerramento"),
 }
-NIVEL = {"sdr": 1, "closer": 2, "analise": 2, "contratos": 3, "assinatura": 4, "assinado": 5}
+NIVEL = {"sdr": 1, "closer": 2, "analise": 2, "contratos": 3, "assinatura": 4, "nao_assinou": 4, "assinado": 5}
+FASES_CARD = ["sdr", "closer", "analise", "contratos", "assinatura", "assinado", "desqualificado", "nao_assinou", "outra"]
+QUALIFICADAS = ("closer", "analise", "contratos", "assinatura", "assinado")
 
 
 def _fase(coluna: str) -> str:
@@ -147,21 +161,26 @@ def _lead_sql(onde: str, extra: str = "") -> str:
            where k.id_lead = l.id and k.situacao = 'assinado') as k_assinado,
          exists (select 1 from agentesia_contratos k where k.id_lead = l.id
                   and k.situacao in ('gerado', 'assinado', 'substituido')) as k_gerado,
-         {passou_assinado} as h_assinado{extra}
+         {passou_assinado} as h_assinado, cd.fase as fase_card, cd.atualizado_em_helena as card_em{extra}
     from agentesia_leads l
     join agentesia_contatos ct on ct.id = l.id_contato
     left join agentesia_agente_etapas e on e.id = l.id_etapa
+    left join lateral (select x.fase, x.atualizado_em_helena from agentesia_crm_espelho x
+                        where x.id_lead = l.id and not x.arquivado
+                        order by x.atualizado_em_helena desc nulls last limit 1) cd on true
    where {onde}
 ), n as (
   select b.*, a.assinado_em, (a.assinado_em is not null) as assinado,
-         greatest(1, {_nivel('b.fase_atual')}, b.nivel_hist, case when b.k_gerado then 4 else 1 end,
+         greatest(1, {_nivel('b.fase_atual')}, {_nivel('b.fase_card')}, b.nivel_hist, case when b.k_gerado then 4 else 1 end,
                   case when a.assinado_em is not null then 5 else 1 end) as nivel,
-         coalesce(a.assinado_em is null and (b.fase_atual = 'desqualificado' or b.motivo_estado = 'desqualificado'), false) as desq,
+         coalesce(a.assinado_em is null and (b.fase_atual = 'desqualificado' or b.motivo_estado = 'desqualificado'
+                                             or b.fase_card = 'desqualificado'), false) as desq,
          coalesce(b.fase_atual = 'analise' or b.passou_analise, false) as analise,
          extract(epoch from (a.assinado_em - b.criado_em)) / 3600.0 as horas_ate_assinar
     from b
     cross join lateral (select coalesce(b.k_assinado, b.h_assinado,
-                                        case when b.fase_atual = 'assinado' then b.atualizado_em end) as assinado_em) a
+                                        case when b.fase_atual = 'assinado' then b.atualizado_em end,
+                                        case when b.fase_card = 'assinado' then coalesce(b.card_em, b.atualizado_em) end) as assinado_em) a
 )"""
 
 
@@ -180,14 +199,40 @@ def _json(valor: Any, vazio: Any) -> Any:
 
 
 # ------------------------------------------------------------------ filtros
+def _lista_filtro(valores: list[str] | None, *, digitos: bool = False) -> list[str]:
+    saida: list[str] = []
+    for v in valores or []:
+        for parte in str(v).split(",") if digitos else [str(v)]:
+            parte = re.sub(r"\D", "", parte) if digitos else parte.strip()[:200]
+            if parte and parte not in saida:
+                saida.append(parte)
+    return saida[:100]
+
+
 class Filtros:
-    def __init__(self, de: str | None, ate: str | None, agente: str | None, campanha: str | None, fonte: str | None) -> None:
+    def __init__(self, de: str | None, ate: str | None, agente: str | None, campanha: str | None, fonte: str | None,
+                 *, tudo: bool = False, modo: str | None = None, painel: list[str] | None = None,
+                 etapa: list[str] | None = None, responsavel: list[str] | None = None, numero: list[str] | None = None,
+                 tag: list[str] | None = None) -> None:
         hoje = datetime.now(_BRASILIA).date()
+        self.tudo = bool(tudo)
         try:
             self.ate = date.fromisoformat(ate) if ate else hoje
-            self.de = date.fromisoformat(de) if de else self.ate - timedelta(days=29)
+            # Todo o período: os cards contam sem data; o que é por dia (série, IA) usa os últimos MAX_DIAS dias.
+            self.de = (self.ate - timedelta(days=MAX_DIAS - 1) if self.tudo
+                       else date.fromisoformat(de) if de else self.ate - timedelta(days=29))
         except ValueError:
             raise HTTPException(400, "Data inválida (use AAAA-MM-DD).") from None
+        if modo and modo not in ("criacao", "atualizacao"):
+            raise HTTPException(400, "Modo inválido (criacao ou atualizacao).")
+        self.modo = modo or "criacao"
+        self.painel = _lista_filtro(painel)
+        self.etapa = _lista_filtro(etapa)
+        if any(e not in FASES_CARD for e in self.etapa):
+            raise HTTPException(400, "Etapa inválida.")
+        self.responsavel = _lista_filtro(responsavel)
+        self.numero = _lista_filtro(numero, digitos=True)
+        self.tag = _lista_filtro(tag)
         if self.de > self.ate:
             raise HTTPException(400, "A data inicial é depois da final.")
         if (self.ate - self.de).days + 1 > MAX_DIAS:
@@ -213,7 +258,39 @@ class Filtros:
         return inicio - timedelta(days=self.dias), inicio
 
     def chave(self) -> tuple[Any, ...]:
-        return (self.de, self.ate, self.agente, self.campanha, self.fonte)
+        return (self.de, self.ate, self.agente, self.campanha, self.fonte, self.tudo, self.modo, tuple(self.painel),
+                tuple(self.etapa), tuple(self.responsavel), tuple(self.numero), tuple(self.tag))
+
+    def filtra_card(self) -> bool:
+        return bool(self.painel or self.etapa or self.responsavel or self.numero or self.tag)
+
+    def onde_cards(self, args: list[Any], inicio: datetime | None, fim: datetime | None, c13: bool) -> str:
+        """where dos cards (alias e, lead ligado l, canal do lead kc). args já começa com o escritório em $1."""
+        def arg(valor: Any) -> str:
+            args.append(valor)
+            return f"${len(args)}"
+
+        data = "e.atualizado_em_helena" if self.modo == "atualizacao" else "coalesce(e.criado_em_helena, e.atualizado_em_helena)"
+        partes = ["e.id_escritorio = $1::uuid", "not e.arquivado"]
+        if inicio is not None and fim is not None:
+            partes += [f"{data} >= {arg(inicio)}", f"{data} < {arg(fim)}"]
+        if self.painel:
+            partes.append(f"e.id_painel_helena = any({arg(self.painel)}::text[])")
+        if self.etapa:
+            partes.append(f"coalesce(e.fase, 'outra') = any({arg(self.etapa)}::text[])")
+        if c13 and self.responsavel:
+            partes.append(f"e.id_responsavel = any({arg(self.responsavel)}::text[])")
+        if c13 and self.numero:
+            partes.append(f"coalesce(e.numero_canal, kc.numero_normalizado) = any({arg(self.numero)}::text[])")
+        if c13 and self.tag:
+            partes.append(f"e.etiquetas && {arg(self.tag)}::text[]")
+        if self.agente:
+            partes.append(f"l.id_agente = {arg(self.agente)}::uuid")
+        if self.campanha:
+            partes.append(f"{CAMPANHA_SQL} = {arg(self.campanha)}")
+        if self.fonte:
+            partes.append(f"{PLATAFORMA_SQL} = {arg(self.fonte)}")
+        return " and ".join(partes)
 
     def onde(self, args: list[Any], inicio: datetime, fim: datetime, *, so_com_origem: bool = False) -> str:
         """where dos leads (alias l). args já começa com o escritório em $1."""
@@ -243,8 +320,12 @@ class Filtros:
 
 
 def _filtros(de: str | None = None, ate: str | None = None, agente: str | None = None, campanha: str | None = None,
-             fonte: str | None = None) -> Filtros:
-    return Filtros(de, ate, agente, campanha, fonte)
+             fonte: str | None = None, tudo: bool = False, modo: str | None = None,
+             painel: list[str] | None = Query(None), etapa: list[str] | None = Query(None),
+             responsavel: list[str] | None = Query(None), numero: list[str] | None = Query(None),
+             tag: list[str] | None = Query(None)) -> Filtros:
+    return Filtros(de, ate, agente, campanha, fonte, tudo=tudo, modo=modo, painel=painel, etapa=etapa,
+                   responsavel=responsavel, numero=numero, tag=tag)
 
 
 def _dias(f: Filtros) -> list[str]:
@@ -333,7 +414,9 @@ async def filtros(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str,
                  group by 1 order by 2 desc limit 200""", id_escritorio)
         return {"agentes": [dict(r) for r in agentes], "campanhas": [dict(r) for r in campanhas],
                 "plataformas": [{"valor": k, "rotulo": v} for k, v in PLATAFORMAS.items()],
-                "fases": [{"valor": k, "rotulo": v} for k, v in FUNIL]}
+                "fases": [{"valor": k, "rotulo": v} for k, v in FUNIL],
+                "etapas": [{"valor": k, "rotulo": NOMES_ETAPA_CARD.get(k, NOMES_FASE.get(k, k))} for k in FASES_CARD],
+                **await opcoes_dos_cards(pool, id_escritorio)}
 
     return await _CACHE.obter((id(pedido.app), "filtros", id_escritorio), calcular)
 
@@ -417,9 +500,12 @@ async def _calcular_dashboard(pool: Any, id_escritorio: str, f: Filtros) -> dict
         _lead_sql(onde_ant) + " select " + _um("""select count(*)::int as leads, count(*) filter (where assinado)::int as assinados,
                                                      count(*) filter (where (nivel >= 2 or analise) and not desq)::int as qualificados from n"""),
         *args_ant), {}) or {}
+    args_custo: list[Any] = [id_escritorio, a0, a1]
+    onde_custo = (" and " + " and ".join(f.condicoes_lead(args_custo))) if f.filtra_lead() else ""
     custo_ant = float(await pool.fetchval(
-        "select coalesce(sum(custo_brl), 0)::float8 from agentesia_chamadas_ia where id_escritorio = $1::uuid and criado_em >= $2 and criado_em < $3",
-        id_escritorio, a0, a1) or 0)
+        f"""select coalesce(sum(c.custo_brl), 0)::float8 from agentesia_chamadas_ia c{junta.format(alias='c')}
+             where c.id_escritorio = $1::uuid and c.criado_em >= $2 and c.criado_em < $3{onde_custo}""",
+        *args_custo) or 0)
 
     totais = _json(linha["totais"], {}) or {}
     leads = int(totais.get("leads") or 0)
@@ -488,7 +574,16 @@ async def _calcular_dashboard(pool: Any, id_escritorio: str, f: Filtros) -> dict
     turnos = _json(linha_ia["turnos"], {}) or {}
     primeira = _json(linha["primeira_resposta"], {}) or {}
     custo_brl = round(custo["brl"], 2)
+    cards = await _cards(pool, id_escritorio, f)
+    if cards:
+        for r in cards.pop("por_dia"):
+            if r["dia"] in por_dia:
+                por_dia[r["dia"]]["cards"] = r["cards"]
+    for x in por_dia.values():
+        x.setdefault("cards", 0)
     return {
+        "base": "cards" if cards else "leads",
+        "cards": cards,
         "periodo": {"de": f.de.isoformat(), "ate": f.ate.isoformat(), "dias": f.dias},
         "kpis": {
             "leads": leads, "leads_variacao": variacao(leads, ant.get("leads", 0)),
@@ -529,6 +624,121 @@ async def _calcular_dashboard(pool: Any, id_escritorio: str, f: Filtros) -> dict
         "crm": await _crm(pool, id_escritorio, inicio, fim),
         "gerado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+_C13: dict[int, bool] = {}
+
+
+async def _tem_013(pool: Any) -> bool:
+    """O espelho já tem as colunas da migração 013 (responsável, etiquetas, número)? Guardado por pool."""
+    if id(pool) not in _C13:
+        _C13[id(pool)] = bool(await pool.fetchval(
+            """select exists(select 1 from information_schema.columns
+                              where table_name = 'agentesia_crm_espelho' and column_name = 'numero_canal')"""))
+    return _C13[id(pool)]
+
+
+_JUNTA_CARDS = """ from agentesia_crm_espelho e
+  left join agentesia_leads l on l.id = e.id_lead
+  left join agentesia_canais kc on kc.id = l.id_canal"""
+
+
+def _nivel_card() -> str:
+    casos = " ".join(f"when '{f}' then {n}" for f, n in NIVEL.items())
+    return f"(case e.fase {casos} else 1 end)"
+
+
+async def _cards(pool: Any, id_escritorio: str, f: Filtros) -> dict[str, Any] | None:
+    """Indicadores pelos cards do painel do CRM (como o dashboard original). None = conta sem cards espelhados."""
+    try:
+        if not await pool.fetchval(
+                "select exists(select 1 from agentesia_crm_espelho where id_escritorio = $1::uuid)", id_escritorio):
+            return None
+        c13 = await _tem_013(pool)
+    except asyncpg.UndefinedTableError:
+        return None
+    inicio, fim = (None, None) if f.tudo else f.limites()
+    args: list[Any] = [id_escritorio]
+    onde = f.onde_cards(args, inicio, fim, c13)
+    data = "e.atualizado_em_helena" if f.modo == "atualizacao" else "coalesce(e.criado_em_helena, e.atualizado_em_helena)"
+    ini_dia, fim_dia = f.limites()
+    args += [ini_dia, fim_dia]
+    p_ini, p_fim = f"${len(args) - 1}", f"${len(args)}"
+    qualif = ", ".join(repr(x) for x in QUALIFICADAS)
+    totais_sql = (f"""select count(*)::int as total, count(*) filter (where fase = 'assinado')::int as assinados,
+                       count(*) filter (where fase in ({qualif}))::int as qualificados,
+                       count(*) filter (where fase not in ('sdr', 'desqualificado', 'outra'))::int as avancaram,
+                       {", ".join(f"count(*) filter (where nivel >= {i})::int as n{i}" for i in range(1, 6))}
+                  from c""")
+    sql = f"""with c as materialized (
+  select coalesce(e.fase, 'outra') as fase, {data} as quando, {_nivel_card()} as nivel{_JUNTA_CARDS}
+   where {onde}
+)
+select {_um(totais_sql)} as totais,
+       {_lista("select fase, count(*)::int as total from c group by 1")} as por_fase,
+       {_lista(f"""select to_char(quando at time zone '{FUSO}', 'YYYY-MM-DD') as dia, count(*)::int as cards from c
+                    where quando >= {p_ini} and quando < {p_fim} group by 1""")} as por_dia"""
+    linha = await pool.fetchrow(sql, *args)
+    t = _json(linha["totais"], {}) or {}
+    total, assinados = int(t.get("total") or 0), int(t.get("assinados") or 0)
+    ant: dict[str, Any] = {}
+    if not f.tudo:
+        a0, a1 = f.anteriores()
+        args_ant: list[Any] = [id_escritorio]
+        onde_ant = f.onde_cards(args_ant, a0, a1, c13)
+        ant = dict(await pool.fetchrow(
+            f"""select count(*)::int as total, count(*) filter (where e.fase = 'assinado')::int as assinados
+                  {_JUNTA_CARDS} where {onde_ant}""", *args_ant) or {})
+    por_fase = {r["fase"]: r["total"] for r in _json(linha["por_fase"], [])}
+    qualificados, avancaram = int(t.get("qualificados") or 0), int(t.get("avancaram") or 0)
+    funil = _funil({**t, **{f"a_{fase}": por_fase.get(fase, 0) for fase, _ in FUNIL}}, total)
+    return {
+        "total": total, "total_variacao": variacao(total, ant.get("total", 0)),
+        "assinados": assinados, "assinados_variacao": variacao(assinados, ant.get("assinados", 0)),
+        "conversao": _pct(assinados, total), "conversao_anterior": _pct(ant.get("assinados", 0), ant.get("total", 0)),
+        "eficiencia": _pct(assinados, avancaram), "avancaram": avancaram,
+        "qualificados": qualificados, "qualificados_pct": _pct(qualificados, total),
+        "desqualificados": por_fase.get("desqualificado", 0), "desqualificados_pct": _pct(por_fase.get("desqualificado", 0), total),
+        "por_fase": [{"fase": k, "nome": NOMES_FASE.get(k, k), "total": por_fase.get(k, 0), "pct": _pct(por_fase.get(k, 0), total)}
+                     for k in FASES_CARD if k != "outra" or por_fase.get(k)],
+        "funil": funil, "modo": f.modo, "todo_periodo": f.tudo, "filtros_do_card": c13,
+        "por_dia": _json(linha["por_dia"], []),
+    }
+
+
+async def opcoes_dos_cards(pool: Any, id_escritorio: str) -> dict[str, Any]:
+    """Painéis, responsáveis, números e etiquetas que aparecem nos cards da conta (para os filtros)."""
+    vazio = {"paineis": [], "responsaveis": [], "numeros": [], "tags": []}
+    try:
+        paineis = await pool.fetch(
+            """select id_painel_helena as id, max(titulo_painel) as titulo, count(*)::int as cards
+                 from agentesia_crm_espelho where id_escritorio = $1::uuid and not arquivado and id_painel_helena is not null
+                group by 1 order by 3 desc""" if await _tem_013(pool) else
+            """select id_painel_helena as id, null::text as titulo, count(*)::int as cards
+                 from agentesia_crm_espelho where id_escritorio = $1::uuid and not arquivado and id_painel_helena is not null
+                group by 1 order by 3 desc""", id_escritorio)
+    except asyncpg.UndefinedTableError:
+        return vazio
+    saida = {**vazio, "paineis": [dict(r) for r in paineis]}
+    canais = await pool.fetch(
+        "select numero_normalizado as numero from agentesia_canais where id_escritorio = $1::uuid order by criado_em", id_escritorio)
+    numeros: dict[str, int] = {r["numero"]: 0 for r in canais if r["numero"]}
+    if await _tem_013(pool):
+        saida["responsaveis"] = [dict(r) for r in await pool.fetch(
+            """select id_responsavel as id, coalesce(max(responsavel_nome), 'Usuário sem nome') as nome, count(*)::int as cards
+                 from agentesia_crm_espelho where id_escritorio = $1::uuid and not arquivado and id_responsavel is not null
+                group by 1 order by 2""", id_escritorio)]
+        saida["tags"] = [dict(r) for r in await pool.fetch(
+            """select t as nome, count(*)::int as cards
+                 from agentesia_crm_espelho, unnest(etiquetas) t where id_escritorio = $1::uuid and not arquivado
+                group by 1 order by 2 desc limit 300""", id_escritorio)]
+        for r in await pool.fetch(
+                f"""select coalesce(e.numero_canal, kc.numero_normalizado) as numero, count(*)::int as cards{_JUNTA_CARDS}
+                     where e.id_escritorio = $1::uuid and not e.arquivado
+                       and coalesce(e.numero_canal, kc.numero_normalizado) is not null group by 1""", id_escritorio):
+            numeros[r["numero"]] = r["cards"]
+    saida["numeros"] = [{"numero": k, "cards": v} for k, v in sorted(numeros.items(), key=lambda x: -x[1])]
+    return saida
 
 
 async def _crm(pool: Any, id_escritorio: str, inicio: datetime, fim: datetime) -> dict[str, Any] | None:

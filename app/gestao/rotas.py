@@ -2460,12 +2460,16 @@ async def funil(pedido: Request, dias: int = 30, id_agente: str | None = None, c
 @api.get("/eventos")
 async def eventos(pedido: Request, abertos: bool = True, todos_escritorios: bool = False,
                   ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
+    if not ctx.lawchat:                      # a tela de Erros é só da equipe LawChat (o cliente não vê)
+        raise HTTPException(403, "Só a equipe LawChat vê os erros.")
     escopo = None if (ctx.admin and todos_escritorios) else ctx.escritorio()
     return await _repo(pedido).eventos(escopo, abertos=abertos)
 
 
 @api.post("/eventos/{id_evento}/resolver")
 async def resolver_evento(id_evento: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    if not ctx.lawchat:
+        raise HTTPException(403, "Só a equipe LawChat vê os erros.")
     escopo = None if ctx.admin else ctx.escritorio()
     if not await _repo(pedido).resolver_evento(id_evento, escopo, ctx.id_usuario):
         raise HTTPException(404, "Erro não encontrado ou já resolvido.")

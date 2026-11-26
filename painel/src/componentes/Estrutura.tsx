@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig, motion } from "framer-motion";
 import {
-  BarChart3, Cpu, Workflow, Activity, AlertOctagon, Headset, Bell, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, CircleHelp, History, Home, LayoutGrid, Library,
+  BarChart3, Cpu, Workflow, Activity, AlertOctagon, Headset, Bell, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, History, Home, LayoutGrid, Library,
   CreditCard, LogOut, Target, Menu, MessagesSquare, Package, ShieldCheck, Wrench, PanelLeftClose, PanelLeftOpen, PlugZap, Search, Settings, Users, Wallet, X,
 } from "lucide-react";
 import { NOME_PAPEL, type Agente } from "../api";
@@ -190,15 +190,14 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
           <Search /><span>Buscar em tudo</span><kbd>Ctrl K</kbd>
         </button>
         <div className="lc-pilula">
-          {podeGerir && escritorio && (
-            <Link to={lawchat ? "/admin/erros" : "/erros"} className="lc-ico" aria-label={erros ? `${erros} erros abertos` : "Erros"} title="Erros abertos">
+          {lawchat && escritorio && (
+            <Link to="/admin/erros" className="lc-ico" aria-label={erros ? `${erros} erros abertos` : "Erros"} title="Erros abertos">
               <Bell className="lc-sino" />{erros > 0 && <span className="lc-badge num">{erros > 9 ? "9+" : erros}</span>}
             </Link>
           )}
           {lawchat && !impersonando && !modoAdmin && (
             <Link to="/admin/escritorios" className="lc-btn-admin" title="Entrar no modo superadmin"><ShieldCheck />Admin</Link>
           )}
-          <button type="button" className="lc-ico" onClick={() => setAjuda(true)} aria-label="Ajuda" title="Ajuda"><CircleHelp /></button>
           {eu && <span className="lc-topo-av" title={`${eu.nome} · ${NOME_PAPEL[eu.papel]}`}>{lawchat ? <img src={fotoLawChat} alt="" className="lc-av-foto" /> : iniciaisDe(eu.nome)}</span>}
         </div>
     </>

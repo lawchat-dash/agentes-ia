@@ -177,11 +177,30 @@ async def receber_evento_de_card(pool: asyncpg.Pool, id_escritorio: str, corpo: 
         json.dumps(corpo, ensure_ascii=False, default=str))
     if not recebido:
         return {"feito": "ignorado", "motivo": "repetido"}
+    await _espelho_do_card(pool, id_escritorio, evento)
     resultado = await _mudou_de_coluna(pool, id_escritorio, evento)
     await pool.execute(
         """update agentesia_eventos_recebidos set situacao = $2, motivo = $3, processado_em = now() where id = $1""",
         recebido, "processado" if resultado["feito"] == "trocado" else "ignorado", resultado.get("motivo"))
     return resultado
+
+
+async def _espelho_do_card(pool: asyncpg.Pool, id_escritorio: str, evento: dict[str, Any]) -> None:
+    """Relatórios: o card já espelhado (agentesia_crm_espelho, migração 012) passa para a coluna nova na hora, sem
+    esperar a varredura. Nome e fase da coluna vêm de outro card já visto nela; o resto a varredura completa."""
+    try:
+        await pool.execute(
+            """update agentesia_crm_espelho e set id_etapa_helena = $3,
+                      etapa_titulo = coalesce(o.etapa_titulo, e.etapa_titulo), fase = coalesce(o.fase, e.fase),
+                      atualizado_em_helena = now(), visto_em = now()
+                 from (select (select x.etapa_titulo from agentesia_crm_espelho x where x.id_escritorio = $1::uuid
+                                  and x.id_etapa_helena = $3 and x.etapa_titulo is not null limit 1) as etapa_titulo,
+                              (select x.fase from agentesia_crm_espelho x where x.id_escritorio = $1::uuid
+                                  and x.id_etapa_helena = $3 and x.fase is not null limit 1) as fase) o
+                where e.id_escritorio = $1::uuid and e.id_card_helena = $2 and e.id_etapa_helena is distinct from $3""",
+            id_escritorio, evento["id_card"], evento["id_etapa"])
+    except asyncpg.UndefinedTableError:                    # banco sem a 012: relatórios sem espelho
+        pass
 
 
 async def _mudou_de_coluna(pool: asyncpg.Pool, id_escritorio: str, evento: dict[str, Any]) -> dict[str, Any]:

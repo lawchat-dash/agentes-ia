@@ -527,11 +527,18 @@ class Atendimento:
             del self._prazos[id_lead]
             try:
                 await self.processar(id_lead)
-            except Exception:                        # nunca deixa a tarefa morrer calada
+            except Exception as erro:                # nunca deixa a tarefa morrer calada
                 log.exception("falha ao processar o lead %s", id_lead)
+                # Tipo, mensagem e a linha do código onde falhou: aparece na tela de Erros (sem precisar do log).
+                import traceback
+                quadro = next((q for q in reversed(traceback.extract_tb(erro.__traceback__))
+                               if "/app/" in q.filename.replace("\\", "/")), None)
+                onde = f" em {q_arquivo}:{quadro.lineno} ({quadro.name})" if quadro and (
+                    q_arquivo := quadro.filename.replace("\\", "/").split("/app/")[-1]) else ""
                 lead = await self.repo.lead(id_lead)
                 await self._evento(lead.id_escritorio if lead else None, id_lead, None, "erro_no_turno",
-                                   "critico", "lawchat", "Erro inesperado ao processar o turno.")
+                                   "critico", "lawchat",
+                                   f"Erro inesperado ao processar o turno: {type(erro).__name__}: {str(erro)[:200]}{onde}.")
 
     async def aguardar_esperas(self) -> None:
         """Só para testes: espera todos os turnos agendados (e as notas em segundo plano) terminarem."""

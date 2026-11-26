@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Navigate } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { api, quando } from "../api";
 import { Cabecalho, Carregando, Situacao, Vazio, useAcao, useCarregar } from "../componentes/ui";
@@ -19,7 +20,13 @@ const RESPONSAVEIS: Record<string, [string, string]> = {
 
 const ROTULOS: Record<string, string> = { cliente: "Cliente", cadastro: "Cadastro", provedor: "Provedor", lead: "Lead", lawchat: "LawChat" };
 
+/** A tela de Erros é só da equipe LawChat (superadmin): o cliente não tem essa aba. */
 export function TelaErros({ todos = false }: { todos?: boolean }) {
+  const { lawchat } = useSessao();
+  return lawchat ? <ListaDeErros todos={todos} /> : <Navigate to="/" replace />;
+}
+
+function ListaDeErros({ todos }: { todos: boolean }) {
   const { escritorio } = useSessao();
   const [abertos, setAbertos] = useState(true);
   const { dados, erro, recarregar } = useCarregar<Evento[]>(`/eventos?abertos=${abertos}&todos_escritorios=${todos}`, [escritorio, abertos, todos]);

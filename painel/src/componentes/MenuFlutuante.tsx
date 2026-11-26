@@ -7,7 +7,7 @@ interface Atalho { para: string; rotulo: string; icone: ReactNode; destaque?: bo
 
 /** Botão redondo flutuante que abre os atalhos em arco (como um menu radial). Fecha com Esc ou clique fora. */
 export function MenuFlutuante() {
-  const { admin, podeGerir, escritorio } = useSessao();
+  const { admin, lawchat, podeGerir, escritorio } = useSessao();
   const navegar = useNavigate();
   const { pathname } = useLocation();
   const [aberto, setAberto] = useState(false);
@@ -29,7 +29,7 @@ export function MenuFlutuante() {
     atalhos.push({ para: "/", rotulo: "Início", icone: <Home /> });
     if (podeGerir) atalhos.push({ para: "/agentes", rotulo: "Agentes", icone: <Bot /> });
     if (podeGerir) {
-      atalhos.push({ para: "/erros", rotulo: "Erros", icone: <AlertOctagon /> });
+      if (lawchat) atalhos.push({ para: "/erros", rotulo: "Erros", icone: <AlertOctagon /> });
       atalhos.push({ para: "/integracoes", rotulo: "Integrações", icone: <PlugZap /> });
       atalhos.push({ para: "/avisos", rotulo: "Avisos à equipe", icone: <BellRing /> });
     }
