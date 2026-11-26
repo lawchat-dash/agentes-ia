@@ -361,8 +361,14 @@ class Executor:
         """Etiqueta do lead novo: o contato já tinha card (no banco ou aberto no painel) que NÃO foi criado por este
         mesmo lead novo? Devolve o motivo para ignorar, ou None para etiquetar."""
         if chave_card := dados.get("chave_card"):
-            irma = await self._pool.fetchrow(
-                "select situacao, resultado from agentesia_acoes where chave_unica = $1", chave_card)
+            # O card do lead novo roda junto com esta etiqueta: espera ele terminar (até ~5 s) antes de decidir. Sem isso,
+            # o card gravado antes de a ação dele virar 'feita' fazia a etiqueta achar que o lead "já tinha card".
+            for _ in range(10):
+                irma = await self._pool.fetchrow(
+                    "select situacao, resultado from agentesia_acoes where chave_unica = $1", chave_card)
+                if not irma or irma["situacao"] not in ("pendente", "executando"):
+                    break
+                await asyncio.sleep(0.5)
             if irma and irma["situacao"] == "feita":
                 resultado = irma["resultado"] if isinstance(irma["resultado"], dict) else json.loads(irma["resultado"] or "{}")
                 if resultado.get("acao") == "criou":
