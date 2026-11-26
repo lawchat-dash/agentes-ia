@@ -269,7 +269,6 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
                           </button>
                           {submenuAberto && (
                             <div className="lc-sub-itens">
-                              <NavLink to={`/agentes/${idAgente}`} end><LayoutGrid size={14} /><span>Visão geral</span></NavLink>
                               {secoesDo(agenteAberto.dados.tipo_produto === "proprio", admin).map((s) => (
                                 <NavLink key={s.chave} to={`/agentes/${idAgente}/${s.chave}`}>{s.icone(14)}<span>{s.rotulo}</span></NavLink>
                               ))}

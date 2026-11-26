@@ -25,7 +25,7 @@ export function TelaAgente() {
   const cartoes = cartoesDo(proprio, admin);
   const atual = secoes.find((s) => s.chave === secao);
   // Seção que esta pessoa não vê (ex.: Instruções fora do superadmin) ou que não existe: volta para a página do agente.
-  if (secao && !atual) return <Navigate to={`/agentes/${agente.id}`} replace />;
+  if (secao && !atual) return <Navigate to="/meus-produtos" replace />;
   const aviso_criado = admin
     ? <><b>Agente criado.</b> Agora ajuste as instruções, ligue as funções, teste no Laboratório e ative.</>
     : <><b>Agente criado.</b> As funções e automações já vêm no padrão. Confira e ative.</>;
@@ -35,43 +35,14 @@ export function TelaAgente() {
   }, "Modelo criado em rascunho.")}><BookOpen />Salvar como modelo</button> : undefined;
 
   if (!atual) {
-    // Página do agente: um cartão por parte, com números e atalho (como um painel de módulos).
-    return (
-      <>
-        <Link className="btn ghost sm" to="/agentes" style={{ marginBottom: 10 }}><ArrowLeft />Agentes</Link>
-        <div className="hub-topo">
-          <Cabecalho eyebrow={proprio ? "Agente próprio" : "Agente pronto · Auxílio-Acidente"} titulo={agente.nome}
-            texto={<>Número <span className="mono">{formatarTelefone(agente.numero_canal)}</span> · <Situacao valor={agente.situacao} /> {agente.situacao === "ativo" && <Situacao valor={agente.modo} />}</>}
-            acoes={<>{salvarComoModelo}<Link className="btn pri" to={`/agentes/${agente.id}/ativacao`}><Rocket />{agente.situacao === "ativo" ? "Ativação" : "Ativar agente"}</Link></>} />
-        </div>
-        {busca.get("criado") && <div style={{ marginBottom: 16 }}><Alerta tipo="ok">{aviso_criado}</Alerta></div>}
-        <div className={`hub n${cartoes.length}`}>
-          {cartoes.map((s, n) => {
-            const numeros = s.numeros(agente);
-            return (
-              <button key={s.chave} className={`hub-cartao ${n === 0 && agente.situacao !== "ativo" ? "destaque" : ""}`} style={{ ["--tom" as string]: s.cor }}
-                onClick={() => navegar(`/agentes/${agente.id}/${s.chave}`)}>
-                <div className="hub-cab">
-                  <span className="hub-icone" style={estiloIconeSecao(s)}>{s.icone(18)}</span>
-                  <div><b>{s.rotulo}</b><small>{s.etiqueta}</small></div>
-                  {n === 0 && agente.situacao !== "ativo" && <span className="hub-selo">COMECE AQUI</span>}
-                </div>
-                <p>{s.descricao}</p>
-                {numeros.length > 0 && <div className="hub-numeros">{numeros.map(([valor, rotulo]) => (
-                  <div key={rotulo}><b>{valor}</b><span>{rotulo}</span></div>
-                ))}</div>}
-                <div className="hub-rodape"><span>Abrir {s.rotulo.toLowerCase()}</span><i>→</i></div>
-              </button>
-            );
-          })}
-        </div>
-      </>
-    );
+    // A página "Visão geral" do agente saiu (pedido do dono): o agente é gerido pelos cartões de Meus agentes.
+    // Agente recém-criado vai direto para a Ativação; o resto volta para a lista.
+    return <Navigate to={busca.get("criado") ? `/agentes/${agente.id}/ativacao?criado=1` : "/meus-produtos"} replace />;
   }
 
   return (
     <>
-      <Link className="btn ghost sm" to={`/agentes/${agente.id}`} style={{ marginBottom: 10 }}><ArrowLeft />{agente.nome}</Link>
+      <Link className="btn ghost sm" to="/meus-produtos" style={{ marginBottom: 10 }}><ArrowLeft />Meus agentes</Link>
       <Cabecalho eyebrow={`${agente.nome} · ${atual.etiqueta}`} titulo={atual.rotulo}
         texto={<>{atual.descricao} <Situacao valor={agente.situacao} /> {agente.situacao === "ativo" && <Situacao valor={agente.modo} />}</>}
         acoes={atual.chave === "ativacao" ? salvarComoModelo : undefined} />

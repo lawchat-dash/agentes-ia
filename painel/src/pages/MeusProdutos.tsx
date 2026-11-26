@@ -890,7 +890,7 @@ const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => {
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {agentes.map((a) => (
         <Card key={a.id} className="rounded-2xl border bg-card overflow-hidden flex flex-col" style={{ ["--cat" as any]: "#00BC33" }}>
-          <Link to={`/agentes/${a.id}`} className="block p-4 pb-2.5">
+          <Link to={`/agentes/${a.id}/ativacao`} className="block p-4 pb-2.5">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="size-11 rounded-xl grid place-items-center text-white shrink-0 shadow-sm bg-gradient-to-br from-[#2BD45A] to-[#00852A]"><Bot className="size-[19px]" /></div>
