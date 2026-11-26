@@ -191,6 +191,22 @@ async def test_nota_de_pausa_pela_equipe_so_na_primeira_fala(monkeypatch):
     assert _notas(repo, "IA voltou") == ["🤖 IA voltou a atender"]
 
 
+async def test_sem_nota_de_pausa_em_conversa_que_o_lead_nunca_abriu():
+    """26/11: a conta dispara avisos automáticos para números da equipe ("NOVA DEMANDA…"). Esses chats não são de lead:
+    nada de nota "IA pausada" neles. Nem em número fora da lista de teste com o agente em teste."""
+    atendimento, repo, _helena = montar(SIMPLES)
+    await atendimento.receber(_humano("🆕 NOVA DEMANDA JUDICIAL DISPONÍVEL"))
+    await atendimento.aguardar_esperas()
+    assert _notas(repo, "IA pausada") == []
+
+    atendimento, repo, _helena = montar(SIMPLES, numeros_teste=())      # modo teste, lista vazia
+    await atendimento.receber(webhook("oi"))
+    await atendimento.aguardar_esperas()
+    await atendimento.receber(_humano())
+    await atendimento.aguardar_esperas()
+    assert _notas(repo, "IA pausada") == []
+
+
 async def test_nota_de_pausa_sem_volta():
     atendimento, repo, _helena = montar(SIMPLES)
     repo.agentes["canal-1"].config["pausa_sem_volta"] = True

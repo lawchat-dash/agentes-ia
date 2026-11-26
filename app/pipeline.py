@@ -335,6 +335,15 @@ class Atendimento:
             enviada_em=evento.enviada_em or agora(), id_externo=evento.id_externo,
         )
 
+    async def _lead_ja_falou(self, lead: Lead) -> bool:
+        """O contato já mandou alguma mensagem como lead (a IA esteve ou estaria nessa conversa)."""
+        try:
+            return any(m.autor == "lead" for m in await self.repo.historico(lead.id, 40)) \
+                or bool(await self.repo.mensagens_pendentes(lead.id))
+        except Exception:
+            log.exception("falha ao conferir se o lead %s já falou", lead.id)
+            return True
+
     @staticmethod
     def _pausa_por_humano(lead: Lead, agente: Agente | None) -> dict[str, Any] | None:
         """Atendente falou: a IA sai da conversa por um tempo. Cada fala reinicia a contagem. None = não mexe."""
@@ -371,8 +380,11 @@ class Atendimento:
             except Exception:
                 log.exception("falha ao registrar o evento pausa_falhou do lead %s", lead.id)
             return {"feito": "erro", "motivo": "pausa_falhou", "id_lead": lead.id}
-        if pausa and not (lead.estado == "pausado" and lead.motivo_estado == "humano_assumiu"):
+        if pausa and not (lead.estado == "pausado" and lead.motivo_estado == "humano_assumiu") \
+                and not self._fora_do_teste(escritorio, agente, lead) and await self._lead_ja_falou(lead):
             # Primeira fala da equipe que pausa a IA (pausa só renovada não repete): nota interna em segundo plano.
+            # Sem nota em conversa que o lead nunca abriu (disparo automático para a equipe, "NOVA DEMANDA"...)
+            # nem em número fora da lista de teste (26/11: notas "IA pausada" nos chats da própria equipe).
             volta = pausa.get("pausado_ate")
             texto = (self.NOTA_PAUSA_HUMANO.format(hora=self._hora(escritorio, volta)) if volta
                      else self.NOTA_PAUSA_HUMANO_SEM_VOLTA)
