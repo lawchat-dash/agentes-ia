@@ -188,7 +188,7 @@ async def _anotar_erro(pool: Any, id_escritorio: str, erro: str) -> None:
         id_escritorio, erro[:300])
 
 
-async def contas_para_varrer(pool: Any, agora: datetime) -> list[str]:
+async def contas_para_varrer(pool: Any, agora: datetime, limite: int = 20) -> list[str]:
     """Contas com CRM ligado cuja última varredura passou do intervalo, ou com importação pedida."""
     linhas = await pool.fetch(
         """select i.id_escritorio::text as id from agentesia_integracoes i
@@ -196,8 +196,8 @@ async def contas_para_varrer(pool: Any, agora: datetime) -> list[str]:
             where i.tipo = 'crm' and coalesce(i.config->>'id_painel', '') <> ''
               and (v.id_escritorio is null or v.importar_pedido_em is not null or v.ultima_em is null
                    or v.ultima_em < $1)
-            order by v.importar_pedido_em nulls last, v.ultima_em nulls first limit 20""",
-        agora - timedelta(seconds=INTERVALO_S))
+            order by v.importar_pedido_em nulls last, v.ultima_em nulls first limit $2""",
+        agora - timedelta(seconds=INTERVALO_S), limite)
     return [r["id"] for r in linhas]
 
 

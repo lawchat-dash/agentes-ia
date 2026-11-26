@@ -314,5 +314,6 @@ async def test_varredura_do_crm_importa_e_so_grava_o_que_mudou(ambiente, monkeyp
 
     linha = await pool.fetchrow("select importado_em, cards_vistos, erro from agentesia_crm_varredura where id_escritorio = $1::uuid", id_esc)
     assert linha["importado_em"] is not None and linha["erro"] is None
-    contas = await rc.contas_para_varrer(pool, agora + timedelta(hours=1))
-    assert id_esc in contas and id_esc not in await rc.contas_para_varrer(pool, agora)
+    # limite alto: o banco de teste tem contas de outros testes na frente da fila
+    contas = await rc.contas_para_varrer(pool, agora + timedelta(hours=1), limite=100000)
+    assert id_esc in contas and id_esc not in await rc.contas_para_varrer(pool, agora, limite=100000)
