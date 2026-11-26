@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Bell, FileSignature, KanbanSquare, RotateCcw, Save, Sparkles, StickyNote, Users, Wand2 } from "lucide-react";
+import { ArrowRight, Bell, FileSignature, KanbanSquare, RotateCcw, Save, Sparkles, StickyNote, Users, Wand2, Zap } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, enviar, type Agente, type Regra } from "../api";
 import { Alerta, Carregando, Interruptor, Painel, useAcao, useCarregar, useConfirmar } from "../componentes/ui";
 import { useSessao } from "../sessao";
@@ -266,5 +267,26 @@ export function AbaFuncoes({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a:
       )}
       {janelaConfirmar}
     </div>
+  );
+}
+
+/** Automações do agente num popup, aberto direto do cartão em Meus agentes (sem sair da lista). */
+function CorpoAutomacoes({ idAgente }: { idAgente: string }) {
+  const { dados: agente, erro, setDados } = useCarregar<Agente>(`/agentes/${idAgente}`, [idAgente]);
+  if (!agente) return <Carregando erro={erro} />;
+  return <AbaFuncoes agente={agente} aoSalvar={setDados} />;
+}
+
+export function PopupAutomacoesAgente({ idAgente, nome, aberto, aoFechar }: { idAgente: string | null; nome?: string; aberto: boolean; aoFechar: () => void }) {
+  return (
+    <Dialog open={aberto} onOpenChange={(v) => { if (!v) aoFechar(); }}>
+      <DialogContent className="max-w-4xl max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
+        <DialogHeader className="p-6 pb-3 text-left space-y-1">
+          <DialogTitle className="flex items-center gap-2"><Zap className="size-5 text-amber-500" />Automações{nome ? ` · ${nome}` : ""}</DialogTitle>
+          <DialogDescription>O que a IA faz sozinha em cada etapa: CRM, etiquetas, notas e avisos à equipe.</DialogDescription>
+        </DialogHeader>
+        <div className="px-6 pb-6 overflow-y-auto">{aberto && idAgente && <CorpoAutomacoes idAgente={idAgente} />}</div>
+      </DialogContent>
+    </Dialog>
   );
 }
