@@ -426,7 +426,7 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
 
 /* Telas da LawChat dentro do painel (CRM, Minha Conta): sem moldura, no fundo da própria LawChat, ocupando a altura
    toda. O quadro (iframe) fica numa camada fixa por cima da vaga (componentes/camadaLawChat.tsx). */
-:root { --lc-fundo-lawchat: #f1f5f9; }
+:root { --lc-fundo-lawchat: #EFF3F8; }
 .lc-tela-lawchat { display: flex; flex-direction: column; height: calc(100vh - 112px); min-height: 480px; margin: -12px -8px -40px; }
 .lc-tela-lawchat-abas { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 10px; }
 .lc-tela-lawchat-sub { display: flex; gap: 18px; overflow-x: auto; padding: 0 16px; background: #fff; border: 1px solid #eef1f5; border-bottom: 0; border-radius: 14px 14px 0 0; }
@@ -581,3 +581,6 @@ button.lc-faixa-voltar { border: 0; cursor: pointer; font-family: inherit; }
   .lc-topo-marca .lc-topo-escrita { width: auto; height: 21px; margin-top: 3px; }
 }
 @media (min-width: 821px) and (max-width: 1360px) { .lc-topo-marca .lc-topo-escrita { display: none; } }
+
+/* Fundo da Central de Atendimento (e das outras telas da LawChat): #EFF3F8. */
+.lc-tela-lawchat-cheia, .lc-quadro-lawchat { background: #EFF3F8; }
