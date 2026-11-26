@@ -113,7 +113,8 @@ async def test_envia_segue_a_cadencia_cancela_e_desiste():
         assert (estado["estado"], estado["motivo_estado"]) == ("encerrado", "sem_resposta_followup")
         notas = [r["texto"] for r in await pool.fetch(
             "select dados->>'texto' as texto from agentesia_acoes where id_lead = $1 and tipo = 'nota' order by criado_em", lead)]
-        assert notas[:2] == ["Follow-up 1 de 2 enviado pela IA (etapa Primeiro atendimento).", "Follow-up 2 de 2 enviado pela IA (etapa Primeiro atendimento)."]
+        assert [n.split(" enviado às ")[0] for n in notas[:2]] == ["🔁 Follow-up 1 de 2", "🔁 Follow-up 2 de 2"]
+        assert all(n.endswith("(etapa Primeiro atendimento).") and " pelo agente " in n for n in notas[:2])
         assert notas[2:] == [regras.NOTA_DESISTENCIA]                       # uma nota por envio e a da desistência
 
         # Lead responde: o próximo envio é cancelado na hora da conferência.

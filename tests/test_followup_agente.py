@@ -147,7 +147,7 @@ async def test_decide_e_o_agente_da_etapa_escreve_com_a_orientacao(base):
     assert enviadas[-1]["text"] == "Oi, Ana! Conseguiu ver minha pergunta sobre a sequela?"
     assert [(r["passo"], r["situacao"]) for r in await linhas(d)] == [(0, "enviado"), (1, "pendente")]
     nota = await pool.fetchval("select dados->>'texto' from agentesia_acoes where id_lead = $1 and tipo = 'nota'", d["lead"])
-    assert nota == "Follow-up 1 de 2 enviado pela IA (etapa Primeiro atendimento)."
+    assert nota.startswith("🔁 Follow-up 1 de 2 enviado às ") and nota.endswith("(etapa Primeiro atendimento).") and " pelo agente " in nota
     assert await pool.fetchval("select count(*) from agentesia_chamadas_ia where id_lead = $1", d["lead"]) == 2
 
 

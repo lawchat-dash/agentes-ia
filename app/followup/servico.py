@@ -41,7 +41,7 @@ TEXTO_RESERVA = "Oi{virgula}{nome}! Passando para saber se ficou alguma dúvida.
 ESQUEMA = agente_fu.ESQUEMA_MENSAGENS
 INTERVALO_PADRAO_S = 60.0
 HISTORICO = 40                       # mensagens da conversa que os dois agentes leem
-NOTA_ENVIO = "Follow-up {n} de {total} enviado pela IA (etapa {etapa})."
+NOTA_ENVIO = "🔁 Follow-up {n} de {total} enviado às {hora} pelo agente {agente} (etapa {etapa})."
 
 
 def agora() -> datetime:
@@ -339,7 +339,10 @@ class Disparador:
     async def _nota_do_envio(self, f: dict[str, Any], lead: dict[str, Any], total: int) -> None:
         """Nota no atendimento para a equipe ver que o follow-up saiu (como o "realizado na cadência" do n8n)."""
         try:
-            texto = NOTA_ENVIO.format(n=f["passo"] + 1, total=total, etapa=_nome_da_etapa(lead))
+            from app.notificacoes import fuso
+            hora = agora().astimezone(fuso((lead.get("config_escritorio") or {}).get("fuso") or "America/Sao_Paulo"))
+            texto = NOTA_ENVIO.format(n=f["passo"] + 1, total=total, etapa=_nome_da_etapa(lead),
+                                      hora=f"{hora:%H:%M}", agente=lead.get("nome_agente") or "da IA")
             await self._pool.execute(
                 """insert into agentesia_acoes (id_escritorio, id_lead, tipo, chave_unica, dados)
                    values ($1, $2, 'nota', $3, $4::jsonb) on conflict (chave_unica) do nothing""",
