@@ -93,9 +93,7 @@ export function OnboardingInicial({ dados }: { dados: PrimeirosPassosDados }) {
   const resolver = (p: PassoInicial) => {
     const destino = destinoDe(p);
     if (!destino) return;
-    const guia = guiaDoPasso(p, destino);
-    if (guia) iniciarGuia({ fluxo: FLUXO[p.codigo] ?? "Primeiros passos", passos: guia });
-    else navegar(destino);
+    navegar(destino);                                  // sem tour guiado (pedido do dono): vai direto à tela
   };
 
   const C = 2 * Math.PI * 54;
@@ -124,9 +122,6 @@ export function OnboardingInicial({ dados }: { dados: PrimeirosPassosDados }) {
                 Próximo passo: {PASSOS[proximo.codigo]?.titulo ?? proximo.titulo} <ArrowRight aria-hidden />
               </button>
             )}
-            <button type="button" className="lc-ob-btn lc-ob-btn--noite" onClick={() => iniciarGuia({ fluxo: "Tour do painel", passos: tourDoPainel(podeGerir) })}>
-              <PlayCircle aria-hidden /> Tour do painel · 1 min
-            </button>
           </div>
         </div>
         <div className="lc-ob-anel" role="img" aria-label={`${feitos} de ${total} passos prontos`}>

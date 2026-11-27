@@ -98,7 +98,9 @@ const MeusProdutos = () => {
   // Antes apareciam em "Agentes"; com o menu num caminho só, ficam aqui embaixo para não sumirem.
   const avulsos = useMemo(() => {
     const dosProdutos = new Set([...(products ?? []), ...(trashed ?? [])].map((p: any) => p.weaver_agent_id).filter(Boolean));
-    return (saude.dados?.agentes ?? []).filter((a) => !dosProdutos.has(a.id));
+    // Agente sem número e sem produto é o que sobra de um produto excluído que já teve conversa: fica só para o
+    // histórico dos leads (app/gestao/produtos.excluir_produto). Não é agente da conta: não aparece aqui.
+    return (saude.dados?.agentes ?? []).filter((a) => !dosProdutos.has(a.id) && a.id_canal);
   }, [saude.dados, products, trashed]);
   const [deleting, setDeleting] = useState<{ id: string; name: string; weaver_agent_id?: string | null } | null>(null);
   const [purging, setPurging] = useState<{ id: string; name: string; source_template_id: string | null; workspace_id: string } | null>(null);

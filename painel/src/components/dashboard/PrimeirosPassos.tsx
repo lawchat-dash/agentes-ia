@@ -179,8 +179,6 @@ export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
 
   const abrirDestino = () => {
     if (!destino) return;
-    const r = realceDo(atual.codigo, destino);
-    if (r) pedirRealce({ rota: destino.split("?")[0], ...r });
     navegar(destino);
   };
 
