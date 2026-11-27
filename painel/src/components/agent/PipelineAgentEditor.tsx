@@ -200,70 +200,8 @@ export const PipelineAgentEditor = ({
             <FraseEntradaCard role={role} prompt={freeText} />
           </div>
 
-          {/* Só no agente de Assinatura: mensagem → prompts.mensagem_troca. Com frase para transferência
-              cadastrada (super admin), o campo aparece PREENCHIDO com ela e travado — é ela que vai
-              para o bot. Sem frase, volta a ser editável. */}
-          {role === "assinatura" && (() => {
-            const fixa = fraseDaEtapa("assinatura", frasesTroca ?? []);
-            return (
-              <div className="mt-3 rounded-xl border border-success/25 bg-success/5 p-3.5">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <Label className="text-[11px] font-bold uppercase tracking-wider text-success">
-                    Frase para Transferência
-                  </Label>
-                  <span className="text-[9px] font-bold uppercase tracking-wider rounded-full px-1.5 py-0.5 bg-success/15 text-success">
-                    {fixa ? "Frase fixa · super admin" : "Obrigatório"}
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1 mb-2">
-                  {fixa
-                    ? "Preenchida pela frase para transferência da Assinatura, definida pelo super admin — é ela que vai para o bot."
-                    : "Frase que passa o lead para a Assinatura (vai para a mensagem_troca). Se deixar em branco, usamos uma mensagem padrão — nunca fica vazio."}
-                </p>
-                <Textarea
-                  value={fixa ? fixa.frase : handoffTrigger}
-                  onChange={(e) => { if (!fixa) setHandoffTrigger(e.target.value); }}
-                  readOnly={!!fixa}
-                  rows={3}
-                  placeholder="Ex.: Acabamos de confirmar a assinatura do seu contrato 🎉 Nosso Setor Operacional vai continuar o seu atendimento, então já salva esse contato…"
-                  className={`text-sm ${fixa ? "bg-muted/40 cursor-not-allowed" : "bg-white"}`}
-                />
-              </div>
-            );
-          })()}
-
-          {/* Preenchimento rápido dos campos {{ ... }} */}
-          {promptFields.length > 0 && (
-            <div className="mt-3 rounded-xl border border-[#ece9fb] bg-[#faf8ff] p-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#7c3aed]">Campos para preencher</span>
-                <span className="text-[10px] font-bold rounded-full px-1.5 py-0.5 bg-[#ede9fe] text-[#7c3aed]">{promptFields.length}</span>
-              </div>
-              <p className="text-[11px] text-[#98A2B3] mt-1 mb-2.5">
-                Tudo que está em <code className="text-[#7c3aed]">{"{{ }}"}</code> no prompt. Preencha aqui e o valor substitui no texto.
-              </p>
-              <div className="space-y-1.5">
-                {promptFields.map((f) => (
-                  <div key={f} className="flex items-center gap-2">
-                    <code className="shrink-0 max-w-[38%] truncate rounded px-1.5 py-1 text-[11px] font-medium text-[#7c3aed] bg-[#ede9fe]" title={`{{${f}}}`}>{`{{${f}}}`}</code>
-                    <Input
-                      value={fieldDraft[f] ?? ""}
-                      onChange={(e) => setFieldDraft((d) => ({ ...d, [f]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyField(f); } }}
-                      placeholder="valor…"
-                      className="h-8 text-sm bg-white"
-                    />
-                    <Button size="sm" variant="outline" className="h-8 shrink-0" disabled={!(fieldDraft[f] ?? "").trim()} onClick={() => applyField(f)}>
-                      Aplicar
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-8 shrink-0 px-2 text-[#98A2B3] hover:text-[#dc2626] hover:bg-[#fef2f2]" title="Remover este campo do prompt (para quem não tem esse dado)" onClick={() => removeField(f)}>
-                      <X className="size-3.5" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* A frase para transferência da Assinatura (fixa, do super admin) e os campos {{ }} saíram daqui: a frase é
+              coisa de admin e os campos já são preenchidos na Edição rápida. */}
         </div>
       </Card>
 
