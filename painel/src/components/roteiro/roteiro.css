@@ -73,14 +73,17 @@
 
 /* Corpo da parte */
 .rg-parte-corpo { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
-.rg-texto { font-size: 13.5px; line-height: 1.65; color: #3D4B43; }
-.rg-texto p { margin: 0 0 10px; white-space: pre-wrap; } .rg-texto p:last-child { margin-bottom: 0; }
+/* Texto para ler em voz alta enquanto grava: letra grande, escura, linhas curtas e bem espaçadas. */
+.rg-texto { font-size: 17px; line-height: 1.8; color: #17221B; max-width: 68ch; letter-spacing: .005em;
+  background: #FBFCFB; border: 1px solid #E6ECE8; border-radius: 12px; padding: 16px 20px; }
+.rg-texto p { margin: 0 0 16px; white-space: pre-wrap; }
+@media (max-width: 640px) { .rg-texto { font-size: 16px; padding: 14px 14px; } } .rg-texto p:last-child { margin-bottom: 0; }
 .rg-texto--vazio { color: var(--rg-ink-3); font-style: italic; }
 .rg-texto mark { background: #FFF1A8; color: #6B5B00; padding: 0 3px; border-radius: 4px; }
 .rg-obs { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; margin: 0 0 10px; border-radius: 10px; background: #FFF7E8;
   border: 1px solid #F3DDB3; color: #6B4A12; white-space: pre-wrap; }
 .rg-obs svg { flex: none; margin-top: 3px; }
-.rg-dica-x { display: block; font-size: 12px; color: #8A6D00; }
+.rg-dica-x { display: block; font-size: 13px; line-height: 1.5; color: #8A6D00; }
 .rg-exemplo { padding: 10px; border: 1px solid var(--rg-linha); border-radius: 12px; background: #FAFCFB; display: flex; flex-direction: column; gap: 8px; }
 .rg-exemplo span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rg-ink-3); }
 .rg-exemplo video, .rg-enviado video, .rg-previa video, .rg-camera { width: 100%; max-height: 380px; border-radius: 10px; background: #000; }
