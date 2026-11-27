@@ -11,7 +11,7 @@ import CharacterCount from "@tiptap/extension-character-count";
 import Image from "@tiptap/extension-image";
 import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
 import { TaskList, TaskItem } from "@tiptap/extension-list";
-import { Bold, Italic, Code, Heading1, Heading2, Heading3, Quote, List, ListOrdered, AtSign, ChevronDown, ChevronRight, ArrowLeft, Music, Image as ImageIcon, Video, Lock, Upload, Users, Wrench, Library, Trash2, ArrowRightLeft, Settings2 } from "lucide-react";
+import { Bold, Italic, Code, Heading1, Heading2, Heading3, Quote, List, ListOrdered, AtSign, ChevronDown, ChevronRight, ArrowLeft, Music, Image as ImageIcon, Video, Lock, Upload, Users, Wrench, Library, Trash2, ArrowRightLeft, Settings2, Braces } from "lucide-react";
 import { useFrasesTroca } from "@/hooks/useFrasesTroca";
 import { HANDOFF_LABELS, TOOL_LABELS, LEGACY_TOOL_LABELS } from "@/data/handoffTargets";
 import { MarcarFraseTroca } from "./MarcarFraseTroca";
@@ -249,6 +249,8 @@ interface Props {
   max?: number;
   /** Esconde o botão de marcador de mídia (onde mídia não vale, como o follow-up). */
   semMidia?: boolean;
+  /** Variáveis {{nome}} oferecidas no menu @ (categoria "Variáveis") e no botão Inserir. `valor` = o que vale agora. */
+  variaveis?: { nome: string; valor: string | null }[];
 }
 
 type MediaLite = { id: string; name: string; url: string; type: "audio" | "video" | "image" };
@@ -259,7 +261,7 @@ const MEDIA_ICON = { audio: Music, video: Video, image: ImageIcon } as const;
  * e devolve markdown em onChange — o bot continua lendo o prompt como markdown.
  */
 export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
-  ({ value, onChange, handoffOptions = [], toolOptions = [], accent, onAbrirMidia, midiaLiberada, audios = [], media, buildAudioToken, highlights = [], minHeight = "min-h-[280px]", compact = false, transferencia = false, onGerenciarFrases, max: MAX = MAX_PADRAO, semMidia = false }, ref) => {
+  ({ value, onChange, handoffOptions = [], toolOptions = [], accent, onAbrirMidia, midiaLiberada, audios = [], media, buildAudioToken, highlights = [], minHeight = "min-h-[280px]", compact = false, transferencia = false, onGerenciarFrases, max: MAX = MAX_PADRAO, semMidia = false, variaveis = [] }, ref) => {
     // Lista unificada de mídia: usa `media` (todos os tipos); cai p/ `audios` (legado) se preciso.
     const mediaList: MediaLite[] = (media && media.length)
       ? media
@@ -285,7 +287,7 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
     const menuRef = useRef<HTMLDivElement>(null);
     const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
     // Navegação do menu @: categoria aberta (null = raiz/categorias) + item selecionado (teclado).
-    const [menuCat, setMenuCat] = useState<"dep" | "tra" | "fer" | "bib" | null>(null);
+    const [menuCat, setMenuCat] = useState<"var" | "dep" | "tra" | "fer" | "bib" | null>(null);
     const [selIdx, setSelIdx] = useState(0);
     // Espelhos p/ o listener de teclado (registrado uma vez por abertura, lê o estado vivo).
     const rowsRef = useRef<any[]>([]);
@@ -298,7 +300,7 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
     // só o "@Agente" ficava pintado e o resto parecia quebrado.
     const rotulosAgente = handoffOptions.length ? [...new Set([...handoffOptions, ...HANDOFF_LABELS])] : [];
     const rotulosFerramenta = toolOptions.length ? [...new Set([...toolOptions, ...TOOL_LABELS, ...LEGACY_TOOL_LABELS])] : [];
-    const temMenu = handoffOptions.length > 0 || toolOptions.length > 0 || !!onAbrirMidia || mediaList.length > 0 || temTransfer;
+    const temMenu = variaveis.length > 0 || handoffOptions.length > 0 || toolOptions.length > 0 || !!onAbrirMidia || mediaList.length > 0 || temTransfer;
 
     // Preview da mídia ao passar o mouse no chip @nome (imagem/áudio/vídeo).
     const [preview, setPreview] = useState<{ url: string; type: string; name: string; left: number; top: number } | null>(null);
@@ -541,6 +543,12 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
       editor.chain().focus().deleteRange({ from: mention.from, to }).run();
     };
 
+    const inserirVariavel = (nome: string) => {
+      limparMencao();
+      editor.chain().focus().insertContent(`{{${nome}}}`).run();
+      setMention(null);
+    };
+
     const inserirHandoff = (label: string) => {
       limparMencao();
       editor.chain().focus().insertContent(`@${label} `).run();
@@ -573,6 +581,7 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
     const q = mention?.query.toLowerCase() ?? "";
     const mentionOpts = mention ? handoffOptions.filter((l) => l.toLowerCase().includes(q)) : [];
     const toolOpts = mention ? toolOptions.filter((l) => l.toLowerCase().includes(q)) : [];
+    const varOpts = mention ? variaveis.filter((v) => v.nome.toLowerCase().includes(q)) : [];
     const mediaOpts = mention ? mediaList.filter((a) => a.name.toLowerCase().includes(q)) : [];
     const transferOpts = mention
       ? transferOpcoes.filter((f) => rotuloFrase(f.nome).toLowerCase().includes(q) || f.frase.toLowerCase().includes(q))
@@ -582,6 +591,7 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
 
     // Categorias da raiz (nível 1 do menu @) — só as que têm conteúdo.
     const categorias = [
+      variaveis.length > 0 && { t: "cat" as const, cat: "var" as const, label: "Variáveis", count: variaveis.length, Icon: Braces, color: "#7c3aed" },
       handoffOptions.length > 0 && { t: "cat" as const, cat: "dep" as const, label: "Departamento", count: handoffOptions.length, Icon: Users, color: "#2563eb" },
       temTransfer && { t: "cat" as const, cat: "tra" as const, label: "Transferência", count: transferOpcoes.length, Icon: ArrowRightLeft, color: COR_TRANSFERENCIA },
       toolOptions.length > 0 && { t: "cat" as const, cat: "fer" as const, label: "Ferramentas", count: toolOptions.length, Icon: Wrench, color: "#7c3aed" },
@@ -592,11 +602,14 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
     let rows: any[];
     if (buscando) {
       rows = [
+        ...varOpts.map((v) => ({ t: "var", v })),
         ...mentionOpts.map((l) => ({ t: "handoff", label: l })),
         ...transferOpts.map((f) => ({ t: "transfer", frase: f })),
         ...toolOpts.map((l) => ({ t: "tool", label: l })),
         ...(midiaLiberada ? mediaOpts.map((a) => ({ t: "media", media: a })) : []),
       ];
+    } else if (menuCat === "var") {
+      rows = variaveis.map((v) => ({ t: "var", v }));
     } else if (menuCat === "dep") {
       rows = handoffOptions.map((l) => ({ t: "handoff", label: l }));
     } else if (menuCat === "tra") {
@@ -616,6 +629,7 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
 
     const acionar = (r: any) => {
       if (r.t === "cat") setMenuCat(r.cat);
+      else if (r.t === "var") inserirVariavel(r.v.nome);
       else if (r.t === "handoff" || r.t === "tool") inserirHandoff(r.label);
       else if (r.t === "transfer") inserirHandoff(rotuloFrase(r.frase.nome));
       else if (r.t === "gerenciar") { limparMencao(); setMention(null); onGerenciarFrases?.(); }
@@ -680,7 +694,7 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
           ) : !compact && !semMidia ? (
             <Btn title="Inserir marcador de mídia [[midia:nome]]" onClick={inserirMarcadorAudio}><Music className="size-3.5 text-[#0891b2]" /></Btn>
           ) : null}
-          {(handoffOptions.length > 0 || toolOptions.length > 0 || temTransfer) && (
+          {(variaveis.length > 0 || handoffOptions.length > 0 || toolOptions.length > 0 || temTransfer) && (
             <>
               <div className="mx-1 h-5 w-px bg-[#e5e8ee]" />
               <Popover>
@@ -689,7 +703,21 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
                     <AtSign className="size-3.5" />Inserir<ChevronDown className="size-3 opacity-60" />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent align="start" className="w-56 p-1">
+                <PopoverContent align="start" className="w-64 p-1 max-h-[60vh] overflow-y-auto">
+                  {variaveis.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#7c3aed]">Variáveis</div>
+                      {variaveis.map((v) => (
+                        <button key={v.nome} type="button" title={v.valor ? `Agora vale: ${v.valor}` : "Ainda sem valor"}
+                          onMouseDown={(e) => { e.preventDefault(); inserirVariavel(v.nome); }}
+                          className="w-full text-left rounded-lg px-2 py-1.5 flex items-center gap-2 hover:bg-[#faf8ff] transition-colors">
+                          <code className="text-[12px] font-semibold text-[#7c3aed] shrink-0">{`{{${v.nome}}}`}</code>
+                          <span className={`flex-1 min-w-0 truncate text-[11px] text-right ${v.valor ? "text-[#98a2b3]" : "text-[#c2410c]"}`}>{v.valor ?? "sem valor"}</span>
+                        </button>
+                      ))}
+                      {(handoffOptions.length > 0 || temTransfer || toolOptions.length > 0) && <div className="my-1 h-px bg-[#eef1f5]" />}
+                    </>
+                  )}
                   {handoffOptions.length > 0 && (
                     <>
                       <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#94a3b8]">Departamento</div>
@@ -818,6 +846,16 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
                         <span className="flex-1">{r.label}</span>
                         <span className="text-[11px] font-semibold text-[#cbd5e1] tabular-nums">{r.count}</span>
                         <ChevronRight className="size-4 text-[#cbd5e1] shrink-0" />
+                      </button>
+                    );
+                  }
+                  if (r.t === "var") {
+                    return (
+                      <button key={"var-" + r.v.nome} type="button" onMouseEnter={() => setSelIdx(i)} onMouseDown={(e) => { e.preventDefault(); acionar(r); }} className={base + " font-medium"}
+                        title={r.v.valor ? `Agora vale: ${r.v.valor}` : "Ainda sem valor"}>
+                        {buscando && <span className="text-[8px] font-bold uppercase tracking-wider text-[#cbd5e1] shrink-0 w-9">Var.</span>}
+                        <code className="text-[12px] font-semibold text-[#7c3aed] shrink-0">{`{{${r.v.nome}}}`}</code>
+                        <span className={`flex-1 min-w-0 truncate text-[11px] text-right ${r.v.valor ? "text-[#98a2b3]" : "text-[#c2410c]"}`}>{r.v.valor ?? "sem valor"}</span>
                       </button>
                     );
                   }

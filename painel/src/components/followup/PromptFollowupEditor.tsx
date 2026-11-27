@@ -30,8 +30,10 @@ interface Props {
   onEtapa: (codigo: string, texto: string) => void;
   /** Botões extras no topo do prompt geral (ex.: "Ver como fica"). */
   acoes?: ReactNode;
-  /** Conteúdo extra no fim do prompt geral (ex.: modelo de IA, prévia). */
+  /** Conteúdo extra no fim do prompt geral (ex.: modelo de IA). */
   rodape?: ReactNode;
+  /** Coluna da direita: como o lead recebe (celular com o exemplo). */
+  previa?: ReactNode;
 }
 
 const limpo = (t: string | undefined | null) => String(t ?? "").replace(/ /g, " ").replace(/\s+/g, " ").trim();
@@ -60,7 +62,7 @@ type Item = { chave: "geral" } | { chave: "etapa"; codigo: string };
  */
 export function PromptFollowupEditor({
   nomeAgente, prompt, promptSalvo, promptPadrao, porEtapa, porEtapaSalvo, porEtapaPadrao, etapas, variaveis,
-  onPrompt, onEtapa, acoes, rodape,
+  onPrompt, onEtapa, acoes, rodape, previa,
 }: Props) {
   const [item, setItem] = useState<Item>({ chave: "geral" });
   const editorRef = useRef<RichPromptEditorHandle>(null);
@@ -131,7 +133,7 @@ export function PromptFollowupEditor({
   const MetaIcone = etapaAtual ? (ROLE_META[etapaAtual.codigo as AgentRole]?.Icon ?? Layers) : Repeat;
 
   return (
-    <div className="grid lg:grid-cols-[248px_minmax(0,1fr)] gap-6 items-start">
+    <div className={`grid gap-5 items-start lg:grid-cols-[248px_minmax(0,1fr)] ${previa ? "2xl:grid-cols-[248px_minmax(0,1fr)_320px]" : ""}`}>
       {/* Lista: prompt geral + uma instrução por etapa (como os agentes do funil no editor do produto) */}
       <nav className="lg:sticky lg:top-[5.5rem] rounded-2xl border border-[#E6EAF0] bg-white p-3 shadow-[0_1px_2px_rgba(16,24,40,.04)]">
         <div className="px-1.5 pb-3 mb-1 border-b border-[#f0f2f6]">
@@ -251,6 +253,7 @@ export function PromptFollowupEditor({
               accent={COR}
               max={limite}
               semMidia
+              variaveis={variaveis}
               minHeight={geral ? "min-h-[280px]" : "min-h-[160px]"}
             />
             {passou && (
@@ -261,7 +264,7 @@ export function PromptFollowupEditor({
 
             {/* Legenda */}
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#98A2B3]">
-              <span><code className="text-[#7c3aed]">{"{{ }}"}</code> variável (o sistema troca pelo valor na hora de enviar)</span>
+              <span>Digite <code className="text-[#7c3aed]">@</code> para inserir uma variável · <code className="text-[#7c3aed]">{"{{ }}"}</code> o sistema troca pelo valor na hora de enviar</span>
               <span>Sem link, mídia ou transferência: a retomada só conversa</span>
             </div>
 
@@ -296,6 +299,7 @@ export function PromptFollowupEditor({
           </div>
         </Card>
       </div>
+      {previa && <aside className="min-w-0 lg:col-span-2 2xl:col-span-1 2xl:sticky 2xl:top-[5.5rem]">{previa}</aside>}
     </div>
   );
 }

@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BellRing, CalendarClock, Eye, Hand, MessageCircleOff, Plus, Power, RotateCcw, Save, Settings2, Trash2, Undo2 } from "lucide-react";
+import { BellRing, CalendarClock, Hand, Smartphone, Sparkles, MessageCircleOff, Plus, Power, RotateCcw, Save, Settings2, Trash2, Undo2 } from "lucide-react";
 import { api, enviar, quando, type Agente } from "../api";
 import { Alerta, Carregando, Interruptor, Painel, Vazio, useAcao, useAvisar, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { DashboardFollowup, HistoricoFollowup } from "./Followup";
-import { Button } from "@/components/ui/button";
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { LIMITE_ETAPA_FOLLOWUP, LIMITE_PROMPT_FOLLOWUP, PromptFollowupEditor, type VariavelFollowup } from "@/components/followup/PromptFollowupEditor";
 
 // Backend: GET/PUT /agentes/:id/followup (app/gestao/rotas.py), motor em app/followup/ (regras.validar é quem manda).
@@ -137,6 +137,7 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
   const { catalogo } = useSessao();
   const [c, setC] = useState<Config | null>(null);
   const [previas, setPrevias] = useState<Record<number, string[]>>({});
+  const [tentPrevia, setTentPrevia] = useState(0);
   const [dias, setDias] = useState(30);
   const [verHistorico, setVerHistorico] = useState(false);
   useEffect(() => { if (dados) setC(dados.config); }, [dados]);
@@ -327,16 +328,34 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
           variaveis={dados.variaveis ?? []}
           onPrompt={(t) => setC((v) => (v ? { ...v, prompt: t } : v))}
           onEtapa={(codigo, t) => setC((v) => (v ? { ...v, por_etapa: { ...v.por_etapa, [codigo]: t } } : v))}
-          acoes={<Button size="sm" variant="outline" onClick={() => previa(0)} disabled={ocupado}
-            title="Escreve um exemplo com uma conversa de teste (usa uma chamada de IA)"><Eye className="size-3.5 mr-1.5" />Ver como fica</Button>}
+          previa={
+            <div className="fu-cel">
+              <div className="fu-cel-tit"><Smartphone size={16} />Como o lead recebe</div>
+              <div className="fu-cel-tela">
+                <div className="fu-cel-topo"><span className="fu-cel-av">{(agente.nome || "A").slice(0, 1).toUpperCase()}</span>
+                  <div><b>{agente.nome}</b><small>{ocupado ? "digitando…" : "online"}</small></div></div>
+                <div className="fu-cel-msgs">
+                  <span className="fu-bal sis">Lead sem responder · tentativa {tentPrevia + 1}</span>
+                  {previas[tentPrevia]?.length
+                    ? previas[tentPrevia].map((t, j) => <div key={`${tentPrevia}-${j}`} className="fu-bal ia" style={{ animationDelay: `${j * 120}ms` }}>{t}</div>)
+                    : ocupado ? <div className="fu-digitando"><i /><i /><i /></div>
+                    : <p className="fu-cel-vazio">Clique em <b>Gerar exemplo</b> para ver a mensagem que o agente escreveria nesta tentativa.</p>}
+                </div>
+              </div>
+              <div className="fu-cel-pe">
+                <BotaoBrilho size="sm" radius={10} onClick={() => previa(tentPrevia)} disabled={ocupado}><Sparkles className="size-3.5" />Gerar exemplo</BotaoBrilho>
+                <select className="inp" aria-label="Tentativa do exemplo" value={tentPrevia} onChange={(e) => setTentPrevia(Number(e.target.value))}>
+                  {c.passos.map((_, i) => <option key={i} value={i}>{i + 1}ª tentativa</option>)}
+                </select>
+              </div>
+              <span className="ajuda">O exemplo usa uma conversa de teste e gasta uma chamada de IA. Usa o texto que está na tela, mesmo sem salvar.</span>
+            </div>}
           rodape={<div className="form">
             <label className="field" style={{ maxWidth: 360 }}><span className="lbl">Modelo de IA do follow-up</span>
               <select value={c.modelo ?? ""} onChange={(e) => setC({ ...c, modelo: e.target.value || null })}>
                 <option value="">Padrão do servidor (GPT-4.1 mini)</option>
                 {(catalogo?.modelos ?? []).map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
               </select></label>
-            {previas[0] && <div className="previa-fu"><span className="muted" style={{ fontSize: 12 }}>Exemplo da 1ª retomada (conversa de teste):</span>
-              {previas[0].map((t, j) => <div key={j} className="bolha ia">{t}</div>)}</div>}
             <p className="muted" style={{ fontSize: 12, margin: 0 }}>Quem escreve é o agente da etapa em que o lead está, com a voz dele. Valem sempre: sem link, sem prometer resultado ou valor.</p>
           </div>}
         />
