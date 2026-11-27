@@ -421,7 +421,7 @@ function TabelaConversas({ icone, titulo, sub, dados, erro, direita, rodape }: {
           <ol className="divide-y divide-[#eef2ef] border-t border-[#eef2ef] lg:hidden">
             {dados.conversas.map((c) => (
               <li key={c.id_lead}>
-                <Link to={`/conversas/${c.id_lead}`} className="flex items-center gap-3 px-5 py-3">
+                <Link to={`/atendimento?lead=${c.id_lead}`} className="flex items-center gap-3 px-5 py-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13.5px] font-semibold text-[#0c111d]">{c.contato || "Sem nome"}{c.contrato_assinado && <SeloContrato />}</div>
                     <div className="truncate text-[11.5px] text-[#667085]">{c.agente} · {quando(c.ultimo_em)} · {inteiro(c.mensagens)} msgs · {compacto(c.tokens)} tokens</div>
@@ -451,7 +451,7 @@ function TabelaConversas({ icone, titulo, sub, dados, erro, direita, rodape }: {
                   <td className="px-3 py-3 text-right font-bold tabular-nums text-[#0c111d]">{rs(c.valor_brl)}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-[#475467]">{c.mensagens ? `≈ ${rs(c.valor_brl / c.mensagens)}` : "—"}</td>
                   <td className="py-3 pl-3 pr-4 text-right">
-                    <Link to={`/conversas/${c.id_lead}`} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-[#e6ebe8] bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[#1d2939] transition hover:border-[#c9d6ce]">
+                    <Link to={`/atendimento?lead=${c.id_lead}`} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-[#e6ebe8] bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[#1d2939] transition hover:border-[#c9d6ce]">
                       Ver detalhes<ArrowRight className="size-3.5" /></Link>
                   </td>
                 </tr>

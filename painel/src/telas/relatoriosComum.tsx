@@ -1208,7 +1208,7 @@ function LeadsDoAnuncio({ a, aoAbrirConversa }: { a: DetalheAnuncio; aoAbrirConv
                 {l.estado === "pausado" && !l.assinado && <span className="ml-1.5 text-[10px] font-medium text-amber-600">com a equipe</span>}
               </div>
               <span className="order-4 hidden text-xs tabular-nums text-muted-foreground sm:order-none sm:block">{fmtData(l.criado_em)}</span>
-              <Link to={`/conversas/${l.id}`} onClick={aoAbrirConversa}
+              <Link to={`/atendimento?lead=${l.id}`} onClick={aoAbrirConversa}
                 className="flex items-center justify-end gap-1 text-xs font-semibold text-primary transition-colors hover:text-primary/80">
                 <MessageCircle className="h-3.5 w-3.5" />Abrir conversa
               </Link>

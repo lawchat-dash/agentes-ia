@@ -21,10 +21,6 @@ function caminhosMeusProdutos(c: ContextoPreCarga): Lista {
   if (!c.escritorio || !c.podeGerir) return [];
   return ["/produtos-ativados?lixeira=0", "/produtos-ativados?lixeira=1", "/saude/numeros"];
 }
-function caminhosConversas(c: ContextoPreCarga): Lista {
-  if (!c.escritorio) return [];
-  return ["/conversas?busca=", "/agentes"];
-}
 function caminhosCreditos(c: ContextoPreCarga): Lista {
   if (!c.escritorio || !c.podeGerir) return [];
   return ["/carteira/painel?dias=30", "/carteira/conversas?dias=30&ordem=custo&limite=10", "/carteira/recargas"];
@@ -33,7 +29,6 @@ function caminhosCreditos(c: ContextoPreCarga): Lista {
 const TELAS: [RegExp, (c: ContextoPreCarga) => Lista][] = [
   [/^\/$/, caminhosInicio],
   [/^\/meus-produtos\/?$/, caminhosMeusProdutos],
-  [/^\/conversas(\/|$)/, caminhosConversas],
   [/^\/consumo\/?$/, caminhosCreditos],
 ];
 

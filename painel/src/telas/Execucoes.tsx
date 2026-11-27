@@ -359,7 +359,7 @@ function PainelDetalhe({ id, aoFechar, aoAbrir }: { id: string; aoFechar: () => 
   const abrirConversa = () => {
     if (!d) return;
     trocarEscritorio(d.id_escritorio);
-    navegar(`/conversas/${d.id_lead}`);
+    navegar(`/atendimento?lead=${d.id_lead}`);
   };
 
   return createPortal(

@@ -105,7 +105,6 @@ const SAIDA_MS = 650;
 function baixarPrimeiraTela(caminho: string): Promise<unknown> {
   const telas: [RegExp, () => Promise<unknown>][] = [
     [/^\/$/, () => import("../telas/Inicio")],
-    [/^\/conversas/, () => import("../telas/Conversas")],
     [/^\/(minha-conta|crm|atendimento|chatbots)/, () => import("../telas/MinhaConta")],
     [/^\/meus-produtos\/./, () => import("@/pages/ProdutoEditor")],
     [/^\/meus-produtos/, () => import("@/pages/MeusProdutos")],

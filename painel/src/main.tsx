@@ -1,6 +1,6 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import "./index.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
@@ -33,7 +33,6 @@ const TelaAdminFollowup = lazy(() => import("./telas/AdminFollowup").then((m) =>
 const TelaAgente = lazy(() => import("./telas/Agente").then((m) => ({ default: m.TelaAgente })));
 const TelaAgenteNovo = lazy(() => import("./telas/AgenteNovo").then((m) => ({ default: m.TelaAgenteNovo })));
 const TelaConfiguracoes = lazy(() => import("./telas/Configuracoes").then((m) => ({ default: m.TelaConfiguracoes })));
-const TelaConversas = lazy(() => import("./telas/Conversas").then((m) => ({ default: m.TelaConversas })));
 const TelaFerramentas = lazy(() => import("./telas/Ferramentas").then((m) => ({ default: m.TelaFerramentas })));
 const TelaRoteiro = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiro })));
 const TelaRoteiros = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiros })));
@@ -67,6 +66,12 @@ const BibliotecaDetalhes = lazy(() => import("@/pages/BibliotecaDetalhes"));
 const MeusProdutos = lazy(() => import("@/pages/MeusProdutos"));
 const AdminProdutos = lazy(() => import("@/pages/admin/AdminProdutos"));
 const AdminPlanos = lazy(() => import("@/pages/admin/AdminPlanos"));
+
+/** Endereço antigo da tela Conversas (/conversas/<lead>): abre o chat do lead na Central de Atendimento. */
+function ConversaAntiga() {
+  const { id } = useParams();
+  return <Navigate to={id ? `/atendimento?lead=${id}` : "/atendimento"} replace />;
+}
 const AdminProdutoEditor = lazy(() => import("@/pages/admin/AdminProdutoEditor"));
 const Ativar = lazy(() => import("@/pages/Ativar"));
 const ProdutoEditor = lazy(() => import("@/pages/ProdutoEditor"));
@@ -80,7 +85,7 @@ function usePreCarregarTelas(ligado: boolean, podeGerir: boolean, admin: boolean
   useEffect(() => {
     if (!ligado) return;
     const telas: (() => Promise<unknown>)[] = [
-      () => import("./telas/Inicio"), () => import("./telas/Conversas"), () => import("./telas/MinhaConta"),
+      () => import("./telas/Inicio"), () => import("./telas/MinhaConta"),
       ...(podeGerir ? [
         () => import("@/pages/MeusProdutos"), () => import("./telas/Agente"), () => import("@/pages/Biblioteca"),
         () => import("@/pages/BibliotecaDetalhes"), () => import("./telas/Ferramentas"), () => import("./telas/Creditos"),
@@ -103,7 +108,7 @@ function usePreCarregarTelas(ligado: boolean, podeGerir: boolean, admin: boolean
 
 const TITULOS: [RegExp, string][] = [
   [/^\/$/, "Painel Inicial"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
-  [/^\/relatorios\/campanhas/, "Relatórios › Rastreamento de campanhas"], [/^\/relatorios/, "Relatórios › Dashboard"], [/^\/erros/, "Erros"], [/^\/conversas/, "Conversas"], [/^\/atendimento/, "Central de Atendimento"],
+  [/^\/relatorios\/campanhas/, "Relatórios › Rastreamento de campanhas"], [/^\/relatorios/, "Relatórios › Dashboard"], [/^\/erros/, "Erros"], [/^\/atendimento/, "Central de Atendimento"],
   [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus agentes"],
   [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos no WhatsApp"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas\/followup/, "Ferramentas › Follow-up"], [/^\/ferramentas\/midia/, "Ferramentas › Biblioteca de mídia"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
   [/^\/admin\/escritorios/, "LawChat › Escritórios"], [/^\/admin\/equipe/, "LawChat › Equipe"], [/^\/admin\/modelos/, "LawChat › Modelos de agente"],
@@ -166,8 +171,8 @@ function ComEstrutura() {
       <Suspense fallback={<Carregando />}>
       <Routes>
         <Route path="/" element={<TelaInicio />} />
-        {/* Conversas: todos os papéis do escritório (o atendente pausa e devolve a IA por aqui). */}
-        <Route path="/conversas/:id?" element={precisaEscritorio(<TelaConversas />)} />
+        {/* A tela Conversas foi tirada: as conversas ficam só na Central de Atendimento. Links antigos vão para o chat do lead lá. */}
+        <Route path="/conversas/:id?" element={<ConversaAntiga />} />
         <Route path="/atendimento" element={precisaEscritorio(<TelaCentral />)} />
         <Route path="/chatbots" element={precisaEscritorio(<TelaChatbots />)} />
         {podeGerir && <>

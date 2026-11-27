@@ -220,7 +220,7 @@ export function HistoricoFollowup({ dias, agentes, agente, compacto = false }: {
                       <span className="muted" style={{ fontSize: 12 }}>
                         {i.enviado_em && <>Enviado em {new Date(i.enviado_em).toLocaleString("pt-BR")}. </>}
                         {i.situacao === "enviado" && (i.respondeu ? "O lead respondeu depois deste envio." : "Sem resposta do lead em até 3 dias.")}
-                        {" "}<Link to={`/conversas/${i.id_lead}`}>Abrir a conversa</Link>
+                        {" "}<Link to={`/atendimento?lead=${i.id_lead}`}>Abrir a conversa</Link>
                       </span>
                     </div>
                   </td></tr>
