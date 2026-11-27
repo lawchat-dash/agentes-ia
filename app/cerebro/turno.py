@@ -1845,12 +1845,14 @@ def _fechamento_futuro_bpc(produto: Any, fatos: dict[str, Any]) -> bool:
 
 
 # Salário-Maternidade: gestante (ainda não teve o bebê) nunca é desqualificada de imediato nem vai para o Período de
-# Graça. Só desqualifica com advogado cuidando deste pedido ou se for concursada/estatutária (regime próprio).
+# Graça. Só desqualifica com advogado cuidando deste pedido, se for concursada/estatutária (regime próprio) ou se
+# tem carteira ativa (a empresa paga a licença; o roteiro só passa adiante se houver uma 2ª renda comprovável).
 ORIENTACAO_GESTANTE = (
     "Pelos fatos, ela ainda está grávida (gestante): gestante nunca é desqualificada de imediato e nunca vai para o "
-    "Período de Graça. Só desqualifique se ela tiver advogado cuidando deste pedido ou se for concursada/estatutária. "
+    "Período de Graça. Só desqualifique se ela tiver advogado cuidando deste pedido, se for concursada/estatutária ou se tem carteira "
+    "assinada ativa sem outra renda (a empresa paga a licença). "
     "Deixe transferir_para vazio e siga o roteiro de gestante.")
-_JA_DESQUALIFICA_GESTANTE = {"tem_advogado_no_caso": ("sim",), "categoria": ("estatutaria",)}
+_JA_DESQUALIFICA_GESTANTE = {"tem_advogado_no_caso": ("sim",), "categoria": ("estatutaria", "clt_ativa")}
 
 
 def _gestante_sem_motivo(produto: Any, fatos: dict[str, Any]) -> bool:

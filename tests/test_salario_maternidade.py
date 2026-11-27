@@ -325,3 +325,13 @@ async def test_gestante_com_advogado_desqualifica():
     saida = await turno.processar(modelo, entrada(["tô grávida"], fatos={"situacao": "gestante",
                                                                          "tem_advogado_no_caso": "sim"}))
     assert len(conteudos(modelo)) == 1 and saida.etapa_depois == "desqualificado"
+
+
+def test_gestante_clt_ativa_pode_ser_desqualificada():
+    """Validação 27/11 (sm01): gestante CLT sem 2ª renda recebe pela empresa; a trava não pode impedir a desqualificação."""
+    from app.cerebro import turno
+
+    class P:
+        config = {"catalogo": {"slug": "salario-maternidade-v2"}}
+    assert not turno._gestante_sem_motivo(P(), {"situacao": "gestante", "categoria": "clt_ativa"})
+    assert turno._gestante_sem_motivo(P(), {"situacao": "gestante", "categoria": "desempregada"})
