@@ -5,7 +5,6 @@ import { api, enviar, formatarTelefone, quando, type Canal } from "../api";
 import { Alerta, Cabecalho, Carregando, Painel, Situacao, Vazio, useAcao, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { IntegracaoZapSign } from "./IntegracaoZapSign";
-import { LinkControleIA } from "../componentes/LinkControleIA";
 import { SeloSaude, TestarConexao, TipoNumero, useSaudeNumeros, type SaudeCanal } from "../componentes/SaudeNumero";
 
 interface Integracao { situacao: string; final_segredo: string | null; config: Record<string, any>; erro: string | null; testado_em: string | null; tem_segredo: boolean; }
@@ -25,8 +24,6 @@ export function TelaIntegracoes() {
         <IntegracaoHelena integracao={helena} canais={dados.canais} saude={saude.dados?.canais ?? []} webhookPossivel={dados.url_webhook_configurada}
           aoMudar={() => { recarregar(); saude.recarregar(); }} />
         {helena?.situacao === "ok" && <IntegracaoCrm integracao={dados.integracoes.crm} aoMudar={recarregar} />}
-        <LinkControleIA segredo={dados.segredo_controle_ia ?? null} />
-        {helena?.situacao === "ok" && <DesligarIa url={dados.url_botao_ia} />}
         <IntegracaoZapSign integracao={dados.integracoes.zapsign} urlWebhook={dados.url_webhook_zapsign} aoMudar={recarregar} />
       </div>
     </>
@@ -95,32 +92,6 @@ function IntegracaoHelena({ integracao, canais, saude, webhookPossivel, aoMudar 
           {saude.find((c) => c.aviso_tipo) && <span className="ajuda" style={{ display: "block", marginTop: 6 }}>{saude.find((c) => c.aviso_tipo)!.aviso_tipo}</span>}
         </div>
         {integracao?.testado_em && <span className="muted" style={{ fontSize: 12 }}>Última conferência: {quando(integracao.testado_em)}</span>}
-      </div>
-    </Painel>
-  );
-}
-
-function DesligarIa({ url }: { url: string | null }) {
-  const exemplo = '{ "acao": "desligar", "sessionId": "{{session.id}}" }';
-  return (
-    <Painel titulo="Desligar a IA pela LawChat">
-      <div className="form">
-        <p className="sec" style={{ margin: 0 }}>A equipe pode tirar a IA de uma conversa sem sair da LawChat. Cada vez fica uma nota no atendimento com um código (DES-…) e o follow-up da conversa é cancelado.</p>
-        <div className="grid2">
-          <div className="field">
-            <span className="lbl">1. Pela etiqueta</span>
-            <span>Coloque a etiqueta <b>🤖 IA Desativada</b> no contato para desligar. Tire a etiqueta para religar.</span>
-            <span className="ajuda">Funciona depois de conectar o webhook acima (o evento de etiqueta já vai junto).</span>
-          </div>
-          <div className="field">
-            <span className="lbl">2. Por botão ou automação</span>
-            {url ? <div style={{ display: "flex", gap: 8 }}>
-              <input className="inp mono" readOnly value={url} aria-label="Endereço do botão da IA" style={{ fontSize: 11.5 }} />
-              <button className="btn" onClick={() => { navigator.clipboard?.writeText(url); }} aria-label="Copiar endereço"><Copy /></button>
-            </div> : <Alerta tipo="warn">O servidor ainda não tem endereço público.</Alerta>}
-            <span className="ajuda">Requisição POST com o corpo <code className="mono">{exemplo}</code>. Use "ligar" para religar. Também aceita "phone" no lugar de "sessionId".</span>
-          </div>
-        </div>
       </div>
     </Painel>
   );

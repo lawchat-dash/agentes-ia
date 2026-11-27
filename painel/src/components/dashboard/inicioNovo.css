@@ -49,8 +49,12 @@
 .lc-ob-btn--verde:hover:not(:disabled) { background: var(--brand-800, #0B5E27); }
 .lc-ob-btn--verde:hover:not(:disabled) svg { transform: translateX(2px); }
 .lc-ob-btn--verde svg { transition: transform .15s ease; }
-.lc-ob-hero .lc-ob-btn--verde { background: var(--brand, #00BC33); color: var(--night, #06130C); }
-.lc-ob-hero .lc-ob-btn--verde:hover:not(:disabled) { background: #3BE062; }
+.lc-ob-hero .lc-ob-btn--verde { background: linear-gradient(180deg, #14C949 0%, #00A82E 100%); color: #fff; min-height: 46px; padding: 0 20px;
+  border-radius: 13px; border-color: rgb(255 255 255 / .18); font-size: 14px; letter-spacing: .005em; text-shadow: 0 1px 1px rgb(0 0 0 / .18);
+  box-shadow: 0 10px 24px -10px rgb(0 188 51 / .75), inset 0 1px 0 rgb(255 255 255 / .28); }
+.lc-ob-hero .lc-ob-btn--verde:hover:not(:disabled) { background: linear-gradient(180deg, #22D657 0%, #00B531 100%); transform: translateY(-1px);
+  box-shadow: 0 14px 28px -10px rgb(0 188 51 / .85), inset 0 1px 0 rgb(255 255 255 / .3); }
+.lc-ob-hero .lc-ob-btn--verde:active:not(:disabled) { transform: translateY(0); }
 .lc-ob-btn--noite { background: rgb(255 255 255 / .08); border-color: rgb(255 255 255 / .16); color: #fff; }
 .lc-ob-btn--noite:hover { background: rgb(255 255 255 / .14); }
 .lc-ob-btn--borda { background: #fff; border-color: var(--line, #E2E9E4); color: var(--ink, #0C1811); width: 100%; }
