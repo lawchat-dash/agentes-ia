@@ -148,7 +148,7 @@ export function assinarEsperas(f: () => void): () => void {
 // POSTs que não mudam dado nenhum das telas: não apagam o que está guardado. /atendimento/entrar só gera o link de
 // entrada na LawChat e a camada de telas da LawChat chama vários ao abrir o painel (mesma lista em
 // app/gestao/cache_curto.py).
-const NAO_ALTERAM = ["/atendimento/entrar"];
+const NAO_ALTERAM = ["/atendimento/entrar", "/admin/logs/acesso-cliente"];
 
 function pedirUmaVez(caminho: string, metodo: string, cabecalhos: Record<string, string>, corpo: unknown) {
   const fazer = () => fetch(`/api${caminho}`, {

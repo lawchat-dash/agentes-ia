@@ -63,6 +63,11 @@ export function ProvedorSessao({ children }: { children: ReactNode }) {
   }, []);
 
   const trocarVisao = useCallback((v: Visao) => {
+    // Entrar na visão do cliente fica no log da plataforma (Superadmin › Logs). Sem esperar e sem atrapalhar a troca.
+    const conta = escritorioEscolhido();
+    if (v !== "lawchat" && conta && visaoEscolhida() !== v) {
+      api("/admin/logs/acesso-cliente", { metodo: "POST", corpo: { id_escritorio: conta, visao: v } }).catch(() => undefined);
+    }
     escolherVisao(v);
     setVisao(v);
   }, []);

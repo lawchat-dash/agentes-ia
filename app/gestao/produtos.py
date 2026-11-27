@@ -26,8 +26,10 @@ from pydantic import BaseModel, Field
 from app import armazenamento
 from app.cerebro import catalogo as catalogo_motor
 from app import cobranca
+from app.gestao import log_plataforma
 from app.gestao.cache_curto import CacheCurto, limpar_todos
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
+from app.gestao.log_plataforma import registrado
 
 api = APIRouter(prefix="/api")
 
@@ -175,7 +177,26 @@ def _cast(nome: str) -> str:
     return "::jsonb" if nome in JSONB else ("::uuid" if nome.startswith("id_") else "")
 
 
+def _resumo_produto(_a: dict[str, Any], r: Any) -> dict[str, Any]:
+    r = r if isinstance(r, dict) else {}
+    return {k: r.get(k) for k in ("id", "slug", "nome", "status", "categoria") if k in r}
+
+
+def _status_catalogo(a: dict[str, Any]) -> str | None:
+    status = (a.get("dados") or {}).get("status")
+    return {"publicado": "catalogo.publicado", "rascunho": "catalogo.despublicado",
+            "em_breve": "catalogo.despublicado"}.get(status) if isinstance(status, str) else None
+
+
+ROTULO_STATUS_CATALOGO = {"publicado": "Produto do catálogo publicado", "rascunho": "Produto do catálogo tirado de publicação (rascunho)",
+                          "em_breve": "Produto do catálogo tirado de publicação (em breve)"}
+
+
 @api.post("/admin/biblioteca/produtos")
+@registrado("catalogo.produto_criado", "Produto do catálogo criado",
+            referencia=lambda a: (a.get("dados") or {}).get("nome"),
+            payload=lambda a: {k: v for k, v in (a.get("dados") or {}).items() if k in ("nome", "slug", "status", "categoria")},
+            resultado=_resumo_produto, escritorio=None)
 async def criar_produto(dados: dict[str, Any], pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     if not str(dados.get("nome") or "").strip():
         raise HTTPException(400, "O produto precisa de um nome.")
@@ -192,6 +213,9 @@ async def criar_produto(dados: dict[str, Any], pedido: Request, ctx: Contexto = 
 
 
 @api.patch("/admin/biblioteca/produtos/{id_produto}")
+@registrado(_status_catalogo, lambda a: ROTULO_STATUS_CATALOGO.get((a.get("dados") or {}).get("status"), "Produto do catálogo"),
+            referencia=lambda a: a["id_produto"], payload=lambda a: {"status": (a.get("dados") or {}).get("status")},
+            resultado=_resumo_produto, escritorio=None)
 async def alterar_produto(id_produto: str, dados: dict[str, Any], pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     if "slug" in dados:
         dados["slug"] = slugificar(dados["slug"])
@@ -318,6 +342,8 @@ def _regras_sistema_do_produto(produto: dict[str, Any]) -> dict[str, str]:
 
 
 @api.delete("/admin/biblioteca/produtos/{id_produto}")
+@registrado("catalogo.produto_excluido", "Produto do catálogo excluído", referencia=lambda a: a["id_produto"],
+            escritorio=None)
 async def apagar_produto(id_produto: str, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     feito = await _pool(pedido).fetchval("delete from agentesia_biblioteca_produtos where id = $1::uuid returning true", id_produto)
     if not feito:
@@ -507,6 +533,11 @@ class Importacao(BaseModel):
 
 
 @api.post("/admin/biblioteca/importar")
+@registrado(lambda a: "catalogo.importado" if a["dados"].aplicar else None, "Catálogo importado",
+            referencia=lambda a: ", ".join(f.nome for f in a["dados"].arquivos)[:200],
+            payload=lambda a: {"arquivos": [f.nome for f in a["dados"].arquivos], "aplicar": a["dados"].aplicar},
+            resultado=lambda _a, r: {k: (len(v) if isinstance(v, list) else v) for k, v in (r or {}).items()
+                                     if not isinstance(v, dict)}, escritorio=None)
 async def importar_catalogo(dados: Importacao, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     """Importa o catálogo exportado do agents-lawchat-main (docs/EXPORTAR_CATALOGO.sql). Prévia primeiro, depois aplica."""
     from app.catalogo_importar import ErroImportacao, importar, ler_arquivos
@@ -683,6 +714,12 @@ async def alterar_ativado(id_ativado: str, dados: dict[str, Any], pedido: Reques
             await _repo(pedido).registrar_alteracao(
                 id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_produtos_ativados",
                 id_registro=id_ativado, acao="alterou", resumo=resumo)
+            na_lixeira = bool(dados["excluido_em"])
+            await log_plataforma.registrar(
+                pedido, ctx=ctx, funcao="produto.lixeira" if na_lixeira else "produto.restaurado",
+                rotulo="Produto na lixeira (número liberado)" if na_lixeira else "Produto restaurado da lixeira",
+                referencia=f"{atual['nome']} · {id_ativado[:8]}", payload={"excluido": na_lixeira},
+                resultado={"id": id_ativado, "nome": atual["nome"], "numero_desconectado": bool(na_lixeira and atual.get("id_agente"))})
     return await _ativado(pool, ctx.escritorio(), id_ativado)
 
 
@@ -1060,7 +1097,27 @@ def _avisar_indexacao(pedido: Request) -> None:
         sinal.set()
 
 
+def _payload_ativar(a: dict[str, Any]) -> dict[str, Any]:
+    dados = a.get("dados")
+    if dados is None:
+        return {}
+    return {"nome": dados.nome, "id_canal": dados.id_canal, "modelo": dados.modelo,
+            "ativar_imediatamente": dados.ativar_imediatamente, "followup_ativo": dados.followup_ativo,
+            "periodo_graca_ativo": dados.periodo_graca_ativo, "delay_s": dados.delay_s, "pausa_min": dados.pausa_min,
+            "agentes": [ag.papel for ag in dados.agentes]}
+
+
+def _resultado_ativar(_a: dict[str, Any], r: Any) -> dict[str, Any]:
+    r = r if isinstance(r, dict) else {}
+    verificacao = r.get("verificacao") if isinstance(r.get("verificacao"), dict) else {}
+    return {"id_agente": r.get("id_agente"), "pronto": verificacao.get("pronto"),
+            "pendencias": verificacao.get("pendencias"), "versao": (r.get("versao") or {}).get("versao")
+            if isinstance(r.get("versao"), dict) else r.get("versao")}
+
+
 @api.post("/produtos-ativados/{id_ativado}/ativar")
+@registrado("produto.ativado", "Produto ativado", referencia=lambda a: a["id_ativado"], payload=_payload_ativar,
+            resultado=_resultado_ativar)
 async def ativar_produto(id_ativado: str, dados: Ativar, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     # O plano só barra a PRIMEIRA ativação (como no Weaver): agente que já existe continua editável se o plano cair.
     pool = _pool(pedido)
@@ -1079,6 +1136,8 @@ async def ativar_produto(id_ativado: str, dados: Ativar, pedido: Request, ctx: C
 
 
 @api.post("/produtos-ativados/{id_ativado}/sincronizar")
+@registrado("produto.sincronizado", "Produto sincronizado", referencia=lambda a: a["id_ativado"], payload=_payload_ativar,
+            resultado=_resultado_ativar)
 async def sincronizar_produto(id_ativado: str, dados: Ativar, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     produto = await _ativado(_pool(pedido), ctx.escritorio(), id_ativado)
     if not produto.get("id_agente"):
@@ -1090,7 +1149,15 @@ class MudarStatus(BaseModel):
     status: str
 
 
+def _resumo_ativado(_a: dict[str, Any], r: Any) -> dict[str, Any]:
+    r = r if isinstance(r, dict) else {}
+    return {k: r.get(k) for k in ("id", "nome", "status", "id_agente", "arquivado") if k in r}
+
+
 @api.post("/produtos-ativados/{id_ativado}/status")
+@registrado(lambda a: "produto.retomado" if a["dados"].status == "ativo" else "produto.pausado",
+            lambda a: "Produto ligado (IA retomada)" if a["dados"].status == "ativo" else "Produto pausado (IA pausada)",
+            referencia=lambda a: a["id_ativado"], payload=lambda a: {"status": a["dados"].status}, resultado=_resumo_ativado)
 async def mudar_status(id_ativado: str, dados: MudarStatus, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     if dados.status not in ("ativo", "pausado"):
         raise HTTPException(400, "Situação inválida.")
@@ -1111,6 +1178,7 @@ ARQUIVADO = "Este agente está arquivado. Restaure antes de ligar."
 
 
 @api.post("/produtos-ativados/{id_ativado}/arquivar")
+@registrado("produto.arquivado", "Agente arquivado", referencia=lambda a: a["id_ativado"], resultado=_resumo_ativado)
 async def arquivar_produto(id_ativado: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Arquivar: o agente para de atender (situacao 'arquivado', o motor só responde 'ativo'), os follow-ups
     pendentes são cancelados e o produto sai da lista principal. Diferente da lixeira, o número continua com ele."""
@@ -1133,6 +1201,8 @@ async def arquivar_produto(id_ativado: str, pedido: Request, ctx: Contexto = Dep
 
 
 @api.post("/produtos-ativados/{id_ativado}/desarquivar")
+@registrado("produto.desarquivado", "Agente restaurado do arquivo", referencia=lambda a: a["id_ativado"],
+            resultado=_resumo_ativado)
 async def desarquivar_produto(id_ativado: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Restaurar do arquivo: volta pausado, no mesmo número. Quem liga é o cliente (botão ligar)."""
     pool = _pool(pedido)
@@ -1146,6 +1216,7 @@ async def desarquivar_produto(id_ativado: str, pedido: Request, ctx: Contexto = 
 
 
 @api.delete("/produtos-ativados/{id_ativado}")
+@registrado("produto.excluido", "Produto excluído (número liberado)", referencia=lambda a: a["id_ativado"])
 async def excluir_produto(id_ativado: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Exclusão definitiva: solta o número sempre. O agente é apagado se não houver conversa; com conversa ele fica
     pausado e sem número (o histórico dos leads continua apontando para ele)."""

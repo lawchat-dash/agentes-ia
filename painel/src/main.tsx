@@ -28,6 +28,7 @@ import { PortaoCarregamento } from "./componentes/TelaCarregamento";
 import { CarregandoEntrada, Entrar } from "./telas/Entrar";
 // Cada tela vira um arquivo JS próprio, baixado só quando a pessoa abre a tela (antes era um bundle único de ~2,5 MB).
 const TelaAdminEscritorios = lazy(() => import("./telas/AdminEscritorios").then((m) => ({ default: m.TelaAdminEscritorios })));
+const TelaAdminLogs = lazy(() => import("./telas/AdminLogs").then((m) => ({ default: m.TelaAdminLogs })));
 const TelaAdminFollowup = lazy(() => import("./telas/AdminFollowup").then((m) => ({ default: m.TelaAdminFollowup })));
 const TelaAgente = lazy(() => import("./telas/Agente").then((m) => ({ default: m.TelaAgente })));
 const TelaAgenteNovo = lazy(() => import("./telas/AgenteNovo").then((m) => ({ default: m.TelaAgenteNovo })));
@@ -212,6 +213,7 @@ function ComEstrutura() {
           <Route path="/admin/erros" element={<TelaErros todos />} />
           <Route path="/admin/execucoes" element={<TelaExecucoes />} />
           <Route path="/admin/execucoes/:id" element={<TelaExecucoes />} />
+          <Route path="/admin/logs" element={<TelaAdminLogs />} />
           <Route path="/admin/cobranca" element={<TelaAdminCobranca />} />
           <Route path="/admin/followup" element={<TelaAdminFollowup />} />
           <Route path="/admin/produtos" element={<AdminProdutos />} />

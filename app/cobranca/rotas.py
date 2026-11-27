@@ -31,7 +31,9 @@ from pydantic import BaseModel, Field
 
 from app import cobranca
 from app.cobranca import gateways
+from app.gestao import log_plataforma
 from app.gestao.cache_curto import CacheCurto
+from app.gestao.log_plataforma import registrado
 from app.gestao.repositorio import _linha, _linhas
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
 
@@ -481,7 +483,18 @@ class PedidoRecarga(BaseModel):
     observacao: str | None = Field(default=None, max_length=500)
 
 
+_CAMPOS_CARTEIRA = ("modo", "plano", "markup", "saldo_brl", "bonus_brl", "disponivel_brl", "bloqueado")
+
+
+def _resumo_carteira(_a: dict[str, Any], r: Any) -> dict[str, Any]:
+    carteira = (r or {}).get("carteira", r) if isinstance(r, dict) else {}
+    return {k: carteira.get(k) for k in _CAMPOS_CARTEIRA if k in carteira}
+
+
 @api.post("/carteira/recargas")
+@registrado("cobranca.recarga_pedida", "Recarga pedida pelo cliente", referencia=lambda a: f"R$ {a['dados'].valor_brl:.2f}",
+            payload=lambda a: a["dados"],
+            resultado=lambda _a, r: {k: (r or {}).get(k) for k in ("id", "valor_brl", "situacao", "gateway", "repetida")})
 async def pedir_recarga(dados: PedidoRecarga, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Pede a recarga: fica pendente e a LawChat é avisada (central de avisos). O crédito só entra quando a recarga
     for confirmada (manual pelo admin, ou webhook do gateway quando estiver ligado)."""
@@ -525,6 +538,7 @@ async def pedir_recarga(dados: PedidoRecarga, pedido: Request, ctx: Contexto = D
 
 
 @api.post("/carteira/recargas/{id_recarga}/cancelar")
+@registrado("cobranca.recarga_cancelada", "Recarga cancelada pelo cliente", referencia=lambda a: a["id_recarga"])
 async def cancelar_recarga_do_cliente(id_recarga: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     pool = _pool(pedido)
     await _exigir_007(pool)
@@ -567,6 +581,8 @@ async def ver_config(pedido: Request, _: Contexto = Depends(ADMIN)) -> dict[str,
 
 
 @api.post("/admin/cobranca/config")
+@registrado("cobranca.config_alterada", "Cotação e markup alterados", payload=lambda a: a["dados"],
+            resultado=lambda _a, r: (r or {}).get("vigente"), escritorio=None)
 async def mudar_config(dados: ConfigCobranca, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     """Nova cotação/markup (vale para as chamadas a partir de agora; as já gravadas guardam os delas)."""
     pool = _pool(pedido)
@@ -691,6 +707,8 @@ async def listar_planos(pedido: Request, _: Contexto = Depends(ADMIN)) -> list[d
 
 
 @api.post("/admin/planos")
+@registrado("cobranca.plano_criado", "Plano criado", referencia=lambda a: getattr(a["dados"], "nome", None),
+            payload=lambda a: a["dados"], resultado=lambda _a, r: r, escritorio=None)
 async def criar_plano(dados: Plano, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     pool = _pool(pedido)
     await _exigir_007(pool)
@@ -715,6 +733,8 @@ async def criar_plano(dados: Plano, pedido: Request, ctx: Contexto = Depends(ADM
 
 
 @api.patch("/admin/planos/{id_plano}")
+@registrado("cobranca.plano_alterado", "Plano alterado", referencia=lambda a: a["id_plano"],
+            payload=lambda a: a["dados"].model_dump(exclude_none=True), resultado=lambda _a, r: r, escritorio=None)
 async def alterar_plano(id_plano: str, dados: AlterarPlano, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     """Mudar o bônus vale a partir do mês seguinte (o bônus do mês já creditado não muda)."""
     pool = _pool(pedido)
@@ -893,6 +913,8 @@ async def ver_carteira_admin(id_escritorio: str, pedido: Request, _: Contexto = 
 
 
 @api.patch("/admin/carteiras/{id_escritorio}")
+@registrado("cobranca.carteira_alterada", "Plano e cobrança da conta alterados", referencia=lambda a: a["id_escritorio"],
+            payload=lambda a: a["dados"].model_dump(exclude_defaults=True), resultado=_resumo_carteira)
 async def alterar_carteira(id_escritorio: str, dados: AlterarCarteira, pedido: Request,
                            ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     pool = _pool(pedido)
@@ -950,6 +972,9 @@ class Lancamento(BaseModel):
 
 
 @api.post("/admin/carteiras/{id_escritorio}/lancamentos")
+@registrado(lambda a: "cobranca.creditos_lancados" if a["dados"].tipo != "ajuste" else "cobranca.ajuste_lancado",
+            lambda a: {"bonus_manual": "Créditos (bônus) lançados", "recarga": "Recarga lançada à mão"}.get(a["dados"].tipo, "Ajuste na carteira"),
+            referencia=lambda a: f"R$ {a['dados'].valor_brl:.2f}", payload=lambda a: a["dados"], resultado=_resumo_carteira)
 async def lancar_na_carteira(id_escritorio: str, dados: Lancamento, pedido: Request,
                              ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     """Crédito/bônus/ajuste à mão, sempre com motivo. bonus_manual e recarga entram no saldo (não expiram)."""
@@ -1004,6 +1029,10 @@ async def confirmar_recarga(id_recarga: str, pedido: Request, ctx: Contexto = De
         await _repo(pedido).registrar_alteracao(
             id_usuario=ctx.id_usuario, id_escritorio=str(recarga["id_escritorio"]), tabela="agentesia_recargas",
             id_registro=id_recarga, acao="confirmou_recarga", resumo=f"Recarga de R$ {recarga['valor_brl']:.2f} confirmada")
+        await log_plataforma.registrar(
+            pedido, ctx=ctx, id_escritorio=str(recarga["id_escritorio"]), funcao="cobranca.recarga_confirmada",
+            rotulo="Recarga confirmada (créditos liberados)", referencia=f"R$ {recarga['valor_brl']:.2f} · {id_recarga[:8]}",
+            payload={"id_recarga": id_recarga}, resultado={"id_movimento": id_movimento, "valor_brl": recarga["valor_brl"]})
     return {"id_movimento": id_movimento, "ja_estava_paga": ja_paga,
             "carteira": await _carteira(pool, str(recarga["id_escritorio"]))}
 
@@ -1020,6 +1049,8 @@ async def cancelar_recarga(id_recarga: str, pedido: Request, ctx: Contexto = Dep
     await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=str(linha["id_escritorio"]),
                                             tabela="agentesia_recargas", id_registro=id_recarga, acao="cancelou_recarga",
                                             resumo="Recarga cancelada pela LawChat")
+    await log_plataforma.registrar(pedido, ctx=ctx, id_escritorio=str(linha["id_escritorio"]), funcao="cobranca.recarga_cancelada",
+                                   rotulo="Recarga cancelada pela LawChat", referencia=id_recarga, payload={"id_recarga": id_recarga})
     return {"situacao": "cancelada"}
 
 

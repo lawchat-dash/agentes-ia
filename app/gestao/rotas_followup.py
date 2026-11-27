@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.followup import padrao
+from app.gestao.log_plataforma import registrado
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
 
 api = APIRouter(prefix="/api")
@@ -29,6 +30,8 @@ async def followup_padrao_do_produto(id_produto: str, pedido: Request, ctx: Cont
 
 
 @api.post("/produtos-ativados/{id_ativado}/followup/ligar-padrao")
+@registrado("followup.ligado", "Follow-up ligado com o padrão", referencia=lambda a: a["id_ativado"],
+            resultado=lambda _a, r: {k: (r or {}).get(k) for k in ("id_ativado", "id_agente", "nome", "aviso")})
 async def ligar_padrao(id_ativado: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Botão "Ligar com o padrão" (Início, tela do produto, Meus produtos)."""
     feito = await padrao.ligar_com_padrao(_repo(pedido).pool, id_ativado, id_usuario=ctx.id_usuario,
@@ -52,6 +55,11 @@ class LigarEmLote(BaseModel):
 
 
 @api.post("/admin/followup/ligar")
+@registrado(lambda a: None if a["dados"].simular else "followup.ligado_em_lote", "Follow-up ligado com o padrão (admin, em lote)",
+            referencia=lambda a: "todos os ativos desligados" if a["dados"].todos_desligados else f"{len(a['dados'].ids)} produto(s)",
+            payload=lambda a: a["dados"],
+            resultado=lambda _a, r: {"ligados": [f"{x['escritorio']} · {x['nome']}" for x in (r or {}).get("ligados") or []],
+                                     "avisos": (r or {}).get("avisos")}, escritorio=None)
 async def ligar_em_lote(dados: LigarEmLote, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     """Liga com o padrão, um a um ou em lote. Exige a lista ou todos_desligados: nunca liga "tudo" sem pedir."""
     pool = _repo(pedido).pool

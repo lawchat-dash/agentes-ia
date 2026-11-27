@@ -250,6 +250,7 @@ from app.gestao.rotas_roteiros import api as api_roteiros; app.include_router(ap
 from app.gestao.rotas_roteiro_gravacao import api as api_roteiro_gravacao; app.include_router(api_roteiro_gravacao)  # noqa: E402,E702  roteiro de gravação por produto (019)
 from app.gestao.rotas_filtro import api as api_filtro; app.include_router(api_filtro)  # noqa: E402,E702  filtro de número por agente (teste)
 from app.gestao.rotas_execucoes import api as api_execucoes; app.include_router(api_execucoes)  # noqa: E402,E702  Superadmin > Execuções (cada turno da IA)
+from app.gestao.rotas_log_plataforma import api as api_log_plataforma; app.include_router(api_log_plataforma)  # noqa: E402,E702  Superadmin > Logs (log da plataforma)
 from app.gestao.rotas_relatorios import api as api_relatorios; app.include_router(api_relatorios)  # noqa: E402,E702  Relatórios: Dashboard e Rastreamento de campanhas
 from app.gestao.rotas_controle_ia import api as api_controle_ia; app.include_router(api_controle_ia)  # noqa: E402,E702  bolinha da IA na Central
 from app.gestao.rotas_avisos import api as api_avisos; app.include_router(api_avisos)  # noqa: E402,E702  Avisos no WhatsApp (conta e catálogo)

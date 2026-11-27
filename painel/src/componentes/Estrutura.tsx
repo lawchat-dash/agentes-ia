@@ -177,6 +177,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
       { para: "/admin/cobranca?aba=carteiras", rotulo: "Financeiro", icone: <Wallet className="i" /> },
       { para: "/admin/erros", rotulo: "Erros da IA", icone: <AlertOctagon className="i" /> },
       { para: "/admin/execucoes", rotulo: "Execuções", icone: <Activity className="i" /> },
+      { para: "/admin/logs", rotulo: "Logs", icone: <History className="i" /> },
       { para: "/admin/equipe", rotulo: "Usuários admin", icone: <Users className="i" /> },
     ] });
   } else {

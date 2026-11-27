@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from app.canal.helena_conta import ErroHelenaApi, HelenaParceiro
 from app.gestao import onboarding, sincronizar_conta
+from app.gestao.log_plataforma import registrado
 from app.gestao.rotas import ADMIN, GESTAO, Contexto, _erro_helena, _esquecer_helena, _helena_do_escritorio, _repo, _salvar_token_helena
 
 api = APIRouter(prefix="/api")
@@ -141,6 +142,11 @@ async def conferir_onboarding(id_escritorio: str, pedido: Request, ctx: Contexto
 
 
 @api.post("/admin/escritorios/{id_escritorio}/onboarding/avancar")
+@registrado("conta.onboarding", "Onboarding da conta avançado", referencia=lambda a: a["id_escritorio"],
+            payload=lambda a: a.get("dados") or {},
+            resultado=lambda _a, r: {"passos": {p.get("codigo"): p.get("situacao") for p in (r or {}).get("passos") or []}},
+            falha=lambda _a, r: "; ".join(f"{p.get('titulo')}: {p.get('detalhe')}" for p in (r or {}).get("passos") or []
+                                          if p.get("situacao") == "erro") or None)
 async def avancar_onboarding(id_escritorio: str, pedido: Request, dados: Avancar | None = None,
                              ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     return await _onboarding(pedido, ctx, id_escritorio, aplicar=True, dados=dados)
@@ -210,6 +216,10 @@ def _parceiro_ou_409(pedido: Request) -> HelenaParceiro:
 
 
 @api.post("/admin/escritorios/sincronizar-lawchat")
+@registrado("conta.sincronizar_todas", "Contas sincronizadas com a LawChat",
+            resultado=lambda _a, r: {k: (r or {}).get(k) for k in ("total", "criadas", "atualizadas", "com_erro")},
+            falha=lambda _a, r: f"{(r or {}).get('com_erro')} conta(s) com erro" if (r or {}).get("com_erro") else None,
+            escritorio=None)
 async def sincronizar_com_lawchat(pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     """"Sincronizar com LawChat" (sync do Weaver): todas as empresas do token de parceiro (GET core/v1/company,
     paginando) viram conta aqui; cria a que falta e atualiza a que existe, casando por id_conta_helena."""
@@ -321,6 +331,11 @@ async def habilitar_agente(pedido: Request, ctx: Contexto, id_escritorio: str, *
 
 
 @api.post("/admin/escritorios/{id_escritorio}/habilitar-agente")
+@registrado("conta.plataforma_liberada", "Plataforma liberada (Criar Agente habilitado)", referencia=lambda a: a["id_escritorio"],
+            payload=lambda a: a.get("dados") or {},
+            resultado=lambda _a, r: {"habilitado": (r or {}).get("habilitado"),
+                                     "passos": {p.get("codigo"): p.get("situacao") for p in (r or {}).get("passos") or []}},
+            falha=lambda _a, r: None if (r or {}).get("habilitado") else "Criar Agente não ficou habilitado (token da conta não ficou de pé)")
 async def habilitar_agente_rota(id_escritorio: str, pedido: Request, dados: HabilitarAgente | None = None,
                                 ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     return await habilitar_agente(pedido, ctx, id_escritorio, criar_equipe_ia=bool(dados and dados.criar_equipe_ia))

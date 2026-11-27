@@ -33,8 +33,9 @@ from app.cerebro import agente as agente_ia
 from app.cerebro import auxilio_acidente, sinais
 from app.cerebro import produto as produtos
 from app.cerebro.produto_livre import Definicao
-from app.gestao import ativacao, seguranca
+from app.gestao import ativacao, log_plataforma, seguranca
 from app.gestao.cache_curto import CacheCurto
+from app.gestao.log_plataforma import registrado
 from app.gestao.repositorio import RepositorioGestao, _linhas
 
 COOKIE = "agentesia_sessao"
@@ -544,6 +545,12 @@ async def empresas_helena(pedido: Request, busca: str = "", _: Contexto = Depend
 
 
 @api.post("/admin/escritorios")
+@registrado("conta.criada", "Conta (escritório) criada", referencia=lambda a: a["dados"].nome,
+            payload=lambda a: a["dados"],
+            resultado=lambda _a, r: {"id": r["escritorio"]["id"], "nome": r["escritorio"]["nome"],
+                                     "helena_conectada": bool(r.get("helena")), "gestor_criado": bool(r.get("gestor")),
+                                     "etiquetas": r.get("etiquetas"), "equipe": bool(r.get("equipe"))},
+            escritorio=lambda _a, r: ((r or {}).get("escritorio") or {}).get("id"))
 async def criar_escritorio(dados: NovoEscritorio, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     repo = _repo(pedido)
     escritorio = await repo.criar_escritorio(dados.nome.strip(), dados.id_conta_helena or None)
@@ -880,6 +887,8 @@ class LimiteConsumo(BaseModel):
 
 
 @api.put("/admin/escritorios/{id_escritorio}/limite")
+@registrado("conta.limite_consumo", "Limite de consumo da IA definido", referencia=lambda a: a["id_escritorio"],
+            payload=lambda a: a["dados"], resultado=lambda _a, r: r)
 async def definir_limite(id_escritorio: str, dados: LimiteConsumo, pedido: Request,
                          ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
     """Limite mensal de consumo da IA (em dólar). Só a equipe LawChat define."""
@@ -937,7 +946,14 @@ async def listar_equipe(pedido: Request, _: Contexto = Depends(ADMIN)) -> list[d
     return await _repo(pedido).equipe_lawchat()
 
 
+def _resumo_membro(_a: dict[str, Any], r: Any) -> dict[str, Any]:
+    membro = (r or {}).get("membro") or {}
+    return {k: membro.get(k) for k in ("id", "nome", "email", "papel", "ativo") if k in membro}
+
+
 @api.post("/admin/equipe")
+@registrado("admin.usuario_criado", "Usuário admin criado", referencia=lambda a: a["dados"].email,
+            payload=lambda a: a["dados"], resultado=_resumo_membro, escritorio=None)
 async def adicionar_membro(dados: NovoMembro, pedido: Request, ctx: Contexto = Depends(DONO)) -> dict[str, Any]:
     if dados.papel not in PAPEIS_LAWCHAT:
         raise HTTPException(400, "Papel inválido.")
@@ -960,6 +976,8 @@ _NOME_PAPEL = {"dono_lawchat": "dono", "admin_lawchat": "equipe", "gestor": "ges
 
 
 @api.patch("/admin/equipe/{id_usuario}")
+@registrado("admin.usuario_alterado", "Usuário admin alterado", referencia=lambda a: a["id_usuario"],
+            payload=lambda a: a["dados"].model_dump(exclude_none=True), resultado=_resumo_membro, escritorio=None)
 async def alterar_membro(id_usuario: str, dados: AlterarMembro, pedido: Request,
                          ctx: Contexto = Depends(DONO)) -> dict[str, Any]:
     repo = _repo(pedido)
@@ -989,6 +1007,8 @@ async def alterar_membro(id_usuario: str, dados: AlterarMembro, pedido: Request,
 
 
 @api.post("/admin/equipe/{id_usuario}/senha")
+@registrado("admin.senha_redefinida", "Senha provisória gerada para usuário admin", referencia=lambda a: a["id_usuario"],
+            resultado=lambda _a, _r: {"senha_provisoria_gerada": True}, escritorio=None)
 async def nova_senha_membro(id_usuario: str, pedido: Request, ctx: Contexto = Depends(DONO)) -> dict[str, Any]:
     repo = _repo(pedido)
     membro = await repo.membro_lawchat(id_usuario)
@@ -1073,6 +1093,22 @@ async def alterar_escritorio(dados: AlterarEscritorio, pedido: Request, ctx: Con
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=antes["id"], tabela="agentesia_escritorios",
                                    id_registro=antes["id"], acao=acao, resumo="Dados do escritório alterados",
                                    antes={k: antes.get(k) for k in campos}, depois={k: (depois or {}).get(k) for k in campos})
+    # Log da plataforma: só o que é administrativo (IA da conta inteira e liberação/bloqueio da conta).
+    referencia = f"{antes.get('nome')} · {str(antes['id'])[:8]}"
+    if "ia_desligada" in campos and bool(campos["ia_desligada"]) != bool(antes.get("ia_desligada")):
+        await log_plataforma.registrar(
+            pedido, ctx=ctx, id_escritorio=antes["id"],
+            funcao="ia.desligada_conta" if campos["ia_desligada"] else "ia.ligada_conta",
+            rotulo="IA desligada para todos os leads da conta" if campos["ia_desligada"] else "IA religada para todos os leads da conta",
+            referencia=referencia, payload={"ia_desligada": campos["ia_desligada"]},
+            resultado={"antes": bool(antes.get("ia_desligada")), "depois": bool((depois or {}).get("ia_desligada"))})
+    if "situacao" in campos and campos["situacao"] != antes.get("situacao"):
+        liberada = campos["situacao"] == "ativo"
+        await log_plataforma.registrar(
+            pedido, ctx=ctx, id_escritorio=antes["id"], funcao="conta.liberada" if liberada else "conta.bloqueada",
+            rotulo="Conta liberada" if liberada else f"Conta bloqueada ({campos['situacao']})",
+            referencia=referencia, payload={"situacao": campos["situacao"]},
+            resultado={"antes": antes.get("situacao"), "depois": (depois or {}).get("situacao")})
     return depois or {}
 
 
@@ -1169,6 +1205,9 @@ async def ver_integracoes(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> d
 
 
 @api.put("/integracoes/helena")
+@registrado("canal.token_conectado", "Conta da LawChat conectada (token salvo)",
+            resultado=lambda _a, r: {"final_do_token": ((r or {}).get("integracao") or {}).get("final_segredo"),
+                                     "numeros": len((r or {}).get("canais") or [])})
 async def salvar_helena(dados: TokenHelena, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     repo = _repo(pedido)
     integracao = await _salvar_token_helena(pedido, repo, ctx.escritorio(), dados.token)
@@ -1184,6 +1223,8 @@ def _url_webhook(pedido: Request, id_escritorio: str) -> str | None:
 
 
 @api.post("/integracoes/helena/conectar")
+@registrado("canal.webhook_conectado", "Webhook da LawChat conectado",
+            resultado=lambda _a, r: {k: v for k, v in ((r or {}).get("assinatura") or {}).items() if k in ("id", "acao")})
 async def conectar_webhook(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Cria ou corrige na Helena a assinatura que traz as mensagens para este servidor."""
     url = _url_webhook(pedido, ctx.escritorio())
@@ -1206,6 +1247,8 @@ async def conectar_webhook(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> 
 
 
 @api.post("/integracoes/helena/canais")
+@registrado("canal.numeros_sincronizados", "Números de WhatsApp da conta atualizados",
+            resultado=lambda _a, r: {"numeros": len(r or []), "ativos": sum(1 for c in (r or []) if c.get("ativo"))})
 async def atualizar_canais(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> list[dict[str, Any]]:
     repo = _repo(pedido)
     helena = await _helena_do_escritorio(pedido, repo, ctx.escritorio())
@@ -1853,7 +1896,22 @@ async def _guardar_preparacao(repo: RepositorioGestao, ctx: Contexto, agente: di
                                        resumo=f"Ativação de {agente['nome']}: " + "; ".join(feitos))
 
 
+def _funcao_ativacao(a: dict[str, Any]) -> str:
+    dados = a["dados"]
+    if dados.situacao == "pausado":
+        return "ia.pausada"
+    return "ia.ligada_para_todos" if dados.modo == "producao" else ("ia.ligada_teste" if dados.modo == "teste" else "ia.ligada")
+
+
+ROTULO_ATIVACAO = {"ia.pausada": "IA pausada (agente)", "ia.ligada_para_todos": "IA ligada para todos (produção)",
+                   "ia.ligada_teste": "IA ligada em teste", "ia.ligada": "IA ligada (agente)"}
+
+
 @api.post("/agentes/{id_agente}/ativacao")
+@registrado(_funcao_ativacao, lambda a: ROTULO_ATIVACAO[_funcao_ativacao(a)], referencia=lambda a: a["id_agente"],
+            payload=lambda a: a["dados"],
+            resultado=lambda _a, r: {k: (r or {}).get(k) for k in ("id", "nome", "situacao", "modo")}
+            | {"pronto": ((r or {}).get("preparacao") or {}).get("pronto")})
 async def ativar_agente(id_agente: str, dados: Ativacao, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Pausar é imediato. Ativar roda a preparação completa (Helena, número, webhook, CRM, chave de IA)
     e só liga se nada estiver com erro."""
@@ -2079,6 +2137,13 @@ async def salvar_followup(id_agente: str, dados: dict[str, Any], pedido: Request
                                    resumo=f"Follow-up de {agente['nome']} {'ligado' if novo['ativo'] else 'desligado'}: "
                                           + ", ".join(f"{p['apos_horas']:g}h" for p in novo["passos"]),
                                    antes=antes, depois=novo)
+    if bool(novo["ativo"]) != bool((antes or {}).get("ativo") if isinstance(antes, dict) else False):
+        await log_plataforma.registrar(
+            pedido, ctx=ctx, funcao="followup.ligado" if novo["ativo"] else "followup.desligado",
+            rotulo="Follow-up ligado" if novo["ativo"] else "Follow-up desligado",
+            referencia=f"{agente['nome']} · {id_agente[:8]}",
+            payload={"ativo": novo["ativo"], "passos": [p.get("apos_horas") for p in novo.get("passos") or []]},
+            resultado=reprogramacao)
     return {**_followup_para_tela(novo), "reprogramacao": reprogramacao}
 
 
@@ -2679,6 +2744,10 @@ def _link_da_helena_e_seguro(url: str, url_api_helena: str = "") -> bool:
 
 
 @api.post("/atendimento/entrar")
+@registrado(lambda a: "acesso.atendimento_cliente" if a["ctx"].lawchat else None,   # só a equipe LawChat entrando no cliente
+            "Equipe LawChat entrou no atendimento da conta (login integrado)",
+            payload=lambda a: {"pagina": a["dados"].pagina, "conversa_de_lead": bool(a["dados"].id_lead)},
+            resultado=lambda _a, r: {"link_gerado": bool((r or {}).get("url")), "expira_em": (r or {}).get("expira_em")})
 async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
     """Login integrado da Helena: devolve o link de uso único que abre a tela de atendimento já logada, como o usuário
     do painel (pelo e-mail dele), na conta Helena do escritório. Com id_lead, abre direto a conversa daquele lead
