@@ -65,11 +65,11 @@ GUIA_DO_CAMPO = {
     "cidade": (" (cidade do ENDEREÇO de hoje: só do resultado da busca do CEP ou do endereço que o lead digitou; nunca "
                "a naturalidade nem a cidade onde alguém nasceu)"),
     "naturalidade": " (cidade onde nasceu quem assina; não é a cidade do endereço)",
-    "filiacao": " (nomes do pai e da mãe de quem assina, como o lead escreveu; estes nomes nunca vão para nome_completo)",
+    "filiacao": " (só os nomes do pai e da mãe de quem assina, no formato \"Nome da mãe e Nome do pai\", sem frases como \"meu pai é\"; estes nomes nunca vão para nome_completo)",
     "nacionalidade": " (de quem assina, ex.: brasileira)",
     "nacionalidade_menor": " (da criança, ex.: brasileira)",
     "naturalidade_menor": " (cidade onde a criança nasceu; não é a cidade do endereço)",
-    "filiacao_menor": " (nomes do pai e da mãe da criança, como o lead escreveu)",
+    "filiacao_menor": " (só os nomes do pai e da mãe da criança, no formato \"Nome da mãe e Nome do pai\", sem frases como \"o pai dele é\")",
 }
 
 # Fatos de qualificação que um papel pode exigir antes de transferir (config papeis[x].perguntar_antes_de_transferir).
@@ -602,6 +602,8 @@ Conversa
 - Chame o lead pelo primeiro nome quando souber, sem repetir em toda mensagem. Onde o roteiro tiver [primeiro nome]
   ou (nomedocliente), use o primeiro nome do lead; sem nome, tire o trecho.
 - Termine com a pergunta ou o próximo passo do roteiro, menos no encerramento.
+- Se o lead disser que vai ver ou fazer depois (conferir uma data, assinar, falar com alguém), responda uma vez, curto, e
+  não repita essa mesma orientação nas mensagens seguintes: responda ao que ele disser de novo.
 - Resposta vaga ou confusa: refaça a mesma pergunta de outro jeito, uma vez. Falta de informação nunca desqualifica:
   se o lead não souber, siga o caminho do roteiro para quem não sabe.
 - Confirme só o que veio ambíguo, com uma pergunta nova e curta ("Só pra eu não errar: você recebe alguma
@@ -1157,7 +1159,7 @@ def previa_do_sistema(config: dict[str, Any], papel: str, roteiro: str, conhecim
     produto = carregar(config)
     papeis = (config.get("catalogo") or {}).get("papeis") or {}
     do_prompt, acoes = ferramentas_do_prompt(roteiro or "")
-    prompt = expandir_transferencias(roteiro or "", papeis)
+    prompt = mostrar_midias_na_previa(expandir_transferencias(roteiro or "", papeis))
     ordem = list(produto.papeis)
     destinos = []
     for destino in dict.fromkeys(list((papeis.get(papel) or {}).get("destinos") or []) + do_prompt):
@@ -1171,8 +1173,9 @@ def previa_do_sistema(config: dict[str, Any], papel: str, roteiro: str, conhecim
     acoes = [a for a in dict.fromkeys(acoes + ferramentas["acoes"]) if a != "zapsign" or produto.contrato]
     notificacoes = sinais_catalogo.DO_AGENTE if ferramentas["notificacao"] or pede_analise_da_equipe(prompt) else ()
     regras_sistema = regras_sistema_do_config(config)
-    conhecimento_texto = agente.montar_conhecimento(conhecimento, texto_do_bloco("objecoes", regras_sistema))
-    regras = (config.get("catalogo") or {}).get("regras")
+    conhecimento_texto = mostrar_midias_na_previa(
+        agente.montar_conhecimento(conhecimento, texto_do_bloco("objecoes", regras_sistema)))
+    regras = mostrar_midias_na_previa((config.get("catalogo") or {}).get("regras"))
     honorarios = "{{HONORARIOS}}"
     honorarios_texto = str((conhecimento or {}).get("honorarios") or "")
     nomes = [_VARIAVEL.findall(t or "") for t in [prompt, regras, conhecimento_texto, honorarios, honorarios_texto]
@@ -1188,6 +1191,16 @@ def previa_do_sistema(config: dict[str, Any], papel: str, roteiro: str, conhecim
 
 
 _MARCADOR_DE_MIDIA = re.compile(r"\\?\[\\?\[\s*(?:[aá]udio|v[ií]deo|m[ií]dia|media|imagem)\s*:[^\]\n]*\\?\]\\?\]", re.I)
+
+
+def mostrar_midias_na_previa(texto: str | None) -> str:
+    """Na prévia do catálogo ainda não há arquivo: o marcador [[audio:Nome]] vira um aviso visível (em vez de sumir, como
+    some no turno quando o escritório não escolheu o arquivo), para o super admin ver onde a mídia entra."""
+    def aviso(m: re.Match) -> str:
+        corpo = m.group(0).strip("\\[]")
+        tipo, _, nome = corpo.partition(":")
+        return f"‹{tipo.strip().lower()}: {nome.strip()} — aqui entra o link do arquivo que o escritório escolhe na ativação›"
+    return _MARCADOR_DE_MIDIA.sub(aviso, texto or "")
 
 
 def sem_marcadores_de_midia(texto: str | None) -> str:

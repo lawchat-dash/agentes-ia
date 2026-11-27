@@ -247,3 +247,10 @@ def test_aba_conhecimento_mantem_os_honorarios():
 
     assert _limpar_conhecimento({"faq": [], "honorarios": " Paga só se ganhar. "})["honorarios"] == "Paga só se ganhar."
     assert "honorarios" not in _limpar_conhecimento({"faq": []})
+
+
+def test_previa_mostra_onde_entra_a_midia():
+    from app.cerebro import catalogo
+    texto = catalogo.mostrar_midias_na_previa("Mensagem 1:\n\n[[audio:Video Inicial]]\n\n[[video: como_assinar]]")
+    assert "[[" not in texto
+    assert "‹audio: Video Inicial — aqui entra o link" in texto and "‹video: como_assinar —" in texto
