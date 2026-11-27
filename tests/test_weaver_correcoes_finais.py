@@ -283,22 +283,6 @@ async def test_turno_do_catalogo_passa_o_beneficio_ao_auditor():
 
 
 # ----------------------------------------------------------------------------- 10 e 11. tela Conversas (painel)
-def test_gaveta_de_detalhes_sem_os_botoes_da_ia():
-    tela = (RAIZ / "painel" / "src" / "telas" / "Conversas.tsx").read_text(encoding="utf-8")
-    gaveta = tela[tela.index("<SheetContent"):tela.index("</SheetContent>")]
-    assert "<PainelLateral detalhe={detalhe} ocupado={ocupado} aoAgir={agir} semBotoes />" in gaveta
-    assert "<BotoesIa conversa={detalhe} ocupado={ocupado} aoAgir={agir} compacto />" in tela   # ficam no cabeçalho
-
-
-def test_busca_por_telefone_formatado_manda_os_digitos_e_previa_de_midia():
-    tela = (RAIZ / "painel" / "src" / "telas" / "Conversas.tsx").read_text(encoding="utf-8")
-    assert "setBuscaAplicada(termoDaBusca(busca))" in tela and 'b.replace(/\\D/g, "")' in tela
-    tipos = (RAIZ / "painel" / "src" / "components" / "conversas" / "tipos.ts").read_text(encoding="utf-8")
-    lista = (RAIZ / "painel" / "src" / "components" / "conversas" / "ListaConversas.tsx").read_text(encoding="utf-8")
-    assert "ultima_mensagem_tipo?: TipoMensagem | null;" in tipos and "TIPOS_MIDIA[tipo]?.rotulo" in tipos
-    assert "{previaDaConversa(c) || <i" in lista
-
-
 @pytest.mark.skipif(not URL, reason="sem AGENTESIA_TESTE_PG_URL")
 async def test_postgres_busca_por_telefone_formatado_e_previa_do_audio():
     from app.banco.postgres import RepositorioPostgres

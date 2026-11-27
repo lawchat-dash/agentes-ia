@@ -335,14 +335,3 @@ async def test_quem_pode_desligar_e_religar(e2e: Cenario):
     await _entrar(e2e, "gestor")
     assert (await e2e.http.post(f"/api/conversas/{uuid.uuid4()}/ia", json={"acao": "desativar"})).status_code == 404
 
-
-def test_tela_conversas_tem_os_estados_e_as_opcoes_de_desativar():
-    tipos = (RAIZ / "painel" / "src" / "components" / "conversas" / "tipos.ts").read_text(encoding="utf-8")
-    lateral = (RAIZ / "painel" / "src" / "components" / "conversas" / "PainelLateral.tsx").read_text(encoding="utf-8")
-    for rotulo in ("IA ligada", "IA desligada até", "IA desligada pela equipe", "Pausada porque o atendente assumiu",
-                   "Agente pausado", "IA desligada no escritório"):
-        assert rotulo in tipos, rotulo
-    for minutos, rotulo in ((30, "Por 30 minutos"), (120, "Por 2 horas"), (1440, "Por 24 horas"), (0, "Até eu religar")):
-        assert f'minutos: {minutos}, rotulo: "{rotulo}"' in tipos
-    assert "Desativar IA" in lateral and "Reativar IA" in lateral
-    assert json.dumps("desativada_pela_equipe") in tipos

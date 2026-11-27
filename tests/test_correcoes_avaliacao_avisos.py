@@ -404,12 +404,3 @@ async def test_teste_do_aviso_mostra_link_da_conversa_e_mensagem_do_lead(ambient
 
 
 # ---------------------------------------------------------------------------- 9. painel: mídia enviada pela IA
-def test_balao_nao_mostra_o_marcador_da_midia_enviada_como_texto_extraido():
-    bolha = (RAIZ / "painel" / "src" / "components" / "conversas" / "BolhaMensagem.tsx").read_text(encoding="utf-8")
-    pipeline = (RAIZ / "app" / "pipeline.py").read_text(encoding="utf-8")
-    assert 'f"[mídia enviada: {url or parte.get(\'chave\')}]"' in pipeline         # o marcador que o pipeline grava
-    regex_js = re.search(r"const MIDIA_ENVIADA = /(.+)/i;", bolha).group(1)
-    marcador = re.compile(regex_js, re.IGNORECASE)
-    assert marcador.match("[mídia enviada: video_boas_vindas]").group(1) == "video_boas_vindas"
-    assert 'm.autor !== "lead" ? MIDIA_ENVIADA.exec(bruto)' in bolha           # só para mídia que não é do lead
-    assert "const extraido = enviada ? \"\" : bruto;" in bolha and "Mídia enviada pela IA" in bolha

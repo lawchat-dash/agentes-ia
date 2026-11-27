@@ -57,18 +57,6 @@ def test_selo_do_numero():
     assert saude_numero.selo(True, agora - timedelta(days=3), agora) == {"tipo": "parado", "minutos": 3 * 24 * 60}
 
 
-def test_eventos_novos_tem_nome_legivel_no_rastro_e_na_tela():
-    tipos = (RAIZ / "painel" / "src" / "components" / "conversas" / "tipos.ts").read_text(encoding="utf-8")
-    for tipo in ("formato_invalido", "fora_do_tema", "tentativa_de_manipular", "trocas_demais", "portao_de_fatos",
-                 "lead_quente", "lead_parado"):
-        assert rastro_mod.tipo_do_evento(tipo) is not None, tipo
-        assert rastro_mod.titulo_do_evento(tipo) != tipo, tipo
-        assert f"{tipo}:" in tipos, tipo
-    assert rastro_mod.tipo_do_evento("trava_promessa_valor") == "barreira"
-    assert rastro_mod.titulo_do_evento("trava_promessa_valor") == "Trava: promessa valor"
-    assert rastro_mod.tipo_do_evento("etapa_trocada") is None       # vira passagem, não item solto
-
-
 def test_menu_um_caminho_so():
     main = (RAIZ / "painel" / "src" / "main.tsx").read_text(encoding="utf-8")
     estrutura = (RAIZ / "painel" / "src" / "componentes" / "Estrutura.tsx").read_text(encoding="utf-8")

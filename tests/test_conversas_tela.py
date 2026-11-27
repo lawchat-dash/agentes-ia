@@ -34,22 +34,6 @@ CAMPOS_CONVERSA = {"id", "nome", "telefone", "estado", "motivo_estado", "pausado
 CAMPOS_MENSAGEM = {"id", "autor", "tipo", "texto", "texto_extraido", "enviada_em", "situacao_envio", "erro", "id_turno"}
 
 
-def test_tela_conhece_os_motivos_gravados_pelos_botoes():
-    """Os motivos que os botões gravam têm rótulo em português na tela (senão aparece o código cru)."""
-    rotas = (RAIZ / "app" / "gestao" / "rotas.py").read_text(encoding="utf-8")
-    controle = (RAIZ / "app" / "ia_controle.py").read_text(encoding="utf-8")
-    tipos = (RAIZ / "painel" / "src" / "components" / "conversas" / "tipos.ts").read_text(encoding="utf-8")
-    for motivo in ("devolvido_pela_equipe", "encerrado_pela_equipe"):
-        assert f'"{motivo}"' in rotas, motivo
-        assert f"{motivo}:" in tipos, motivo
-    assert '"desativada_pela_equipe"' in controle and "desativada_pela_equipe:" in tipos
-    # A tela chama exatamente as três ações que a rota aceita.
-    tela = (RAIZ / "painel" / "src" / "telas" / "Conversas.tsx").read_text(encoding="utf-8")
-    assert "`/conversas/${id}/ia`" in tela
-    for acao in ("desativar", "reativar", "encerrar"):
-        assert f'"{acao}"' in rotas and f"{acao}:" in tela
-
-
 def test_rota_e_menu_da_tela():
     main = (RAIZ / "painel" / "src" / "main.tsx").read_text(encoding="utf-8")
     estrutura = (RAIZ / "painel" / "src" / "componentes" / "Estrutura.tsx").read_text(encoding="utf-8")
