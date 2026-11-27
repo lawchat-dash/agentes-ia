@@ -929,9 +929,10 @@ FORMATO_NOTIFICACAO = """- "notificacao": preencha "analise_humana" só quando o
 BLOCO_HONORARIOS = ("# HONORÁRIOS DO ESCRITÓRIO (use exatamente assim; não mude número nem condição, não ofereça desconto e "
                     "não calcule o valor do caso do lead)\n")
 
-# Honorários do produto (transcrição do áudio do escritório, config.conhecimento.honorarios): só nas etapas que falam
-# de valor e contrato.
-PAPEIS_COM_HONORARIOS_TEXTO = ("closer", "contratos", "assinatura")
+# Honorários do produto (transcrição do áudio do escritório, config.conhecimento.honorarios): nas etapas que falam de
+# valor e contrato e também no SDR e no Período de Graça, para quem pergunta o preço antes da hora (no teste, o SDR sem os
+# números respondeu "explico no momento certo" 6 vezes e a lead desistiu).
+PAPEIS_COM_HONORARIOS_TEXTO = ("sdr", "periododegraca", "closer", "contratos", "assinatura")
 TITULO_HONORARIOS_TEXTO = ("# HONORÁRIOS DO ESCRITÓRIO (transcrição do áudio; responda com estes números quando o lead "
                            "perguntar valor, porcentagem ou como paga)")
 

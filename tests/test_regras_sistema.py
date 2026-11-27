@@ -198,14 +198,14 @@ def test_previa_usa_a_montagem_real_com_variaveis_a_mostra():
 
 # ---------------------------------------------------------------------------- honorários (transcrição do áudio)
 @pytest.mark.parametrize("papel", PAPEIS)
-def test_honorarios_do_produto_so_em_closer_contratos_e_assinatura(papel):
+def test_honorarios_do_produto_nas_etapas_que_falam_de_valor(papel):
     texto = "Você só paga se aprovar: {{HONORARIOS QTD SALARIOS}} salários, em {{HONORARIOS VEZES SEM JUROS}}x."
     valores = {"HONORARIOS QTD SALARIOS": "3", "HONORARIOS VEZES SEM JUROS": "10"}
     com = sistema(papel, honorarios_texto=texto, variaveis=valores)
     assert (catalogo.TITULO_HONORARIOS_TEXTO + "\nVocê só paga se aprovar: 3 salários, em 10x." in com) == \
-        (papel in ("closer", "contratos", "assinatura"))
+        (papel in catalogo.PAPEIS_COM_HONORARIOS_TEXTO)
     assert sistema(papel, honorarios_texto="", variaveis=valores) == sistema(papel, variaveis=valores)
-    if papel not in ("closer", "contratos", "assinatura"):
+    if papel not in catalogo.PAPEIS_COM_HONORARIOS_TEXTO:
         assert com == sistema(papel, variaveis=valores)
 
 
@@ -213,7 +213,8 @@ async def test_turno_le_honorarios_da_config_do_agente():
     prod = produto()
     prod.config["conhecimento"] = {"honorarios": "O escritório recebe {{HONORARIOS QTD SALARIOS}} salários."}
     prod.config["variables"] = {"HONORARIOS QTD SALARIOS": "3"}
-    for etapa, deve in (("closer", True), ("sdr", False)):
+    # SDR também: quem pergunta o preço antes da hora recebe os números (no teste, sem eles a lead desistiu).
+    for etapa, deve in (("closer", True), ("sdr", True), ("desqualificado", False)):
         modelo = ModeloFalso({"extrator": extrai(), "etapa": resposta("Certo.")})
         await turno.processar(modelo, entrada(["quanto custa?"], etapa=etapa, prod=prod))
         enviado = next(p["sistema"] for p in modelo.pedidos if p["papel"] == "etapa")

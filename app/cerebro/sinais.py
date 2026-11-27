@@ -53,7 +53,10 @@ _URL = re.compile(r"https?://\S+", re.I)
 
 def tem_audio_de_pedido(conhecimento: dict[str, Any] | None) -> bool:
     """O produto tem o áudio gravado da objeção "pede áudio / quer ouvir a voz" (marcador já trocado pelo link na
-    ativação)? Então "manda um áudio" não precisa pausar: a IA responde com a voz do escritório."""
+    ativação)? Então "manda um áudio" não precisa pausar: a IA responde com a voz do escritório. O pipeline já manda a
+    resposta pronta em "_tem_audio_de_pedido" (com a base ligada, as objeções nem sempre vêm no conhecimento do turno)."""
+    if "_tem_audio_de_pedido" in (conhecimento or {}):
+        return bool(conhecimento["_tem_audio_de_pedido"])
     for o in (conhecimento or {}).get("objecoes") or []:
         titulo = f"{o.get('objecao') or ''} {o.get('titulo') or ''}".lower()
         if re.search(r"[áa]udio|\bvoz\b", titulo) and _URL.search(o.get("resposta") or ""):

@@ -1959,6 +1959,7 @@ class Atendimento:
         pela fala nova do lead começa aqui, como tarefa, e roda junto do extrator (o turno espera em "_busca")."""
         from app import conhecimento as base
         from app import conhecimento_indice as indice
+        from app.cerebro.sinais import tem_audio_de_pedido
 
         config = dict(agente.config.get("conhecimento") or {})
         try:
@@ -1973,13 +1974,14 @@ class Atendimento:
             limites = indice.limites(config)
         except Exception:                            # noqa: BLE001 - a base nunca derruba o turno
             log.warning("base de conhecimento indisponível; turno segue com o conhecimento da config", exc_info=True)
-            return {k: config[k] for k in ("dados_escritorio", "faq", "objecoes") if config.get(k)}
+            return {**{k: config[k] for k in ("dados_escritorio", "faq", "objecoes") if config.get(k)},
+                    "_tem_audio_de_pedido": tem_audio_de_pedido(config)}
         ultima = base.ultima_pergunta_da_ia([{"autor": m.autor, "texto": m.para_a_ia()} for m in historico])
         busca = asyncio.create_task(indice.buscar(
             preparo.candidatos, [m.para_a_ia() for m in pendentes if m.para_a_ia()], papel=papel, ultima_pergunta_ia=ultima,
             vetorizador=self.vetorizador, cache=self._cache_consultas, minimo=limites["minimo"], teto=limites["teto"],
             quantos=limites["quantos"]))
-        return {**preparo.fixo, "base": True, "_busca": busca}
+        return {**preparo.fixo, "base": True, "_busca": busca, "_tem_audio_de_pedido": tem_audio_de_pedido(config)}
 
     async def _depois_da_busca(self, agente: Agente, entrada: cerebro.Entrada, saida: cerebro.Saida) -> None:
         """Custo do embedding da consulta no consumo do turno; busca que o turno não usou é cancelada; dimensão errada avisa."""

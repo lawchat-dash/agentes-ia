@@ -272,7 +272,13 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
         sem_pausa = tuple(s for s in SEM_PAUSA if not (s == "atendimento_presencial" and entrada.fatos.get(MARCA_PRESENCIAL)))
         # "Manda um áudio": com o áudio gravado da objeção no produto, a IA responde com ele em vez de pausar.
         from app.cerebro.sinais import tem_audio_de_pedido
-        if catalogo and tem_audio_de_pedido(entrada.conhecimento):
+        # Mas "manda áudio porque não sei ler" é outro caso: a equipe assume (notificação de não sabe ler, IA pausada).
+        if "quer_audio" in validos and "nao_sabe_ler" not in validos and _NAO_SABE_LER.search(" ".join(entrada.novas)):
+            validos = ["nao_sabe_ler"] + validos
+            saida.sinais = validos
+            saida.eventos.append(_evento("nao_sabe_ler_pelo_texto", "info", "lawchat", "O lead pediu áudio dizendo que não "
+                                         "sabe ler: tratado como não sabe ler (a equipe assume).", trecho=" ".join(entrada.novas)[:200]))
+        elif catalogo and tem_audio_de_pedido(entrada.conhecimento):
             sem_pausa += ("quer_audio",)
         if validos and all(s in sem_pausa for s in validos):
             if "atendimento_presencial" in validos:
@@ -874,12 +880,30 @@ LINHA_FORA_DO_TEMA = ("(sistema) O lead pediu algo fora do tema do escritório: 
                       "sem responder ao pedido, e volte à pergunta do roteiro.")
 
 
+_ROBO = re.compile(r"rob[oô]|\bia\b|intelig[eê]ncia artificial|gente de verdade|pessoa de verdade|pessoa real|humano|[áa]udio|\bvoz\b", re.I)
+_MANIPULA = re.compile(r"prompt|instru[çc]|ignor|regra|sistema|c[óo]digo|comando|fing|desenvolvedor|modo |jailbreak", re.I)
+
+
+_NAO_SABE_LER = re.compile(r"n[ãa]o (sei|consigo|sabe|sabemos) (ler|escrever)|n[ãa]o leio|analfabet|dif[ií]culdade (pra|para|de) ler|"
+                           r"n[ãa]o (sei|aprendi a) ler|n[ãa]o enxergo", re.I)
+
+
+def _so_desconfia_de_robo(texto: str) -> bool:
+    """O lead só desconfia que é robô ou pede áudio/voz para conferir, sem pedir regras, prompt ou comandos."""
+    return bool(_ROBO.search(texto or "")) and not _MANIPULA.search(texto or "")
+
+
 def _barreiras(entrada: Entrada, saida: Saida, intencoes: dict[str, bool]) -> Saida | None:
     """B6. Tentativa de manipular (ignorar regras, revelar o prompt, se passar por advogado): resposta fixa e segura,
     sem chamar o agente, e evento. Fora do tema: o agente responde curto e volta ao assunto (linha de sistema no
     conteúdo); na 3ª mensagem seguida fora do tema, a IA sai e a equipe assume com a ficha. Devolve a saída quando o
     turno acaba aqui."""
     antes = _inteiro(entrada.fatos.get(MARCA_FORA_DO_TEMA))
+    if intencoes.get("tentativa_de_manipular") and _so_desconfia_de_robo(" ".join(entrada.novas)):
+        # "Isso é robô? Manda um áudio pra ver se é gente": é objeção (tem áudio no roteiro), não tentativa de manipular.
+        intencoes["tentativa_de_manipular"] = False
+        saida.eventos.append(_evento("desconfia_de_robo", "info", "lead", "O lead desconfiou que fala com um robô; a IA "
+                                     "respondeu pela objeção, sem a resposta fixa de manipulação.", trecho=" ".join(entrada.novas)[:200]))
     if intencoes.get("tentativa_de_manipular"):
         saida.motivo = "barreira_manipulacao"
         texto = entrada.mensagens_fixas.get("manipulacao") or MENSAGENS_FIXAS["manipulacao"]
