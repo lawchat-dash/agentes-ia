@@ -316,6 +316,8 @@ class Executor:
         except Exception:
             log.info("roteiro da assinatura indisponível", exc_info=True)
             return []
+        from app.contrato import dados as cdados
+
         return cdados.midias_de_como_assinar(instrucao)
 
     async def _mensagem_ao_lead(self, contexto: dict[str, Any], lead: dict[str, Any], chave: str, texto: str) -> None:
