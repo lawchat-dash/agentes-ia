@@ -304,6 +304,20 @@ class Executor:
                 continue
             await self._enfileirar(contexto, a["tipo"], a["chave_unica"], a["dados"])
 
+    async def _midias_do_link(self, lead: dict[str, Any]) -> list[str]:
+        """Áudio e vídeo de como assinar: os links da seção de mídias de assinatura do roteiro da etapa Assinatura do
+        agente do lead (já com os arquivos escolhidos na ativação). Falha aqui nunca impede o envio do link."""
+        if not lead.get("id_agente"):
+            return []
+        try:
+            instrucao = await self._pool.fetchval(
+                "select instrucao from agentesia_agente_etapas where id_agente = $1::uuid and codigo = 'assinatura'",
+                str(lead["id_agente"]))
+        except Exception:
+            log.info("roteiro da assinatura indisponível", exc_info=True)
+            return []
+        return cdados.midias_de_como_assinar(instrucao)
+
     async def _mensagem_ao_lead(self, contexto: dict[str, Any], lead: dict[str, Any], chave: str, texto: str) -> None:
         if lead.get("id_sessao_helena"):
             await self._enfileirar(contexto, "enviar_mensagem", chave, {"texto": texto})
@@ -876,8 +890,18 @@ class Executor:
                                        {"id_contrato": str(antiga["id"]), "token_documento": antiga["id_documento_externo"],
                                         "motivo": f"Substituído pela versão {reserva.versao}"})
         chave_versao = f"{lead['id']}:contrato:v{reserva.versao}"
-        texto = cdados.texto(config, "link" if (reserva.versao or 1) == 1 else "nova_versao", link=link)
-        await self._mensagem_ao_lead(contexto, lead, f"{chave_versao}:link", texto)
+        # 1ª versão: o próprio sistema manda o áudio e o vídeo de como assinar (os da seção de mídias de assinatura do
+        # roteiro do agente) e só depois o link, na ordem áudio → vídeo → texto + link. Antes quem mandava era a IA, e
+        # a mídia podia sair sem o contrato ter sido gerado, ou só na próxima mensagem do lead.
+        midias = await self._midias_do_link(lead) if (reserva.versao or 1) == 1 and lead.get("id_sessao_helena") else []
+        for i, url in enumerate(midias):
+            await self._enfileirar(contexto, "enviar_mensagem", f"{chave_versao}:midia:{i}", {"url_arquivo": url},
+                                   minutos=i * 0.05)
+        chave_texto = "nova_versao" if (reserva.versao or 1) > 1 else ("link_com_midia" if midias else "link")
+        texto = cdados.texto(config, chave_texto, link=link)
+        if lead.get("id_sessao_helena"):
+            await self._enfileirar(contexto, "enviar_mensagem", f"{chave_versao}:link", {"texto": texto},
+                                   minutos=len(midias) * 0.05)
         await self._nota_unica(contexto, lead, f"{chave_versao}:nota", "Acompanhar lead pois acabou de gerar um contrato."
                                + (f" (versão {reserva.versao})" if (reserva.versao or 1) > 1 else ""))
         moveu = await servico.mover_lead_para_etapa(self._pool, str(lead["id"]), "assinatura")

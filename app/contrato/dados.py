@@ -103,6 +103,10 @@ MAPEAMENTO_PADRAO: list[dict[str, str]] = [
 
 TEXTOS = {
     "link": "Segue o link de contrato:\n{link}",
+    # Link mandado logo depois do áudio e do vídeo de como assinar (o roteiro do agente tem a seção de mídias).
+    "link_com_midia": ("SUA DOCUMENTAÇÃO JÁ ESTÁ PRONTA PARA ASSINATURA 📝\n\nAssista o vídeo acima até o final antes de "
+                       "assinar, para que a assinatura seja feita da maneira correta. É bem simples: toque no link "
+                       "abaixo e siga o passo a passo.\n\n{link}\n\nConseguiu abrir o link certinho?"),
     "nova_versao": "Contrato atualizado. Segue o novo link para assinatura:\n{link}",
     "mesmo_link": "Segue novamente o link do seu contrato:\n{link}",
     "imprevisto": "Tive um imprevisto para gerar seu contrato agora. Vou tentar novamente em instantes, tudo bem?",
@@ -420,3 +424,28 @@ def texto(config: dict[str, Any], chave: str, **valores: Any) -> str:
         return modelo.format(**valores)
     except (KeyError, IndexError):
         return TEXTOS[chave].format(**valores)
+
+
+_TITULO_MIDIAS_DE_ASSINAR = re.compile(r"^#{1,6}\s*(?:primeira mensagem desta etapa|m[ií]dias de como assinar)\b",
+                                       re.I | re.M)
+_TITULO = re.compile(r"^#{1,6}\s", re.M)
+
+
+def midias_de_como_assinar(instrucao: str | None, limite: int = 3) -> list[str]:
+    """Links de mídia (na ordem) da seção "Primeira mensagem desta etapa" / "Mídias de como assinar" do roteiro da
+    Assinatura. Marcador [[audio:Nome]] que não virou link (sem arquivo escolhido) não conta."""
+    from app.cerebro import catalogo
+
+    texto = instrucao or ""
+    achado = _TITULO_MIDIAS_DE_ASSINAR.search(texto)
+    if not achado:
+        return []
+    resto = texto[achado.end():]
+    fim = _TITULO.search(resto)
+    secao = resto[:fim.start()] if fim else resto
+    urls: list[str] = []
+    for url in re.findall(r"https?://[^\s<>`)\]]+", secao):
+        url = url.rstrip(".,;:!?\"'*_")
+        if catalogo.e_url_de_midia(url) and url not in urls:
+            urls.append(url)
+    return urls[:limite]
