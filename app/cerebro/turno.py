@@ -410,7 +410,11 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     fatos_sistema = dict(entrada.fatos_sistema)
     regras = _regras_do_periodo(entrada, produto)
     if ferramentas["calculadora"]:
-        fatos_sistema.update(contexto.fatos_da_calculadora(saida.fatos_depois, agora, regras))
+        if catalogo.familia_do_produto(produto.config) == "salario_maternidade":
+            # Salário-Maternidade: período de graça na data do evento e prazo de 5 anos (contas próprias da família).
+            fatos_sistema.update(contexto.fatos_da_calculadora_maternidade(saida.fatos_depois, agora))
+        else:
+            fatos_sistema.update(contexto.fatos_da_calculadora(saida.fatos_depois, agora, regras))
     # Conferências do sistema neste turno (antigas tools BUSCARCPF e BUSCAR CEP do n8n): vão no conteúdo, não no sistema
     # (o sistema fica igual entre turnos e entra no cache do provedor).
     conferencias = _conferir_cpfs(entrada, saida) if produto.contrato else []
@@ -546,6 +550,8 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             guardas.append(_Guarda("desqualificacao_esquecida", esquecida))
         if destino == "desqualificado" and _fechamento_futuro_bpc(produto, saida.fatos_depois):
             guardas.append(_Guarda("fechamento_futuro_desqualificado", ORIENTACAO_FECHAMENTO_FUTURO))
+        if destino == "desqualificado" and _gestante_sem_motivo(produto, saida.fatos_depois):
+            guardas.append(_Guarda("gestante_desqualificada", ORIENTACAO_GESTANTE))
         novas_marcas += [g.marca for g in guardas if g.marca and g.marca not in novas_marcas]
         saida.reprovacoes.append([{"codigo": "catalogo", "orientacao": e} for e in erros]
                                  + [{"codigo": g.codigo, "orientacao": g.orientacao} for g in guardas])
@@ -615,6 +621,14 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         saida.eventos.append(_evento("fechamento_futuro", "info", "lawchat",
                                      "BPC com 63 ou 64 anos: a desqualificação virou análise da equipe (fechamento "
                                      "futuro).", etapa=etapa))
+    if destino == "desqualificado" and _gestante_sem_motivo(produto, saida.fatos_depois):
+        # Salário-Maternidade: gestante nunca é desqualificada de imediato (só com advogado no pedido ou estatutária).
+        # A IA recebeu a CORRIJA e insistiu: a desqualificação vira análise da equipe.
+        destino = ""
+        resposta = {**resposta, "transferir_para": "", "notificacao": "analise_humana"}
+        saida.eventos.append(_evento("gestante_nao_desqualifica", "info", "lawchat",
+                                     "Salário-Maternidade: a IA quis desqualificar uma gestante sem motivo da lista "
+                                     "(advogado no pedido, estatutária); virou análise da equipe.", etapa=etapa))
     pedido_ao_portao = destino
     destino, mensagens = _portao_de_fatos(entrada, produto, saida, destino, mensagens, papeis, etapa, regras,
                                           ferramentas["calculadora"])
@@ -1830,11 +1844,37 @@ def _fechamento_futuro_bpc(produto: Any, fatos: dict[str, Any]) -> bool:
                    for chave, valores in _JA_DESQUALIFICA_NO_BPC.items())
 
 
+# Salário-Maternidade: gestante (ainda não teve o bebê) nunca é desqualificada de imediato nem vai para o Período de
+# Graça. Só desqualifica com advogado cuidando deste pedido ou se for concursada/estatutária (regime próprio).
+ORIENTACAO_GESTANTE = (
+    "Pelos fatos, ela ainda está grávida (gestante): gestante nunca é desqualificada de imediato e nunca vai para o "
+    "Período de Graça. Só desqualifique se ela tiver advogado cuidando deste pedido ou se for concursada/estatutária. "
+    "Deixe transferir_para vazio e siga o roteiro de gestante.")
+_JA_DESQUALIFICA_GESTANTE = {"tem_advogado_no_caso": ("sim",), "categoria": ("estatutaria",)}
+
+
+def _gestante_sem_motivo(produto: Any, fatos: dict[str, Any]) -> bool:
+    """Salário-Maternidade, situacao = gestante e nenhum motivo da lista dela (advogado no pedido, estatutária)."""
+    from app.cerebro import catalogo
+
+    if catalogo.familia_do_produto(getattr(produto, "config", {}) or {}) != "salario_maternidade":
+        return False
+    if str(fatos.get("situacao") or "").strip().lower() != "gestante":
+        return False
+    return not any(str(fatos.get(chave) or "").strip().lower() in valores
+                   for chave, valores in _JA_DESQUALIFICA_GESTANTE.items())
+
+
 MARCA_DESQ_A_CONFIRMAR = "_desqualificacao_a_confirmar"   # fato que desqualifica dito no Closer, à espera da confirmação
 ROTULO_DO_MOTIVO = {"aposentado": "que já é aposentado(a)", "tem_advogado_no_caso": "que já tem advogado cuidando deste caso",
                     "sequela": "que não ficou com sequela", "vinculo_na_data": "a situação de trabalho na data do acidente",
                     "documentos_rurais": "que não tem documento do trabalho rural",
-                    "recebe_beneficio": "que quem vai receber já recebe um benefício (BPC, aposentadoria ou pensão)"}
+                    "recebe_beneficio": "que quem vai receber já recebe um benefício (BPC, aposentadoria ou pensão)",
+                    # Salário-Maternidade
+                    "ja_recebeu_por_esse_filho": "que já recebeu o salário-maternidade por este filho",
+                    "categoria": "que é concursada/servidora de regime próprio (estatutária)",
+                    "rural_tem_documento": "que não tem nenhum documento do trabalho rural, nem de parente",
+                    "menor_16_no_parto": "que tinha menos de 16 anos no parto"}
 ORIENTACAO_CONFIRMAR_NO_CLOSER = (
     "O lead acabou de dizer {rotulo} (\"{trecho}\"), o que desqualifica o caso pelo roteiro. Nesta etapa, confirme uma "
     "vez, numa pergunta curta e nova (ex.: \"Só pra eu não errar: {pergunta}\"), sem explicar o motivo e sem seguir com "
@@ -1847,7 +1887,11 @@ ORIENTACAO_CONFIRMOU_NO_CLOSER = (
 PERGUNTA_DO_MOTIVO = {"aposentado": "você já é aposentado(a) hoje?",
                       "tem_advogado_no_caso": "você já tem um advogado cuidando deste mesmo caso?",
                       "sequela": "você não ficou com nenhuma sequela ou limitação depois do acidente?",
-                      "recebe_beneficio": "hoje já é pago algum benefício do INSS para quem vai receber?"}
+                      "recebe_beneficio": "hoje já é pago algum benefício do INSS para quem vai receber?",
+                      "ja_recebeu_por_esse_filho": "você já recebeu o salário-maternidade por este mesmo filho?",
+                      "categoria": "você é concursada, servidora pública de regime próprio?",
+                      "rural_tem_documento": "você não tem nenhum documento do trabalho rural, nem em nome de parente?",
+                      "menor_16_no_parto": "você tinha menos de 16 anos quando o bebê nasceu?"}
 
 
 def confirmar_desqualificacao_no_closer(config: dict[str, Any] | None) -> bool:
@@ -1867,7 +1911,7 @@ def _desqualificacao_no_closer(entrada: Entrada, produto: Any, saida: Saida, eta
     ligado = etapa == "closer" and "desqualificado" in destinos and confirmar_desqualificacao_no_closer(config)
     motivos = catalogo.motivos_de_desqualificar(config)
     novo = next((f for f in saida.fatos_novos if ligado and str(f.get("chave") or "") in motivos
-                 and str(f.get("valor") or "").strip().lower() in motivos[str(f.get("chave"))]), None)
+                 and catalogo.motivo_vale(config, str(f.get("chave")), f.get("valor"), saida.fatos_depois)), None)
     if novo is not None:
         chave = str(novo["chave"])
         _gravar_controle(saida, MARCA_DESQ_A_CONFIRMAR, chave)
@@ -1880,7 +1924,7 @@ def _desqualificacao_no_closer(entrada: Entrada, produto: Any, saida: Saida, eta
     _gravar_controle(saida, MARCA_DESQ_A_CONFIRMAR, "")          # a marca vale só para o turno seguinte
     if not ligado:
         return None
-    if str(saida.fatos_depois.get(pendente) or "").strip().lower() not in motivos.get(pendente, ()):
+    if not catalogo.motivo_vale(config, pendente, saida.fatos_depois.get(pendente), saida.fatos_depois):
         return None                                      # o lead corrigiu o dado: nada a confirmar
     saida.contexto["desqualificacao_no_closer"] = "confirmou"
     return ORIENTACAO_CONFIRMOU_NO_CLOSER.format(rotulo=ROTULO_DO_MOTIVO.get(pendente, pendente.replace("_", " ")))

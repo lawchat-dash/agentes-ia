@@ -184,3 +184,115 @@ def fatos_da_calculadora(fatos: dict[str, Any], agora: datetime | None = None,
     except (TypeError, ValueError):
         pass
     return saida
+
+
+# ---------------------------------------------------------------------------- calculadora do Salário-Maternidade
+# Família salario_maternidade (catalogo.FATOS_MATERNIDADE). Duas contas, só com mês e ano (nunca o dia):
+#   1. cobertura na data do evento (parto, adoção/guarda, perda): carteira ativa no parto e rural com documento estão
+#      cobertas sem conta; sem carteira ativa (saiu, MEI, autônoma, facultativa, desempregada), o período de graça:
+#      12 meses depois da última contribuição ou da saída, +12 com 10 anos ou mais de contribuição, +12 com
+#      seguro-desemprego ou registro no SINE, no máximo 36. Meses = (ano_evento - ano_ultima) * 12 + (mes_evento -
+#      mes_ultima); empate = dentro. Não há carência (STF, ADI 2.110; IN 188/2025).
+#   2. prazo de 5 anos desde o evento até hoje: passou de 5 anos = fora; faltando qualquer coisa = dentro.
+# Gestante (ainda não teve o bebê) não tem conta: nunca vai para o Período de Graça e nunca é desqualificada de imediato.
+CHAVE_COBERTURA_EVENTO = "cobertura pelo INSS na data do evento (calculado pelo sistema)"
+CHAVE_PRAZO_5_ANOS = "prazo de 5 anos (calculado pelo sistema)"
+CARTEIRA_ATIVA_NO_PARTO = ("clt_ativa", "domestica", "intermitente")
+GRACA_BASE, GRACA_EXTENSAO, GRACA_MAXIMO = 12, 12, 36
+PRAZO_DO_PEDIDO_MESES = 60
+_EXTENSOES = (("dez_anos_contribuicao", "ter contribuído 10 anos ou mais"),
+              ("seguro_desemprego", "ter recebido seguro-desemprego ou ter registro no SINE"))
+
+
+def _mes_indice(valor: Any) -> int | None:
+    """"MM/AAAA" -> ano * 12 + mês (para subtrair). None quando não é mês e ano."""
+    from app.cerebro.catalogo import mes_ano
+
+    normal = mes_ano(valor)
+    if normal is None:
+        return None
+    mes, ano = normal.split("/")
+    return int(ano) * 12 + int(mes)
+
+
+def _gestante(fatos: dict[str, Any]) -> bool:
+    return str(fatos.get("situacao") or "").strip().lower() == "gestante"
+
+
+def periodo_de_graca_maternidade(fatos: dict[str, Any]) -> dict[str, Any] | None:
+    """Conta da cobertura na data do evento. None = falta dado (ou gestante: sem conta).
+
+    {"resultado": dentro | fora | depende | confirmar, "texto": linha do sistema (sem números), "meses": meses entre a
+    última contribuição e o evento (None sem conta), "prazo": meses de período de graça que já valem}."""
+    if _gestante(fatos):
+        return None
+    categoria = str(fatos.get("categoria") or "").strip().lower()
+    sem_conta = {"meses": None, "prazo": None}
+    if categoria == "estatutaria":
+        return {"resultado": "fora", **sem_conta,
+                "texto": "não coberta pelo INSS: concursada/estatutária tem regime próprio"}
+    if categoria in CARTEIRA_ATIVA_NO_PARTO:
+        return {"resultado": "dentro", **sem_conta,
+                "texto": "coberta na data do evento (carteira ativa no parto: não precisa de conta)"}
+    if categoria == "rural":
+        documento = str(fatos.get("rural_tem_documento") or "").strip().lower()
+        if documento == "sim":
+            return {"resultado": "dentro", **sem_conta,
+                    "texto": "coberta na data do evento (trabalhadora rural com documento)"}
+        if documento == "nao":
+            return {"resultado": "fora", **sem_conta,
+                    "texto": "não comprovada: trabalhadora rural sem nenhum documento, próprio ou de parente"}
+        return {"resultado": "depende", **sem_conta,
+                "texto": "depende de ter algum documento do trabalho rural, próprio ou de parente (falta saber)"}
+    evento, ultima = _mes_indice(fatos.get("evento_mes_ano")), _mes_indice(fatos.get("ultima_contribuicao_mes_ano"))
+    if evento is None or ultima is None:
+        return None
+    meses = evento - ultima
+    if meses < 0:
+        return {"resultado": "confirmar", "meses": meses, "prazo": None,
+                "texto": ("a última contribuição informada é DEPOIS do evento: confirme se ela contribuía na época do "
+                          "evento; se tinha parado antes, pergunte quando parou (mês e ano)")}
+    valores = {chave: str(fatos.get(chave) or "").strip().lower() for chave, _ in _EXTENSOES}
+    prazo = min(GRACA_MAXIMO, GRACA_BASE + GRACA_EXTENSAO * sum(v == "sim" for v in valores.values()))
+    if meses <= prazo:
+        return {"resultado": "dentro", "meses": meses, "prazo": prazo,
+                "texto": "coberta na data do evento (dentro do período de graça)"}
+    faltam = [rotulo for chave, rotulo in _EXTENSOES if valores[chave] not in ("sim", "nao")]
+    if meses <= min(GRACA_MAXIMO, prazo + GRACA_EXTENSAO * len(faltam)):
+        basta_uma = meses <= prazo + GRACA_EXTENSAO
+        return {"resultado": "depende", "meses": meses, "prazo": prazo,
+                "texto": "depende de " + (" ou " if basta_uma else " e ").join(faltam) + " (falta saber)"}
+    return {"resultado": "fora", "meses": meses, "prazo": prazo,
+            "texto": "não coberta pelas datas (fora do período de graça)"}
+
+
+def prazo_de_5_anos(fatos: dict[str, Any], agora: datetime | None = None) -> dict[str, Any] | None:
+    """Prazo de 5 anos desde o evento até hoje (só mês e ano). None = sem a data do evento, ou gestante.
+
+    {"resultado": dentro | fora | confirmar, "texto": linha do sistema, "meses": meses desde o evento}. No mês em que
+    fecham os 5 anos o dia não se sabe: ainda vale (faltando qualquer coisa = dentro)."""
+    evento = _mes_indice(fatos.get("evento_mes_ano"))
+    if evento is None or _gestante(fatos):
+        return None
+    hoje = agora_em_brasilia(agora)
+    desde = hoje.year * 12 + hoje.month - evento
+    if desde < 0:
+        return {"resultado": "confirmar", "meses": desde,
+                "texto": "a data do evento informada é no futuro: confirme o mês e o ano"}
+    if desde < PRAZO_DO_PEDIDO_MESES:
+        return {"resultado": "dentro", "meses": desde, "texto": "dentro do prazo de 5 anos"}
+    if desde == PRAZO_DO_PEDIDO_MESES:
+        return {"resultado": "dentro", "meses": desde,
+                "texto": "dentro do prazo de 5 anos, mas é o último mês (dar entrada logo)"}
+    return {"resultado": "fora", "meses": desde, "texto": "passou de 5 anos do evento (fora do prazo)"}
+
+
+def fatos_da_calculadora_maternidade(fatos: dict[str, Any], agora: datetime | None = None) -> dict[str, str]:
+    """Linhas "(sistema)" do Salário-Maternidade para os papéis com a calculadora (SDR e Período de Graça). Só aparecem
+    com dados; tudo sai como FATO, nunca como ordem."""
+    saida: dict[str, str] = {}
+    if cobertura := periodo_de_graca_maternidade(fatos):
+        saida[CHAVE_COBERTURA_EVENTO] = cobertura["texto"]
+    if prazo := prazo_de_5_anos(fatos, agora):
+        saida[CHAVE_PRAZO_5_ANOS] = prazo["texto"]
+    return saida

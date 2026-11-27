@@ -101,6 +101,19 @@ def _re(padrao: str) -> re.Pattern[str]:
 _DURACAO = _re(r"\b(?:quanto tempo|quantos meses|quantos anos|por quanto|ate quando|desde quando|ha quanto)\b")
 # Ordem importa: a primeira regra que casa com a pergunta decide (as mais específicas primeiro).
 REGRAS: tuple[_Regra, ...] = (
+    # Salário-Maternidade (só valem onde estes fatos estão no esquema). "Já recebeu o salário-maternidade por este
+    # filho?" vem antes do benefício do BPC; "10 anos de contribuição" antes de "contribuiu" (conta própria); o
+    # documento rural da família antes do documentos_rurais do Auxílio-Acidente.
+    _Regra("ja_recebeu_por_esse_filho",
+           _re(r"\breceb\w*\b.*\b(?:esse|este|essa|esta|desse|deste|dessa|desta|mesmo|mesma)\s+"
+               r"(?:filh[oa]|bebe|crianca|parto|gravidez|gestacao|adocao)\b")),
+    _Regra("menor_16_no_parto", _re(r"\b(?:menos de|menor de|abaixo de)\s+(?:16|dezesseis)\b")),
+    _Regra("dez_anos_contribuicao", _re(r"\b(?:10|dez) anos\b"), nao_se=_re(r"\b(?:5|cinco) anos\b")),
+    _Regra("rural_tem_documento",
+           _re(r"\b(?:documento\w*|comprovante\w*|papel|papeis|nota\w*|bloco|declarac\w*|contrato\w*|itr|ccir|dap|caf)\b"
+               r".*\b(?:rural|rurais|roca|lavoura|agricult\w*|sitio|fazenda|terra|produtor\w*|lavrador\w*|campo)\b"
+               r"|\b(?:rural|rurais|roca|lavoura|agricult\w*|sitio|fazenda|produtor\w*|lavrador\w*)\b.*"
+               r"\b(?:documento\w*|comprovante\w*|papel|papeis|nota\w*|bloco|declarac\w*)\b")),
     _Regra("demissao_meses_antes_do_acidente",
            _re(r"\b(?:sai\w*|demit\w*|demiss\w*|desligad\w*|dispensad\w*|mandad\w* embora|parou de trabalhar|"
                r"sem (?:emprego|trabalho|carteira))\b.*\bantes do acidente\b|\bantes do acidente\b.*\b(?:sai\w*|demit\w*|"
@@ -233,6 +246,18 @@ ASSUNTO: dict[str, re.Pattern[str]] = {
     # BPC: recebe_beneficio desqualifica (bpc, aposentadoria, pensão por morte): só vale quando o assunto apareceu.
     "recebe_beneficio": _re(r"\b(?:benefici\w*|bpc|loas|aposent\w*|pensao|pensionista|auxilio\w*|bolsa|inss|"
                             r"receb\w*|ganh\w*|encostad\w*|afastad\w*)\b"),
+    # Salário-Maternidade: os fatos que desqualificam só valem quando o assunto apareceu.
+    "ja_recebeu_por_esse_filho": _re(r"\b(?:receb\w*|pag\w*|salario\w*|maternidade|licenca|benefici\w*|inss|"
+                                     r"dinheiro|parcela\w*)\b"),
+    "categoria": _re(r"\b(?:concurs\w*|servidor\w*|servidora\w*|estatutari\w*|prefeitura|publico|publica|efetiv\w*|"
+                     r"regime proprio|rpps|estado|municipio|governo|carteira|clt|registr\w*|trabalh\w*|emprego\w*|"
+                     r"empregad\w*|desempreg\w*|empresa|firma|patra\w*|mei|autonom\w*|conta propria|domestic\w*|"
+                     r"diarista|intermitente|facultativ\w*|bico\w*|rural|roca|lavoura|agricult\w*|pesca\w*|sai|saiu|"
+                     r"demit\w*|demiss\w*|dona de casa|do lar|contribu\w*|inss)\b"),
+    "rural_tem_documento": _re(r"\b(?:rural|rurais|roca|lavoura|agricult\w*|sitio|fazenda|terra|terreno|plant\w*|"
+                               r"colheita|sindicato|produtor\w*|lavrador\w*|itr|ccir|pronaf|dap|caf|incra|campo|"
+                               r"documento\w*|papel|papeis|comprovante\w*|pesca\w*)\b"),
+    "menor_16_no_parto": _re(r"\b(?:idade|anos|menor|menos|16|dezesseis|nova|novinha|adolescente|nasceu|tinha)\b"),
 }
 # Fora da trava: aceite_honorarios (portão de Contratos). Não desqualifica ninguém e o aceite é dito de mil jeitos
 # ("fechado", "bora", "pode mandar") depois de um vídeo com "O que acha?": a trava seguraria o contrato por engano.

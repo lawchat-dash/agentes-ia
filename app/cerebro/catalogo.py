@@ -117,8 +117,72 @@ FATOS_BPC: dict[str, tuple[str, ...] | str | None] = {
 }
 
 
+# Fatos do Salário-Maternidade (família salario_maternidade). "mes_ano" = "MM/AAAA" (só mês e ano, nunca o dia).
+# seguro_desemprego e tem_advogado_no_caso já existem no Auxílio-Acidente: aqui valem com os valores desta família
+# (o seguro aceita nao_sabe e conta também o registro no SINE).
+FATOS_MATERNIDADE: dict[str, tuple[str, ...] | str | None] = {
+    "situacao": ("gestante", "pos_parto", "adocao", "perda"),
+    "evento_mes_ano": "mes_ano",
+    "categoria": ("clt_ativa", "clt_saiu", "domestica", "intermitente", "mei", "autonoma", "facultativa", "rural",
+                  "desempregada", "estatutaria", "outro"),
+    "ultima_contribuicao_mes_ano": "mes_ano",
+    "seguro_desemprego": ("sim", "nao", "nao_sabe"),
+    "dez_anos_contribuicao": ("sim", "nao", "nao_sabe"),
+    "ja_recebeu_por_esse_filho": ("sim", "nao"),
+    "tem_advogado_no_caso": ("sim", "nao"),
+    "rural_tem_documento": ("sim", "nao"),
+    "menor_16_no_parto": ("sim", "nao"),
+}
+# Guia do extrator para os fatos do Salário-Maternidade (vale por cima de GUIA_DA_QUALIFICACAO, só nesta família: o
+# guia das outras famílias não muda).
+GUIA_DA_MATERNIDADE = {
+    "situacao": "gestante | pos_parto | adocao | perda (gestante = ainda não teve o bebê; pos_parto = o bebê já nasceu, "
+                "inclusive natimorto; adocao = adoção ou guarda judicial para adoção; perda = aborto não criminoso)",
+    "evento_mes_ano": "mês e ano do parto, da adoção/guarda ou da perda, no formato MM/AAAA (\"nasceu em julho de "
+                      "2025\" = 07/2025). Só o que foi dito: sem o mês, não preencha. Gestante: não preencha com a "
+                      "data prevista do parto",
+    "categoria": "clt_ativa | clt_saiu | domestica | intermitente | mei | autonoma | facultativa | rural | desempregada "
+                 "| estatutaria | outro (situação de trabalho da mãe NA DATA do parto ou da adoção: clt_ativa = de "
+                 "carteira assinada, mesmo se a empresa não pagou, faliu ou fechou; clt_saiu = já tinha saído da "
+                 "empresa; estatutaria = concursada ou servidora de regime próprio; rural = roça, lavoura, pesca "
+                 "artesanal)",
+    "ultima_contribuicao_mes_ano": "mês e ano (MM/AAAA) da última contribuição ao INSS ou da saída do último emprego "
+                                   "de carteira assinada, antes do evento. Só o que foi dito",
+    "seguro_desemprego": "sim | nao | nao_sabe (recebeu seguro-desemprego depois que saiu do emprego, ou tem registro "
+                         "no SINE; \"não lembro\" = nao_sabe)",
+    "dez_anos_contribuicao": "sim | nao | nao_sabe (somando tudo, contribuiu ou trabalhou de carteira por 10 anos ou "
+                             "mais; \"não sei\" = nao_sabe)",
+    "ja_recebeu_por_esse_filho": "sim | nao (já recebeu o salário-maternidade por ESTE filho; por outro filho não conta)",
+    "tem_advogado_no_caso": "sim | nao (advogado cuidando DESTE pedido agora; advogado de antes ou de outro assunto não "
+                            "conta)",
+    "rural_tem_documento": "sim | nao (trabalhadora rural: tem algum documento do trabalho na roça, próprio ou de "
+                           "parente: bloco de produtor, declaração do sindicato, ITR, CAF/DAP, contrato)",
+    "menor_16_no_parto": "sim | nao (tinha menos de 16 anos quando o bebê nasceu ou na adoção)",
+}
+_MESES_POR_NOME = {"janeiro": 1, "fevereiro": 2, "marco": 3, "abril": 4, "maio": 5, "junho": 6, "julho": 7,
+                   "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12}
+
+
+def mes_ano(valor: Any) -> str | None:
+    """"7/2025", "07-2025", "2025-07", "julho de 2025" -> "07/2025". None quando não há mês e ano válidos."""
+    texto = "".join(c for c in unicodedata.normalize("NFD", str(valor or "").strip().lower())
+                    if unicodedata.category(c) != "Mn")
+    mes = ano = None
+    if achado := re.fullmatch(r"(\d{1,2})\s*[/.-]\s*(\d{4})", texto):
+        mes, ano = int(achado[1]), int(achado[2])
+    elif achado := re.fullmatch(r"(\d{4})\s*[/.-]\s*(\d{1,2})", texto):
+        ano, mes = int(achado[1]), int(achado[2])
+    elif achado := re.fullmatch(r"([a-z]+)\s*(?:de|/|-)?\s*(\d{4})", texto):
+        mes, ano = _MESES_POR_NOME.get(achado[1]), int(achado[2])
+    if mes is None or ano is None or not 1 <= mes <= 12 or not 1950 <= ano <= 2100:
+        return None
+    return f"{mes:02d}/{ano}"
+
+
 def _validar_pela_regra(regra: tuple[str, ...] | str | None, valor: Any) -> Any | None:
     """Mesma conferência de aa.validar_valor, para os fatos que não são do Auxílio-Acidente (FATOS_BPC)."""
+    if regra == "mes_ano":
+        return mes_ano(valor)
     if regra is None:
         texto = re.sub(r"\s+", " ", str(valor or "")).strip()
         return texto[:300] or None
@@ -137,10 +201,10 @@ def _validar_pela_regra(regra: tuple[str, ...] | str | None, valor: Any) -> Any 
 # Cada família tem a sua inteligência dentro do mesmo funil: os fatos de qualificação que o extrator sempre procura,
 # os motivos de desqualificar e um bloco curto nas regras do motor. A família sai do slug do produto (começo do nome):
 # a ordem importa (o prefixo mais específico primeiro; qualquer outro "bpc..." é o BPC geral).
-FAMILIAS = ("auxilio_acidente", "bpc_infantil", "bpc_idoso", "bpc_geral", "previdenciario")
+FAMILIAS = ("auxilio_acidente", "bpc_infantil", "bpc_idoso", "bpc_geral", "salario_maternidade", "previdenciario")
 _PREFIXOS_DA_FAMILIA = (("auxilio_acidente", "auxilio_acidente"), ("bpc_loas_autismo", "bpc_infantil"),
                         ("bpc_loas_infantil", "bpc_infantil"), ("bpc_loas_idoso", "bpc_idoso"),
-                        ("bpc_loas_geral", "bpc_geral"))
+                        ("bpc_loas_geral", "bpc_geral"), ("salario_maternidade", "salario_maternidade"))
 # Fatos que entram SEMPRE no esquema do extrator da família, mesmo com o portão de fatos desligado (o portão continua
 # desligado: nada segura a passagem por eles). Com o portão desligado o esquema só tinha o contrato, e o lead que dizia
 # "sou aposentado" ou "já tenho advogado nesse caso" no Closer passava por sorte.
@@ -149,6 +213,7 @@ FATOS_DA_FAMILIA: dict[str, tuple[str, ...]] = {
     "bpc_infantil": tuple(FATOS_BPC),
     "bpc_idoso": tuple(FATOS_BPC),
     "bpc_geral": tuple(FATOS_BPC),
+    "salario_maternidade": tuple(FATOS_MATERNIDADE),
     "previdenciario": (),
 }
 # Quem assina o contrato em cada família (vai na guia do extrator, junto dos campos do contrato).
@@ -166,7 +231,7 @@ GUIA_DO_ASSINANTE = {
 
 def familia_do_produto(config: dict[str, Any] | None) -> str:
     """Família do produto pelo slug (config.catalogo.slug, ou o nome): auxilio_acidente, bpc_infantil, bpc_idoso,
-    bpc_geral ou previdenciario (o que não casar)."""
+    bpc_geral, salario_maternidade (inclusive "salario-maternidade-v2") ou previdenciario (o que não casar)."""
     slug = _slug_do_produto(config)
     for prefixo, familia in _PREFIXOS_DA_FAMILIA:
         if slug == prefixo or slug.startswith(prefixo + "_"):
@@ -222,6 +287,18 @@ PORTAO_DE_FATOS["bpc"] = {"closer": ("tem_advogado_no_caso",), "contratos": ("ac
 # Quem já recebe BPC, aposentadoria ou pensão por morte não acumula o BPC. Renda NUNCA desqualifica no código.
 MOTIVOS_DE_DESQUALIFICAR["bpc"] = {"tem_advogado_no_caso": ("sim",),
                                    "recebe_beneficio": ("bpc", "aposentadoria", "pensao_morte")}
+# Salário-Maternidade: sem carência (STF, ADI 2.110; IN 188/2025) e sem sequela. Para o Comercial basta saber que não
+# há advogado no pedido. Desqualifica: já recebeu por ESTE filho, advogado neste pedido, concursada/estatutária (RPPS),
+# rural sem nenhum documento e menor de 16 no parto (salvo rural). Fora do período de graça e passado o prazo de 5 anos
+# vêm da calculadora (linhas "(sistema)") e o roteiro decide; pedido negado antes e aposentadoria nunca desqualificam.
+PORTAO_DE_FATOS["salario_maternidade"] = {"closer": ("tem_advogado_no_caso",), "contratos": ("aceite_honorarios=sim",)}
+MOTIVOS_DE_DESQUALIFICAR["salario_maternidade"] = {"ja_recebeu_por_esse_filho": ("sim",),
+                                                   "tem_advogado_no_caso": ("sim",),
+                                                   "categoria": ("estatutaria",),
+                                                   "rural_tem_documento": ("nao",),
+                                                   "menor_16_no_parto": ("sim",)}
+# Motivo que não vale quando outro fato o anula: {família: {fato do motivo: {fato: valores que anulam}}}.
+_MOTIVO_ANULADO_POR = {"salario_maternidade": {"menor_16_no_parto": {"categoria": ("rural",)}}}
 # Pergunta direta de cada fato do portão: vai na CORRIJA e na mensagem que substitui a frase de passagem segurada.
 PERGUNTA_DO_PORTAO = {
     "aposentado": "Você já é aposentado(a) por alguma aposentadoria?",
@@ -287,10 +364,19 @@ def faltam_para_entrar(config: dict[str, Any] | None, destino: str, fatos: dict[
     return [grupo[0].partition("=")[0] for grupo in grupos if not any(_vale(fatos, alt) for alt in grupo)]
 
 
+def motivo_vale(config: dict[str, Any] | None, chave: str, valor: Any, fatos: dict[str, Any]) -> bool:
+    """O fato (chave = valor) é motivo de desqualificar neste produto, com o que já se sabe do lead? Menor de 16 no
+    parto não desqualifica a trabalhadora rural (Salário-Maternidade)."""
+    if str(valor or "").strip().lower() not in motivos_de_desqualificar(config).get(chave, ()):
+        return False
+    anulam = _MOTIVO_ANULADO_POR.get(_familia_do_produto(MOTIVOS_DE_DESQUALIFICAR, config), {}).get(chave, {})
+    return not any(str(fatos.get(f) or "").strip().lower() in valores for f, valores in anulam.items())
+
+
 def motivo_de_desqualificar(config: dict[str, Any] | None, fatos: dict[str, Any]) -> tuple[str, Any] | None:
     """(fato, valor) que comprova a desqualificação, ou None."""
-    for chave, valores in motivos_de_desqualificar(config).items():
-        if str(fatos.get(chave) or "").strip().lower() in valores:
+    for chave in motivos_de_desqualificar(config):
+        if motivo_vale(config, chave, fatos.get(chave), fatos):
             return chave, fatos.get(chave)
     return None
 
@@ -366,7 +452,10 @@ class ProdutoCatalogo:
 
     @property
     def fatos_do_periodo(self) -> tuple[str, ...]:
-        """Datas da saída do emprego e do acidente: só pedidas ao extrator quando o papel Período de Graça está ativo."""
+        """Datas da saída do emprego e do acidente: só pedidas ao extrator quando o papel Período de Graça está ativo.
+        No Salário-Maternidade as datas são outras (evento_mes_ano, ultima_contribuicao_mes_ano: fatos da família)."""
+        if self.familia == "salario_maternidade":
+            return ()
         return contexto.FATOS_DO_PERIODO if "periododegraca" in self.papeis else ()
 
     @property
@@ -394,7 +483,7 @@ class ProdutoCatalogo:
         """Fatos que algum papel exige antes de transferir (perguntar_antes_de_transferir) e os do portão de fatos dos
         papéis ativos (sempre, salvo portao_de_fatos=false), que o extrator sabe preencher."""
         papeis = (self.config.get("catalogo") or {}).get("papeis") or {}
-        conhecidos = set(aa.FATOS) | set(FATOS_EXTRAS) | set(FATOS_BPC)
+        conhecidos = set(aa.FATOS) | set(FATOS_EXTRAS) | set(FATOS_BPC) | set(FATOS_MATERNIDADE)
         contrato = set(cdados.CAMPOS.values()) | {"nome"}
         vistos: list[str] = []
         for cfg in papeis.values():
@@ -443,7 +532,8 @@ class ProdutoCatalogo:
             linhas.append("Respostas do roteiro (só quando o lead disser explicitamente, com as próprias palavras; nunca "
                           "deduza. Um \"não\" ou \"sim\" curto só vale para o fato que a ÚLTIMA pergunta da atendente "
                           "perguntou, exatamente; advogado de antes ou de outro caso = tem_advogado_no_caso nao):")
-            linhas += [f"- {fato}: {GUIA_DA_QUALIFICACAO.get(fato, fato)}" for fato in self.fatos_de_qualificacao]
+            guia = {**GUIA_DA_QUALIFICACAO, **(GUIA_DA_MATERNIDADE if self.familia == "salario_maternidade" else {})}
+            linhas += [f"- {fato}: {guia.get(fato, fato)}" for fato in self.fatos_de_qualificacao]
         linhas.append(sinais_catalogo.guia_do_extrator(self.beneficio, descricoes_dos_sinais(self.config)))
         linhas.append("Intenções:")
         linhas += [f"- {n}: {d}" for n, d in DESCRICAO_INTENCOES_BASE.items()]
@@ -457,6 +547,8 @@ class ProdutoCatalogo:
         if chave in FATOS_EXTRAS and chave in self.fatos_de_qualificacao:
             texto = str(valor or "").strip().lower()
             return texto if texto in FATOS_EXTRAS[chave] else None
+        if chave in FATOS_MATERNIDADE and self.familia == "salario_maternidade" and chave in self.fatos_de_qualificacao:
+            return _validar_pela_regra(FATOS_MATERNIDADE[chave], valor)
         if chave in FATOS_BPC and chave not in aa.FATOS and chave in self.fatos_de_qualificacao:
             return _validar_pela_regra(FATOS_BPC[chave], valor)
         if chave in self.fatos_do_periodo or chave in self.fatos_de_qualificacao:
@@ -713,7 +805,26 @@ REGRA_BPC = """BPC/LOAS
 - Não peça para mandar laudo, exame, receita ou relatório médico pelo chat.
 - O benefício é de quem tem a deficiência ou a idade (o beneficiário), não de quem cuida dele: fale assim ("o
   benefício do seu filho", "o benefício da sua mãe")."""
-REGRAS_DA_FAMILIA = {"bpc_infantil": REGRA_BPC, "bpc_idoso": REGRA_BPC, "bpc_geral": REGRA_BPC}
+REGRA_SALARIO_MATERNIDADE = """Salário-Maternidade
+- Nunca mostre ao lead a conta do período de graça nem a do prazo de 5 anos (meses, datas somadas, prazos): quem
+  decide é o sistema, pelos FATOS DO SISTEMA.
+- Gestante (ainda não teve o bebê) nunca vai para o Período de Graça.
+- Não peça certidão, carteira de trabalho, extrato nem outro documento pelo chat.
+- O benefício é da mãe (ou de quem adotou). Se quem fala é outra pessoa, as perguntas são sobre a mãe: fale assim
+  ("o benefício da sua filha", "quando ela teve o bebê")."""
+REGRAS_DA_FAMILIA = {"bpc_infantil": REGRA_BPC, "bpc_idoso": REGRA_BPC, "bpc_geral": REGRA_BPC,
+                     "salario_maternidade": REGRA_SALARIO_MATERNIDADE}
+# Datas e contas do Salário-Maternidade: entra no lugar do bloco "calculadora" (que fala do acidente) nesta família.
+REGRA_CALCULADORA_MATERNIDADE = """Datas e contas (Salário-Maternidade)
+- As contas de datas são do sistema e vêm prontas nos FATOS DO SISTEMA. Nunca calcule, estime nem mostre conta,
+  meses ou prazos ao lead, e nunca diga "vou calcular", "deixa eu ver" ou "aguarde".
+- Peça só mês e ano (do parto, da adoção ou da perda; da última contribuição ou da saída do emprego), numa pergunta
+  só. Se ela não souber a data exata, peça o mês e o ano aproximados; não saber a data nunca desqualifica.
+- Decida pelas linhas "cobertura pelo INSS na data do evento" e "prazo de 5 anos" dos FATOS DO SISTEMA, na mesma
+  resposta em que aparecerem: "coberta" e "dentro do prazo" → caminho de qualificada do roteiro; "não coberta pelas
+  datas" ou "passou de 5 anos" → caminho de desqualificada; "depende de ..." → pergunte o que falta, uma vez; se ela
+  não souber, "Análise da equipe".
+- Sem essas linhas → falta data: pergunte. Ao explicar o resultado, use só a frase do roteiro, sem números."""
 
 # Áudios gravados pelo escritório (e vídeos, imagens) citados no roteiro: entra só no papel cujo roteiro, regras,
 # objeções ou base têm link de mídia (docs/AUDIO_NO_PROMPT.md). O motor confere tudo isto depois (turno e pipeline).
@@ -836,7 +947,8 @@ _QUEM_PASSA_PARA = {"sdr": "o Desqualificado (quando o lead diz que algo mudou)"
                     "periododegraca": "o SDR", "closer": "o SDR e o Período de Graça",
                     "contratos": "o Closer", "assinatura": "nenhuma etapa (a geração do contrato põe o lead lá)",
                     "desqualificado": "todas as etapas de qualificação e o Contratos"}
-_FAMILIAS_EDITAVEIS = {"bpc_infantil": "BPC infantil", "bpc_idoso": "BPC idoso", "bpc_geral": "BPC (geral)"}
+_FAMILIAS_EDITAVEIS = {"bpc_infantil": "BPC infantil", "bpc_idoso": "BPC idoso", "bpc_geral": "BPC (geral)",
+                       "salario_maternidade": "Salário-Maternidade"}
 
 
 def _bloco(chave: str, titulo: str, grupo: str, quando_entra: str, padrao: str, obrigatorios: tuple[str, ...] = (),
@@ -860,6 +972,9 @@ def blocos_do_sistema() -> list[dict[str, Any]]:
                "Etapas que podem passar o lead para o Desqualificado", REGRA_DESQUALIFICAR),
         _bloco("calculadora", "Datas e contas (calculadora)", "Conduta",
                "Etapas com a calculadora de datas ligada (SDR e Período de Graça, no padrão)", REGRA_CALCULADORA),
+        _bloco("calculadora_salario_maternidade", "Datas e contas do Salário-Maternidade (calculadora)", "Conduta",
+               "Etapas com a calculadora ligada, só nos produtos Salário-Maternidade (no lugar do bloco acima)",
+               REGRA_CALCULADORA_MATERNIDADE),
         _bloco("papel_contratos", "Coleta dos dados do contrato", "Etapa", "Só no Contratos", REGRA_COLETA),
         _bloco("papel_assinatura", "Etapa de assinatura", "Etapa", "Só na Assinatura", REGRA_ASSINATURA, ("{dado_errado}",)),
         _bloco("papel_desqualificado", "Encerramento", "Etapa", "Só no Desqualificado", REGRA_ENCERRAMENTO),
@@ -997,7 +1112,8 @@ def regras_do_motor(papel: str, ferramentas: dict[str, Any] | None, destinos: li
     if "desqualificado" in destinos and papel != "desqualificado":
         partes.append(texto_do_bloco("desqualificar", textos))
     if ferramentas.get("calculadora"):
-        partes.append(texto_do_bloco("calculadora", textos))
+        partes.append(texto_do_bloco("calculadora_salario_maternidade" if familia == "salario_maternidade"
+                                     else "calculadora", textos))
     if papel in REGRAS_DO_PAPEL:
         # Dado errado na assinatura: só cita a regra do zapsign se o papel pode acioná-lo (sem ele, vale o roteiro).
         com_zapsign = "zapsign" in (ferramentas.get("acoes") or [])
