@@ -7,7 +7,7 @@ import {
   ArrowLeft, Rocket, Loader2, Users, Check, CheckCircle2, Zap, Shield, Workflow,
   Bookmark, Sparkles, ChevronRight, Lightbulb, ArrowRight, Lock,
 } from "lucide-react";
-import { getCategoryIcon, resolveGradient } from "@/data/categories";
+import { emojiDoProduto, getCategoryIcon, resolveGradient } from "@/data/categories";
 import { ROLE_META, ROLE_ORDER } from "@/hooks/useProducts";
 import { usePlanGate } from "@/hooks/usePlanGate";
 
@@ -109,7 +109,7 @@ const BibliotecaDetalhes = () => {
               className="relative size-full rounded-2xl grid place-items-center overflow-hidden ring-1 ring-inset ring-white/15 transition-transform duration-300 [transition-timing-function:cubic-bezier(.34,1.56,.64,1)] group-hover/icone:-translate-y-0.5 group-hover/icone:scale-105 motion-reduce:transform-none"
               style={iconTileStyle(c1, c2)}
             >
-              <CatIcon className="size-8 lg:size-10 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]" strokeWidth={1.75} />
+              {emojiDoProduto(t.icon) ? <span className="text-[34px] lg:text-[42px] leading-none" aria-hidden>{emojiDoProduto(t.icon)}</span> : <CatIcon className="size-8 lg:size-10 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]" strokeWidth={1.75} />}
             </div>
           </div>
           <div className="min-w-0">

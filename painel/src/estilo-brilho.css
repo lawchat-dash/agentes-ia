@@ -103,9 +103,12 @@
     0 0 calc(2px + var(--bp) * 18px) rgb(var(--brilho-sombra) / calc(var(--bp) * .28));
 }
 .lc-brilho--perigo:not(:disabled) { --brilho-sombra: 200 30 30; }
-.lc-brilho--forte {
+/* Reflexo só nos botões de cor sólida. Botão com degradê próprio (bg-gradient-*) fica com o degradê: antes o reflexo
+   apagava o degradê e, como o cn() tira o bg-primary quando vem bg-gradient-primary, o botão ficava transparente. */
+.lc-brilho--forte:not([class*="bg-gradient"]) {
   background-image: linear-gradient(180deg, rgb(255 255 255 / .14) 0%, rgb(255 255 255 / 0) 52%, rgb(0 0 0 / .06) 100%);
 }
+.lc-brilho--forte[class*="bg-gradient-primary"] { background-color: #00A82E; }
 /* Botões claros (contorno): sombra leve que sobe com o cursor perto. */
 :is(.lc-brilho:not(.lc-brilho--forte), .btn:not(.ghost):not(.link):not(.pri):not(.ok), .cv-botao:not(.verde)):not(:disabled):hover {
   box-shadow: 0 1px 2px rgb(16 24 40 / .06), 0 4px 12px -6px rgb(var(--brilho-cor) / .28);
@@ -123,3 +126,24 @@
   :is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):not(.lc-brilho-x) { transition: none; }
   :is(.lc-brilho, .btn:not(.ghost):not(.link), .cv-botao, .cr-botao-verde, .lc-pay-btn, .btn-lawchat):not(.lc-brilho-x):active:not(:disabled) { transform: none; }
 }
+
+/* Botões de avançar do assistente de ativação (Continuar / Ativar): verde sólido sempre legível. Desativado
+   (salvando, preparando ou com pendência) fica cinza com texto escuro, não "branco sobre branco". */
+.lc-continuar.lc-brilho--forte {
+  background: linear-gradient(135deg, #00BC33, #00852A);
+  color: #fff;
+  font-weight: 600;
+}
+.lc-continuar.lc-brilho--forte:hover:not(:disabled) { background: linear-gradient(135deg, #00A82E, #007524); }
+.lc-continuar.lc-brilho--forte:disabled {
+  opacity: 1;
+  background: #E2E9E4;
+  color: #3D4B43;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Estado vazio de Meus agentes: grade de pontos leve (só CSS). */
+.lc-vazio-pontos { position: relative; border-radius: 16px; border: 1px solid var(--line, #E2E9E4); overflow: hidden;
+  background: radial-gradient(rgba(0, 188, 51, .16) 1px, transparent 1.4px) 0 0 / 14px 14px, linear-gradient(180deg, #fff, #F7FBF8); }
+.lc-vazio-pontos > * { position: relative; }

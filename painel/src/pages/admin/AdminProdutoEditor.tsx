@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, enviar } from "@/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, Save, Loader2, CheckCircle2, AlertCircle, Plus, MessageSquare, Shield, X, ListChecks, Info, Sparkles, Palette, User, Check, Repeat, Circle, Building2, Download, BookOpen, Hourglass, Music, ArrowRightLeft, Cpu, Scale } from "lucide-react";
+import { ArrowLeft, Save, Loader2, CheckCircle2, AlertCircle, Plus, MessageSquare, Shield, X, ListChecks, Info, Sparkles, Palette, User, Check, Repeat, Circle, Building2, Download, BookOpen, Hourglass, Music, ArrowRightLeft, Cpu, Scale, Mic } from "lucide-react";
 import BibliotecaConhecimentoManager from "@/components/admin/BibliotecaConhecimentoManager";
 import { RegrasSistemaEditor } from "@/components/admin/RegrasSistemaEditor";
+import RoteiroProdutoEditor from "@/components/admin/RoteiroProdutoEditor";
 import { categories, resolveGradient, GRADIENT_PRESETS } from "@/data/categories";
 import { RichPromptEditor, RichPromptEditorHandle } from "@/components/agent/RichPromptEditor";
 import { RespostaComMidia } from "@/components/agent/RespostaComMidia";
@@ -104,7 +105,7 @@ type ObjItem = { titulo: string; resposta: string };
 
 const emptyForm: Form = {
   slug: "", nome: "", categoria: "Trabalhista", descricao_curta: "", descricao_longa: "",
-  etiquetas: "", icone: "⚖️", capa_gradiente: "", modelo_recomendado: "openai/gpt-4.1-mini", plano_minimo: "start",
+  etiquetas: "", icone: "⚖️", capa_gradiente: "", modelo_recomendado: "openai/gpt-4.1-mini", plano_minimo: "",
   versao: "1.0.0", status: "rascunho", mensagem_boas_vindas: "", mensagem_despedida: "",
   mensagem_fallback: "", mensagem_fora_horario: "", regras_markdown: "", dados_escritorio: "",
   oferece_periodo_graca: false, modo_midia: "texto",
@@ -195,6 +196,11 @@ export default function AdminProdutoEditor() {
   const isNew = !id || id === "novo";
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { data: planosAdmin } = useQuery({
+    queryKey: ["admin-planos"],
+    queryFn: () => api<{ codigo: string; nome: string; selo?: string | null; cria_agentes?: boolean; ordem: number }[]>("/admin/planos"),
+    staleTime: 60_000,
+  });
   const [tab, setTab] = useState("identidade");
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
@@ -282,7 +288,7 @@ export default function AdminProdutoEditor() {
         icone: t.icone ?? "⚖️",
         capa_gradiente: t.capa_gradiente ?? "",
         modelo_recomendado: t.modelo_recomendado ?? "openai/gpt-4.1-mini",
-        plano_minimo: t.plano_minimo ?? "starter",
+        plano_minimo: t.plano_minimo ?? "",
         versao: t.versao ?? "1.0.0",
         status: (t.status ?? (t.publicado ? "publicado" : "rascunho")) as ProdStatus,
         mensagem_boas_vindas: t.mensagem_boas_vindas ?? "",
@@ -605,6 +611,7 @@ export default function AdminProdutoEditor() {
             { v: "conhecimento", l: "Conhecimento", Icon: BookOpen },
             { v: "followup", l: "Follow-up", count: fupCadence.length, Icon: Repeat },
             { v: "regras", l: "Regras do sistema", count: Object.keys(regrasSistema).length || undefined, Icon: Cpu },
+            { v: "roteiros", l: "Roteiros", Icon: Mic },
           ].map((t) => {
             const active = tab === t.v;
             return (
@@ -757,6 +764,22 @@ export default function AdminProdutoEditor() {
                 <Label>Versão</Label>
                 <Input value={form.versao} onChange={(e) => setForm({ ...form, versao: e.target.value })} className="font-mono text-sm" />
               </div>
+            </div>
+
+            {/* Plano mínimo: o cliente só ativa se a ordem do plano da conta for >= a deste (conta sem plano: liberado). */}
+            <div className="space-y-1.5">
+              <Label>Plano mínimo para ativar</Label>
+              <Select value={planosAdmin?.some((p) => p.codigo === form.plano_minimo) ? form.plano_minimo : "__nenhum"}
+                onValueChange={(v) => setForm({ ...form, plano_minimo: v === "__nenhum" ? "" : v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__nenhum">Sem mínimo (qualquer plano que cria agentes)</SelectItem>
+                  {(planosAdmin ?? []).map((p) => (
+                    <SelectItem key={p.codigo} value={p.codigo}>{p.selo ? `${p.selo} ` : ""}{p.nome} e acima{p.cria_agentes === false ? " (não cria agentes)" : ""}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">Contas com plano abaixo veem o produto bloqueado com “Disponível no plano …”. Quem já ativou continua com ele.</p>
             </div>
 
             {/* Produto com MÍDIA: libera a Edição rápida de mídias / marcadores [[midia:]] no cliente. */}
@@ -1221,6 +1244,11 @@ export default function AdminProdutoEditor() {
               </div>
             )}
           </Card>
+        </TabsContent>
+
+        {/* ROTEIROS — o que o escritório grava (áudios e vídeos) para a IA falar com a voz dele */}
+        <TabsContent value="roteiros" className="mt-0 space-y-4">
+          <RoteiroProdutoEditor idProduto={form.id} modoMidia={form.modo_midia} />
         </TabsContent>
 
       </Tabs>

@@ -97,7 +97,17 @@ export function TelaAdminEscritorios() {
   const navegar = useNavigate();
   const { dados, erro, recarregar: recarregarContas } = useCarregar<Linha[]>("/admin/escritorios");
   const progresso = useCarregar<Record<string, Progresso>>("/admin/escritorios/primeiros-passos");
-  const recarregar = () => { recarregarContas(); progresso.recarregar(); };
+  const carteiras = useCarregar<{ id_escritorio: string; id_plano: string | null }[]>("/admin/carteiras");
+  const planos = useCarregar<{ id: string; nome: string; selo?: string | null; ativo: boolean }[]>("/admin/planos");
+  const recarregar = () => { recarregarContas(); progresso.recarregar(); carteiras.recarregar(); };
+  const planoDe = (id: string) => carteiras.dados?.find((c) => c.id_escritorio === id)?.id_plano ?? "";
+  const trocarPlano = (l: Linha, idPlano: string) => {
+    setLinhaOcupada(l.id);
+    void acaoLinha.executar(async () => {
+      await enviar(`/admin/carteiras/${l.id}`, idPlano ? { id_plano: idPlano } : { tirar_plano: true }, "PATCH");
+      carteiras.recarregar();
+    }, idPlano ? `Plano de ${l.nome} trocado.` : `${l.nome} ficou sem plano (tudo liberado).`).finally(() => setLinhaOcupada(null));
+  };
   const linhas = dados ?? [];
   const { ocupado: sincronizando, executar } = useAcao();
   const acaoLinha = useAcao();
@@ -198,11 +208,11 @@ export function TelaAdminEscritorios() {
       ) : (
         <div className="lst"><table>
           <thead><tr>
-            <th>Nome fantasia / Razão social</th><th>CNPJ</th><th>Situação</th><th>Função de agente</th><th>Webhook</th><th>Progresso</th><th>Última sync</th>
+            <th>Nome fantasia / Razão social</th><th>CNPJ</th><th>Situação</th><th>Função de agente</th><th>Plano</th><th>Webhook</th><th>Progresso</th><th>Última sync</th>
             <th style={{ textAlign: "right" }}>Ações</th>
           </tr></thead>
           <tbody>
-            {filtradas.length === 0 && <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 28 }}>Nenhuma conta encontrada.</td></tr>}
+            {filtradas.length === 0 && <tr><td colSpan={9} className="muted" style={{ textAlign: "center", padding: 28 }}>Nenhuma conta encontrada.</td></tr>}
             {filtradas.map((l) => {
               const c = l.conta_helena ?? {};
               const [classeSit, textoSit] = SITUACAO_CONTA[l.situacao] ?? ["", l.situacao];
@@ -232,6 +242,17 @@ export function TelaAdminEscritorios() {
                           Desativado
                         </button>
                       )}
+                  </td>
+                  <td>
+                    <select className="inp" style={{ width: "auto", minWidth: 130, height: 32, fontSize: 13 }} aria-label={`Plano de ${l.nome}`}
+                      value={planoDe(l.id)} disabled={!carteiras.dados || !planos.dados || linhaOcupada === l.id}
+                      title="Sem plano = tudo liberado (conta antiga). Com plano, a Biblioteca segue o plano."
+                      onChange={(e) => trocarPlano(l, e.target.value)}>
+                      <option value="">Sem plano (tudo liberado)</option>
+                      {(planos.dados ?? []).filter((p) => p.ativo || p.id === planoDe(l.id)).map((p) => (
+                        <option key={p.id} value={p.id}>{p.selo ? `${p.selo} ` : ""}{p.nome}</option>
+                      ))}
+                    </select>
                   </td>
                   <td><span className={`chip ${classeWh}`} title={l.sync_helena?.erro ?? undefined}><span className="d" />{textoWh}</span></td>
                   <td><CelulaProgresso p={progresso.dados?.[l.id]} carregando={!progresso.dados && !progresso.erro} /></td>

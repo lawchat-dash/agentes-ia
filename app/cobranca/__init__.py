@@ -396,3 +396,37 @@ class Cobrador:
 
     def parar(self) -> None:
         self._parar.set()
+
+
+# ============================================================================ regras do plano (liberação de produtos)
+SEM_CRIAR_AGENTES = "O plano atual da conta não permite criar agentes de IA."
+
+
+async def plano_da_conta(conexao: Any, id_escritorio: str) -> dict[str, Any] | None:
+    """Plano gravado na carteira do escritório com as regras (017). None = conta sem plano (legado: tudo liberado)
+    ou banco sem a 017."""
+    tem_017 = await conexao.fetchval(
+        "select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agentesia_planos'"
+        " and column_name = 'cria_agentes'")
+    if not tem_017:
+        return None
+    linha = await conexao.fetchrow(
+        """select p.codigo, p.nome, p.ordem, p.cria_agentes from agentesia_carteiras c
+           join agentesia_planos p on p.id = c.id_plano where c.id_escritorio = $1::uuid""", id_escritorio)
+    return dict(linha) if linha else None
+
+
+async def motivo_bloqueio_produto(conexao: Any, id_escritorio: str, plano_minimo: str | None) -> str | None:
+    """Mesma regra do Weaver: sem plano = liberado; plano que não cria agentes bloqueia; plano mínimo do produto
+    (código) precisa ter ordem <= a do plano da conta. Plano mínimo vazio ou desconhecido não trava."""
+    plano = await plano_da_conta(conexao, id_escritorio)
+    if plano is None:
+        return None
+    if not plano["cria_agentes"]:
+        return SEM_CRIAR_AGENTES
+    if not plano_minimo:
+        return None
+    minimo = await conexao.fetchrow("select nome, ordem from agentesia_planos where codigo = $1", plano_minimo)
+    if minimo and plano["ordem"] < minimo["ordem"]:
+        return f"O plano atual da conta ({plano['nome']}) é inferior ao plano mínimo deste produto ({minimo['nome']})."
+    return None

@@ -17,9 +17,23 @@ async def test_planos_com_recursos_e_adicionais(api_cobranca):  # noqa: F811
         ouro = por_codigo["master"]
         assert ouro["usuarios"] == 5 and ouro["canais_whatsapp"] == 2 and ouro["ia_inclusa"] and ouro["preco_anual_brl"] is None
         assert por_codigo["enterprise"]["sob_proposta"] is True
+        # 019: "Mídia e roteiros" ligado em pro_plus, master e enterprise (sem a 019 o campo não vem).
+        tem_019 = bool(await pool.fetchval("select 1 from information_schema.columns where table_schema = 'public' "
+                                           "and table_name = 'agentesia_planos' and column_name = 'midia'"))
+        if tem_019:
+            assert ouro["midia"] is True and por_codigo["pro_plus"]["midia"] is True and por_codigo["enterprise"]["midia"] is True
+            assert por_codigo["start"]["midia"] is False
+        else:
+            assert "midia" not in ouro
         adicionais = (await admin.get("/api/admin/adicionais")).json()
         assert {a["codigo"] for a in adicionais} >= {"ativacao_ia", "usuario", "canal", "automacao"}
         assert (await gestor.get("/api/admin/adicionais")).status_code == 403
+        # A tela da conta: sem plano = None; com plano, vem o plano e a escada.
+        assert (await gestor.get("/api/plano")).json()["plano"] is None
+        await pool.execute("update agentesia_carteiras set id_plano = (select id from agentesia_planos where codigo = 'pro') where id_escritorio = $1::uuid", esc)
+        tela = (await gestor.get("/api/plano")).json()
+        assert tela["plano"]["nome"] == "Prata" and tela["plano"]["cria_agentes"] and {"start", "pro", "master"} <= {p["codigo"] for p in tela["planos"]}
+        await pool.execute("update agentesia_carteiras set id_plano = null where id_escritorio = $1::uuid", esc)
 
         # Criar com recursos, mudar o anual e voltar para o automático.
         cod = f"t{uuid.uuid4().hex[:6]}"
@@ -27,6 +41,9 @@ async def test_planos_com_recursos_e_adicionais(api_cobranca):  # noqa: F811
                                                             "bonus_mensal_brl": 10, "usuarios": 7, "cria_agentes": True,
                                                             "selo": "🥇"})).json()
         assert novo["usuarios"] == 7 and novo["cria_agentes"] and novo["selo"] == "🥇"
+        if tem_019:
+            assert novo["midia"] is False
+            assert (await admin.patch(f"/api/admin/planos/{novo['id']}", json={"midia": True})).json()["midia"] is True
         r = (await admin.patch(f"/api/admin/planos/{novo['id']}", json={"preco_anual_brl": 999, "canais_instagram": 3})).json()
         assert r["preco_anual_brl"] == 999 and r["canais_instagram"] == 3
         r = (await admin.patch(f"/api/admin/planos/{novo['id']}", json={"limpar_preco_anual": True})).json()

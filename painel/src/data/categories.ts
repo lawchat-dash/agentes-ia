@@ -80,3 +80,8 @@ export const parseGradient = (s?: string | null): [string, string] | null => {
 /** Cor efetiva: cor própria do produto (hex) se houver; senão a cor da categoria. */
 export const resolveGradient = (cover?: string | null, category?: string | null): [string, string] =>
   parseGradient(cover) ?? getCategoryGradient(category);
+
+
+/** Emoji próprio do produto (campo icone do catálogo). Nome de ícone (ex.: "scale") não conta: aí vale o ícone da categoria. */
+export const emojiDoProduto = (icone?: string | null): string | null =>
+  icone && icone.trim() && !/^[a-z0-9_-]+$/i.test(icone.trim()) ? icone.trim() : null;

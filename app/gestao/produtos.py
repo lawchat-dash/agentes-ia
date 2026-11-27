@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from app import armazenamento
 from app.cerebro import catalogo as catalogo_motor
+from app import cobranca
 from app.gestao.cache_curto import CacheCurto, limpar_todos
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
 
@@ -622,6 +623,8 @@ async def rascunho(dados: Rascunho, pedido: Request, ctx: Contexto = Depends(GES
     catalogo = await _produto(pool, dados.id_produto_biblioteca, ctx)
     if catalogo["status"] != "publicado" and not ctx.admin:
         raise HTTPException(409, "Este produto ainda está em breve.")
+    if motivo := await cobranca.motivo_bloqueio_produto(pool, ctx.escritorio(), catalogo.get("plano_minimo")):
+        raise HTTPException(403, motivo)
     existente = await pool.fetchval(
         """select id from agentesia_produtos_ativados where id_escritorio = $1::uuid and id_produto_biblioteca = $2::uuid
            and status = 'rascunho' and excluido_em is null""", ctx.escritorio(), catalogo["id"])
@@ -1059,6 +1062,13 @@ def _avisar_indexacao(pedido: Request) -> None:
 
 @api.post("/produtos-ativados/{id_ativado}/ativar")
 async def ativar_produto(id_ativado: str, dados: Ativar, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    # O plano só barra a PRIMEIRA ativação (como no Weaver): agente que já existe continua editável se o plano cair.
+    pool = _pool(pedido)
+    novo = await pool.fetchrow(
+        """select b.plano_minimo from agentesia_produtos_ativados a join agentesia_biblioteca_produtos b on b.id = a.id_produto_biblioteca
+           where a.id = $1::uuid and a.id_escritorio = $2::uuid and a.id_agente is null""", id_ativado, ctx.escritorio())
+    if novo and (motivo := await cobranca.motivo_bloqueio_produto(pool, ctx.escritorio(), novo["plano_minimo"])):
+        raise HTTPException(403, motivo)
     try:
         return await _montar_agente(pedido, ctx, id_ativado, dados, sincronizar=False)
     except HTTPException as erro:

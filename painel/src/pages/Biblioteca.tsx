@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { useTemplates } from "@/hooks/useTemplates";
 import { usePlanGate } from "@/hooks/usePlanGate";
-import { categories, getCategoryIcon, resolveGradient } from "@/data/categories";
+import { categories, emojiDoProduto, getCategoryIcon, resolveGradient } from "@/data/categories";
 import biblioteca3d from "@/assets/biblioteca-3d.png";
 
 /** Quadrado do ícone em degradê: as duas cores do produto/categoria, brilho interno no topo e sombra colorida suave. */
@@ -246,7 +246,9 @@ const Biblioteca = () => {
                       className="relative size-11 rounded-xl grid place-items-center overflow-hidden ring-1 ring-inset ring-white/15 transition-transform duration-300 [transition-timing-function:cubic-bezier(.34,1.56,.64,1)] group-hover:-translate-y-0.5 group-hover:scale-[1.07] group-hover:-rotate-3 motion-reduce:transform-none"
                       style={iconTileStyle(c1, c2)}
                     >
-                      <CatIcon className="size-[19px] text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]" strokeWidth={2} />
+                      {emojiDoProduto(t.icon)
+                        ? <span className="text-[21px] leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]" aria-hidden>{emojiDoProduto(t.icon)}</span>
+                        : <CatIcon className="size-[19px] text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]" strokeWidth={2} />}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 min-w-0">

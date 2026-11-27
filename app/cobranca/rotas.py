@@ -587,6 +587,22 @@ async def mudar_config(dados: ConfigCobranca, pedido: Request, ctx: Contexto = D
     return await ver_config(pedido, ctx)
 
 
+# ============================================================================ plano da conta (liberação na tela)
+@api.get("/plano")
+async def plano_da_conta(pedido: Request, ctx: Contexto = Depends(TODOS)) -> dict[str, Any]:
+    """Plano do escritório e a escada de planos, para a Biblioteca mostrar o que está liberado. plano = None: conta sem
+    plano (tudo liberado). A trava de verdade é no servidor (cobranca.motivo_bloqueio_produto)."""
+    pool = _pool(pedido)
+    if not await cobranca.tem_cobranca(pool):
+        return {"plano": None, "planos": []}
+    plano = await cobranca.plano_da_conta(pool, ctx.escritorio())
+    planos = []
+    if plano is not None:
+        planos = _linhas(await pool.fetch("select codigo, nome, ordem from agentesia_planos where ativo or codigo = $1 order by ordem",
+                                          plano["codigo"]))
+    return {"plano": plano, "planos": planos}
+
+
 # ============================================================================ admin: planos
 class Plano(BaseModel):
     codigo: str = Field(pattern=r"^[a-z0-9_-]{2,40}$")
@@ -606,6 +622,7 @@ class Plano(BaseModel):
     ia_inclusa: bool = False
     selo: str | None = Field(default=None, max_length=8)
     icone: str | None = Field(default=None, max_length=20)
+    midia: bool = False                       # libera mídia nos agentes e o roteiro de gravação (migração 019)
 
 
 class AlterarPlano(BaseModel):
@@ -626,6 +643,7 @@ class AlterarPlano(BaseModel):
     ia_inclusa: bool | None = None
     selo: str | None = Field(default=None, max_length=8)
     icone: str | None = Field(default=None, max_length=20)
+    midia: bool | None = None
 
 
 _RECURSOS_PLANO = ("preco_anual_brl", "sob_proposta", "usuarios", "canais_whatsapp", "canais_instagram", "cria_agentes",
@@ -639,6 +657,19 @@ async def _tem_017(pool: Any) -> bool:
     return bool(await pool.fetchval(
         "select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agentesia_planos'"
         " and column_name = 'cria_agentes'"))
+
+
+async def _tem_019(pool: Any) -> bool:
+    """A 019 trouxe agentesia_planos.midia (o plano libera mídia e o roteiro de gravação)."""
+    return bool(await pool.fetchval(
+        "select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agentesia_planos'"
+        " and column_name = 'midia'"))
+
+
+async def _colunas_do_plano(pool: Any) -> tuple[str, bool, bool]:
+    """(colunas do select/returning, tem 017, tem 019): o que o banco tiver."""
+    tem17, tem19 = await _tem_017(pool), await _tem_019(pool)
+    return f"{_COLUNAS_PLANO}{_COLUNAS_PLANO_017 if tem17 else ''}{', midia' if tem19 else ''}", tem17, tem19
 
 
 async def _exigir_017(pool: Any) -> None:
@@ -655,8 +686,8 @@ _COLUNAS_PLANO = """id, codigo, nome, descricao, preco_mensal_brl::float8 as pre
 async def listar_planos(pedido: Request, _: Contexto = Depends(ADMIN)) -> list[dict[str, Any]]:
     pool = _pool(pedido)
     await _exigir_007(pool)
-    extra = _COLUNAS_PLANO_017 if await _tem_017(pool) else ""
-    return _linhas(await pool.fetch(f"select {_COLUNAS_PLANO}{extra} from agentesia_planos order by ordem, nome"))
+    cols, _tem17, _tem19 = await _colunas_do_plano(pool)
+    return _linhas(await pool.fetch(f"select {cols} from agentesia_planos order by ordem, nome"))
 
 
 @api.post("/admin/planos")
@@ -665,16 +696,18 @@ async def criar_plano(dados: Plano, pedido: Request, ctx: Contexto = Depends(ADM
     await _exigir_007(pool)
     if await pool.fetchval("select 1 from agentesia_planos where codigo = $1", dados.codigo):
         raise HTTPException(409, "Já existe um plano com esse código.")
-    tem17 = await _tem_017(pool)
+    cols, tem17, tem19 = await _colunas_do_plano(pool)
     valores = dados.model_dump()
     valores["nome"] = dados.nome.strip()
     colunas = ["codigo", "nome", "descricao", "preco_mensal_brl", "bonus_mensal_brl", "bonus_acumula", "ativo", "ordem"]
     if tem17:
         colunas += list(_RECURSOS_PLANO)
+    if tem19:
+        colunas.append("midia")
     marcas = ", ".join(f"${i}" for i in range(1, len(colunas) + 1))
     plano = _linha(await pool.fetchrow(
         f"insert into agentesia_planos ({', '.join(colunas)}) values ({marcas}) "
-        f"returning {_COLUNAS_PLANO}{_COLUNAS_PLANO_017 if tem17 else ''}", *[valores[c] for c in colunas]))
+        f"returning {cols}", *[valores[c] for c in colunas]))
     await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=None, tabela="agentesia_planos",
                                             id_registro=str(plano["id"]), acao="criou", resumo=f"Plano {dados.nome} criado",
                                             depois=dados.model_dump())
@@ -686,14 +719,14 @@ async def alterar_plano(id_plano: str, dados: AlterarPlano, pedido: Request, ctx
     """Mudar o bônus vale a partir do mês seguinte (o bônus do mês já creditado não muda)."""
     pool = _pool(pedido)
     await _exigir_007(pool)
-    tem17 = await _tem_017(pool)
-    cols = f"{_COLUNAS_PLANO}{_COLUNAS_PLANO_017 if tem17 else ''}"
+    cols, tem17, tem19 = await _colunas_do_plano(pool)
     antes = _linha(await pool.fetchrow(f"select {cols} from agentesia_planos where id = $1::uuid", id_plano))
     if not antes:
         raise HTTPException(404, "Plano não encontrado.")
     bruto = dados.model_dump()
     limpar_anual = bruto.pop("limpar_preco_anual")
-    mudancas = {k: v for k, v in bruto.items() if v is not None and (tem17 or k not in _RECURSOS_PLANO)}
+    mudancas = {k: v for k, v in bruto.items()
+                if v is not None and (tem17 or k not in _RECURSOS_PLANO) and (tem19 or k != "midia")}
     for k in ("selo", "icone"):
         if k in mudancas:
             mudancas[k] = mudancas[k] or None

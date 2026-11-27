@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import iconeLawChat from "@/assets/lawchat-icone.svg";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, ChevronDown, Rocket, Bot, Loader2, RefreshCw, Shield, FlaskConical, FileSignature, ExternalLink, Settings2, Braces, AlertTriangle, X, Sparkles, Building2, Headphones, BellRing, History, PencilLine, Scale } from "lucide-react";
 import { useTemplate } from "@/hooks/useTemplates";
@@ -41,6 +41,7 @@ import { buildBlocksForRole } from "@/data/roleBlocks";
 import { expandirBlocosParaBot, expandirHandoffsParaBot, recolherHandoffsDoBot } from "@/data/handoffTargets";
 import { agentesSemFraseDeSaida, expandirFrasesParaBot, fraseDaEtapa, setProdutoFrases, temTokenTransferencia } from "@/data/frasesTroca";
 import { carregarFrasesTroca, FrasesProdutoProvider } from "@/hooks/useFrasesTroca";
+import { CardRoteiroAtivacao, sugestoesDeMidia, useRoteiroDoProduto } from "@/components/roteiro/RoteiroNaAtivacao";
 import { AudioSlotsPanel } from "./AudioSlotsPanel";
 import { listarCanaisDisponiveis, sincronizarCanaisHelena, ehWhatsapp } from "@/hooks/useChannelsSync";
 import { useRascunhoLocal } from "@/hooks/useRascunhoLocal";
@@ -354,6 +355,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [updateRevisado, setUpdateRevisado] = useState(false); // aplicou/revisou → grava versão no save
   const [savingAgent, setSavingAgent] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(false);
+  // Onde a pessoa parou no rascunho do servidor (passo): usado ao retomar com ?continuar=1.
+  const passoSalvo = useRef<number | null>(null);
   type Step3Tab = "campos" | "regras" | "agente" | "faq" | "objecoes" | "dados_escritorio" | "honorarios" | "conhecimento" | "integracoes" | "audios";
   const [step3Tab, setStep3Tab] = useState<Step3Tab>("agente");
   const [generalRules, setGeneralRules] = useState<string>(editData?.generalRules ?? "");
@@ -398,6 +401,9 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       pipelineAgents: pipelineAgentsRef.current,
       faqItems, objectionItems, knowledgeItems, integrations, generalRules, dadosEscritorio, honorariosTexto,
       catalogStamp: catalogStampRef.current, // carimbo do catálogo no momento do salvamento
+      // Onde a pessoa parou (passo, aba do conteúdo, agente) e os campos já aplicados: ao reabrir o rascunho em
+      // Produtos ela continua dali, sem refazer nada.
+      step, step3Tab, activeRoleIdx, fieldValues, appliedValues,
       ...extra,
     };
     try {
@@ -458,6 +464,25 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // Guard: produto "em breve" não pode ser ativado (proteção contra URL direta — o catálogo já
   // mostra em breve). SÓ no modo CRIAR. Aqui não há planos: nenhum produto fica bloqueado por plano.
   const comingSoon = !isEdit && template?.status === "em_breve";
+  // Roteiro de gravação do produto (produtos de mídia): card da lateral e gravações que combinam com os marcadores.
+  const roteiro = useRoteiroDoProduto(template?.id, isAudio && step === 3);
+
+  // Retomar o rascunho (Meus agentes › Rascunho, ou a volta do Roteiro de gravação): ?continuar=1 carrega o rascunho do
+  // servidor na hora e abre no passo onde a pessoa parou (pelo menos o Conteúdo), sem refazer Identidade e Comportamento.
+  const [busca, setBusca] = useSearchParams();
+  const retomou = useRef(false);
+  useEffect(() => {
+    if (isEdit || retomou.current || !template?.id || groupId || bootstrapping || !busca.get("continuar")) return;
+    retomou.current = true;
+    void (async () => {
+      if (!(await bootstrapPipeline())) return;
+      setStep(Math.max(3, passoSalvo.current ?? 3));
+      const sem = new URLSearchParams(busca);
+      sem.delete("continuar");
+      setBusca(sem, { replace: true });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template?.id, isEdit, groupId]);
   useEffect(() => {
     if (!template?.id) return;
     let vivo = true;
@@ -733,6 +758,12 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         if (typeof r.responseDelay === "number") setResponseDelay(r.responseDelay);
         if (typeof r.humanPause === "number") setHumanPause(r.humanPause);
         if (typeof r.schedule24 === "boolean") setSchedule24(r.schedule24);
+        if (r.fieldValues && typeof r.fieldValues === "object") setFieldValues(r.fieldValues);
+        if (Array.isArray(r.appliedValues)) setAppliedValues(r.appliedValues);
+        // Continua de onde parou.
+        passoSalvo.current = typeof r.step === "number" ? Math.min(STEP_COUNT, Math.max(1, r.step)) : null;
+        if (r.step3Tab) setStep3Tab(r.step3Tab);
+        if (typeof r.activeRoleIdx === "number") setActiveRoleIdx(Math.min(Math.max(0, r.activeRoleIdx), Math.max(0, r.pipelineAgents.length - 1)));
       } else {
         // Conteúdo SEMPRE do catálogo (modelo manda).
         const pa = montarAgentesDoCatalogo();
@@ -871,6 +902,17 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     objectionItems.forEach((it) => add(`${it.titulo ?? ""}\n${it.resposta ?? ""}`));
     return [...set];
   })();
+
+  // Roteiro de gravação do produto (produtos de mídia): o card da lateral e as gravações que combinam com os marcadores.
+  const sugestoesRoteiro = sugestoesDeMidia(audioMarkers, roteiro);
+  /** Salva o rascunho onde parou e abre o roteiro (tela única de gravação); a volta retoma daqui. */
+  const gravarRoteiro = async () => {
+    if (!template?.id) return;
+    await salvarRascunho();
+    if (isEdit) rascunhoLocal.gravarAgora();
+    const aqui = isEdit ? window.location.pathname : `${window.location.pathname}?continuar=1`;
+    navigate(`/roteiros/${template.id}?voltar=${encodeURIComponent(aqui)}`);
+  };
 
   // Checklist da REVISÃO (passo 6): valida cada etapa. obrig=true bloqueia ativar.
   const zapCfg: any = (integrations as any)?.zapsign;
@@ -1789,7 +1831,11 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                       <Slider value={temperature} onValueChange={setTemperature} min={0} max={2} step={0.1} />
                     </div>
                     <div className="relative h-4 mt-1" aria-hidden>
-                      <span className="absolute -translate-x-1/2 text-[10px] font-bold text-[#067a2b]" style={{ left: `${(TEMPERATURA_INDICADA / 2) * 100}%` }}>▲ 0.5 indicada</span>
+                      {/* O Radix mantém a bolinha (20px) dentro da barra: o centro dela fica em 10px + (largura − 20px) × fração. */}
+                      <span className="absolute top-0 flex items-center gap-1 text-[10px] font-bold text-[#067a2b] whitespace-nowrap"
+                        style={{ left: `calc(10px + (100% - 20px) * ${TEMPERATURA_INDICADA / 2})`, transform: "translateX(-4px)" }}>
+                        <span className="leading-none">▲</span>0.5 indicada
+                      </span>
                     </div>
                     <div className="flex justify-between text-[11px] text-muted-foreground mt-1">
                       <span>Mais previsível (segue o roteiro)</span>
@@ -1985,6 +2031,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                         </button>
                       );
                     })()}
+                    {isAudio && roteiro && <CardRoteiroAtivacao roteiro={roteiro} aoGravar={gravarRoteiro} />}
 
                     <div className="my-2.5 border-t border-[#f0f2f6]" />
 
@@ -2062,6 +2109,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                       markers={audioMarkers}
                       onFill={fillAudioMarker}
                       onRemove={excludeAudioMarker}
+                      sugestoes={sugestoesRoteiro}
+                      onGravarRoteiro={roteiro?.total ? gravarRoteiro : undefined}
                     />
                   )}
                   {step3Tab === "campos" && (
@@ -2697,28 +2746,26 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                 if (ok) setStep(4);
               }}
               disabled={savingAgent || bootstrapping}
-              className="bg-gradient-primary text-white shadow-glow"
+              className="lc-continuar"
             >
-              {savingAgent ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : null}
-              Continuar
-              <ArrowRight className="size-4 ml-1" />
+              {savingAgent || bootstrapping ? <><Loader2 className="size-4 mr-1.5 animate-spin" />{savingAgent ? "Salvando os agentes…" : "Preparando…"}</>
+                : <>Continuar<ArrowRight className="size-4 ml-1" /></>}
             </Button>
           ) : step === 4 ? (
-            <Button onClick={() => setStep(5)} className="bg-gradient-primary text-white shadow-glow">
+            <Button onClick={() => setStep(5)} className="lc-continuar">
               Continuar<ArrowRight className="size-4 ml-1" />
             </Button>
           ) : step === 5 ? (
-            <Button onClick={() => setStep(6)} className="bg-gradient-primary text-white shadow-glow">
+            <Button onClick={() => setStep(6)} className="lc-continuar">
               Ir para o resumo<ArrowRight className="size-4 ml-1" />
             </Button>
           ) : step < 4 ? (
-            <Button onClick={next} disabled={bootstrapping || (step === 1 && !name.trim())} className="bg-gradient-primary text-white shadow-glow">
-              {bootstrapping ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : null}
-              Continuar<ArrowRight className="size-4 ml-1" />
+            <Button onClick={next} disabled={bootstrapping || (step === 1 && !name.trim())} className="lc-continuar">
+              {bootstrapping ? <><Loader2 className="size-4 mr-1.5 animate-spin" />Preparando…</> : <>Continuar<ArrowRight className="size-4 ml-1" /></>}
             </Button>
 
           ) : (
-            <Button onClick={activate} disabled={submitting || (isEdit ? (editChanges?.total ?? 0) === 0 : !podeAtivar)} size="lg" className="bg-gradient-primary text-white shadow-glow" title={isEdit ? ((editChanges?.total ?? 0) === 0 ? "Nenhuma alteração para salvar" : "Salvar e sincronizar no agente") : (!podeAtivar ? "Resolva as pendências obrigatórias do checklist antes de continuar" : undefined)}>
+            <Button onClick={activate} disabled={submitting || (isEdit ? (editChanges?.total ?? 0) === 0 : !podeAtivar)} size="lg" className="lc-continuar" title={isEdit ? ((editChanges?.total ?? 0) === 0 ? "Nenhuma alteração para salvar" : "Salvar e sincronizar no agente") : (!podeAtivar ? "Resolva as pendências obrigatórias do checklist antes de continuar" : undefined)}>
               {submitting ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <Rocket className="size-4 mr-1.5" />}
               {submitting ? (isEdit && !reativando ? "Salvando..." : "Ativando...") : reativando ? (selectedWhatsapp ? "Ativar produto" : "Escolha o número") : isEdit ? `Confirmar e salvar${(editChanges?.total ?? 0) > 0 ? ` (${editChanges?.total})` : ""}` : !podeAtivar ? `${pendencias.length} pendência${pendencias.length > 1 ? "s" : ""}` : "Ativar produto"}
             </Button>

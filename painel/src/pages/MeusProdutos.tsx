@@ -14,7 +14,7 @@ import {
   Workflow, Activity, RotateCcw, RotateCw, X, Phone, Bot, Send, History, Zap, Archive, ChevronDown,
 } from "lucide-react";
 import { useMyProducts, useTrashedProducts, useRetryProductProvisioning, ROLE_META, ROLE_ORDER } from "@/hooks/useProducts";
-import { getCategoryIcon, resolveGradient } from "@/data/categories";
+import { emojiDoProduto, getCategoryIcon, resolveGradient } from "@/data/categories";
 import { api, enviar } from "@/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -433,9 +433,8 @@ const MeusProdutos = () => {
           <Button variant="outline" className="mt-4" onClick={() => recarregarLista()}><RotateCw className="size-4 mr-1.5" />Tentar de novo</Button>
         </Card>
       ) : filter !== "trash" && naLista.length === 0 ? (avulsos.length > 0 || arquivados.length > 0 ? null :
-        // Estado vazio com pixels verdes que se acendem ao passar o mouse (PixelCard do React Bits).
-        <PixelCard theme="light" colors={["#dcfce7", "#86efac", "#00bc33"]} gap={7} speed={30} radius={16} noFocus
-          style={{ width: "100%", height: "auto", minHeight: 300 }}>
+        // Estado vazio: grade de pontos em CSS (antes era um canvas de pixels que cobria o texto e o botão).
+        <div className="lc-vazio-pontos">
           <div className="p-12 text-center">
             <div className="size-16 rounded-2xl bg-primary/10 grid place-items-center mx-auto mb-4">
               <Package className="size-8 text-primary" />
@@ -444,11 +443,11 @@ const MeusProdutos = () => {
             <p className="text-muted-foreground mt-2 max-w-md mx-auto">
               Escolha um produto da Biblioteca e ative: o agente fica aqui, com o número, o prompt e o follow-up.
             </p>
-            <Button asChild className="mt-6 bg-gradient-primary text-white shadow-glow">
+            <Button asChild className="mt-6 lc-continuar">
               <Link to="/biblioteca"><Plus className="size-4 mr-1.5" />Novo a partir da Biblioteca</Link>
             </Button>
           </div>
-        </PixelCard>
+        </div>
       ) : filtered.length === 0 ? (
         <Card className="p-12 text-center bg-gradient-card backdrop-blur border-dashed">
           <Search className="size-10 text-muted-foreground mx-auto mb-3 opacity-50" />
@@ -615,7 +614,7 @@ const MeusProdutos = () => {
                           className="cartao-agente__icone size-11 rounded-xl grid place-items-center text-white shrink-0 shadow-sm"
                           style={{ backgroundImage: `linear-gradient(135deg, ${c1}, ${c2})` }}
                         >
-                          <CatIcon className="size-[19px]" strokeWidth={2} />
+                          {emojiDoProduto(tmpl?.icon) ? <span className="text-[20px] leading-none" aria-hidden>{emojiDoProduto(tmpl?.icon)}</span> : <CatIcon className="size-[19px]" strokeWidth={2} />}
                         </div>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-sm leading-snug truncate">{p.name}</h3>
