@@ -86,7 +86,7 @@ async def test_rota_abre_lista_e_conversa_e_recusa_o_que_nao_deve(ambiente, monk
 
     lead = await novo_lead("sessao-abc-123")
     r = await cliente.post(rota, headers=h, json={"id_lead": str(lead)})
-    assert r.status_code == 200 and chamadas[-1]["destino"] == "/chat2/sessions/sessao-abc-123/preview?interactive=true"
+    assert r.status_code == 200 and chamadas[-1]["destino"] == "/chat2/sessions/sessao-abc-123"
 
     # Lead sem atendimento na Helena, lead de outro escritório ou id estranho: 404, sem chamar a Helena.
     sem_sessao = await novo_lead(None)

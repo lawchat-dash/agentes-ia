@@ -197,7 +197,9 @@ async def _painel_de_consumo(pool: Any, esc: str, horas: int) -> dict[str, Any]:
     por_hora = horas <= 24
     grao = (f"date_trunc('hour', c.criado_em at time zone '{FUSO}')::text" if por_hora
             else f"(c.criado_em at time zone '{FUSO}')::date::text")
-    (totais, serie, por_funcao, por_agente, semanas, creditos, por_mes, carteira) = await asyncio.gather(
+    ini = _inicio_mes_sql()
+    ini_ant = f"(date_trunc('month', now() at time zone '{FUSO}') - interval '1 month') at time zone '{FUSO}'"
+    (totais, serie, por_funcao, por_agente, semanas, creditos, por_mes, carteira, mes, mes_agentes) = await asyncio.gather(
         # Contrato do período = assinado no período, de um lead que teve consumo no período.
         pool.fetchrow(
             f"""with base as (select c.* from agentesia_chamadas_ia c where {f})
@@ -254,7 +256,32 @@ async def _painel_de_consumo(pool: Any, esc: str, horas: int) -> dict[str, Any]:
                 where m.id_escritorio = $1::uuid and m.valor_brl > 0 and m.tipo in ('recarga', 'bonus_plano', 'bonus_manual')
                   and m.criado_em >= date_trunc('month', now() at time zone '{FUSO}') - interval '11 months'
                 group by 1 order by 1""", esc),
-        _carteira(pool, esc))
+        _carteira(pool, esc),
+        # Mês do calendário (desde o dia 1º) e o mês anterior: gasto, tokens e contratos (assinados no mês, de lead com
+        # consumo no mesmo mês). Independe do período escolhido na tela.
+        pool.fetchrow(
+            f"""with base as (select c.id_lead, c.custo_brl, c.tokens_entrada + c.tokens_saida as tokens, c.criado_em >= {ini} as atual
+                              from agentesia_chamadas_ia c
+                              where c.id_escritorio = $1::uuid and c.cobranca <> 'isenta' and c.criado_em >= {ini_ant})
+                select coalesce(sum(custo_brl) filter (where atual), 0)::float8 as creditos_brl,
+                       coalesce(sum(tokens) filter (where atual), 0)::bigint as tokens,
+                       coalesce(sum(custo_brl) filter (where not atual), 0)::float8 as creditos_ant_brl,
+                       (select count(distinct k.id_lead) from agentesia_contratos k
+                         where k.id_escritorio = $1::uuid and k.situacao = 'assinado' and k.assinado_em >= {ini}
+                           and k.id_lead in (select b.id_lead from base b where b.atual and b.id_lead is not null))::int as contratos,
+                       (select count(distinct k.id_lead) from agentesia_contratos k
+                         where k.id_escritorio = $1::uuid and k.situacao = 'assinado'
+                           and k.assinado_em >= {ini_ant} and k.assinado_em < {ini}
+                           and k.id_lead in (select b.id_lead from base b where not b.atual and b.id_lead is not null))::int as contratos_ant
+                from base""", esc),
+        pool.fetch(
+            f"""select c.id_agente, coalesce(a.nome, 'Sem agente') as agente,
+                       (select pa.nome from agentesia_produtos_ativados pa
+                         where pa.id_agente = c.id_agente and pa.excluido_em is null order by pa.criado_em desc limit 1) as produto,
+                       sum(c.custo_brl)::float8 as valor_brl
+                from agentesia_chamadas_ia c left join agentesia_agentes a on a.id = c.id_agente
+                where c.id_escritorio = $1::uuid and c.cobranca <> 'isenta' and c.criado_em >= {ini}
+                group by c.id_agente, a.nome order by valor_brl desc""", esc))
     t = _linha(totais) or {}
     total = round(t.get("creditos_brl") or 0, 6)
     conversas, contratos = t.get("conversas") or 0, t.get("contratos") or 0
@@ -279,6 +306,18 @@ async def _painel_de_consumo(pool: Any, esc: str, horas: int) -> dict[str, Any]:
         media_dia = round(sem["ultimos_30"] / dias_com_dado, 4)
     entradas = {l["tipo"]: l for l in _linhas(creditos)}
     por_lead = await _custo_por_lead(pool, esc, total, conversas, carteira.get("markup"))
+    m = _linha(mes) or {}
+    gasto_mes, gasto_ant = round(m.get("creditos_brl") or 0, 6), round(m.get("creditos_ant_brl") or 0, 6)
+    ctr_mes, ctr_ant = m.get("contratos") or 0, m.get("contratos_ant") or 0
+    agentes_mes = _linhas(mes_agentes)
+    for a in agentes_mes:
+        a["participacao_pct"] = round(a["valor_brl"] / gasto_mes * 100, 1) if gasto_mes else 0.0
+    bloco_mes = {
+        "creditos_brl": gasto_mes, "tokens": m.get("tokens") or 0, "contratos": ctr_mes,
+        "custo_por_contrato_brl": round(gasto_mes / ctr_mes, 2) if ctr_mes else None,
+        "anterior": {"creditos_brl": gasto_ant, "contratos": ctr_ant,
+                     "custo_por_contrato_brl": round(gasto_ant / ctr_ant, 2) if ctr_ant else None},
+        "por_agente": agentes_mes}
     disponivel = max(0.0, carteira.get("disponivel_brl") or 0.0)
     por_lead["leads_com_saldo"] = int(disponivel / por_lead["valor_brl"] + 1e-9) if por_lead["valor_brl"] else None
     return {
@@ -297,6 +336,7 @@ async def _painel_de_consumo(pool: Any, esc: str, horas: int) -> dict[str, Any]:
         "comparativo": {"ultimos_7_brl": sem.get("ultimos_7") or 0.0, "anteriores_7_brl": sem.get("anteriores_7") or 0.0,
                         "ultimos_30_brl": sem.get("ultimos_30") or 0.0},
         "media_dia_brl": media_dia,
+        "mes": bloco_mes,
         "creditos": {
             "recargas_brl": (entradas.get("recarga") or {}).get("valor_brl", 0.0),
             "recargas": (entradas.get("recarga") or {}).get("quantidade", 0),
@@ -429,8 +469,10 @@ async def recargas_do_escritorio(pedido: Request, ctx: Contexto = Depends(GESTAO
     await _exigir_007(pool)
     return _linhas(await pool.fetch(
         """select r.id, r.valor_brl::float8 as valor_brl, r.situacao, r.gateway, r.metodo, r.url_pagamento,
-                  r.pix_copia_cola, r.vencimento, r.paga_em, r.criado_em, r.observacao, u.nome as pedido_por
+                  r.pix_copia_cola, r.vencimento, r.paga_em, r.criado_em, r.observacao, u.nome as pedido_por,
+                  (m.saldo_depois + m.bonus_depois)::float8 as saldo_depois_brl
            from agentesia_recargas r left join agentesia_usuarios u on u.id = r.pedido_por
+           left join agentesia_carteira_movimentos m on m.id = r.id_movimento
            where r.id_escritorio = $1::uuid order by r.criado_em desc limit 100""", ctx.escritorio()))
 
 

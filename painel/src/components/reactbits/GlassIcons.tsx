@@ -933,9 +933,16 @@ const GlassIcons = ({
     };
   }, []);
 
+  // Re-mede e redesenha só quando algo que muda o desenho mudou (antes era a cada render da tela que o usa:
+  // uma leitura de layout + um quadro WebGL a cada atualização da página). Tamanho do contêiner: ResizeObserver.
+  const syncKey = [
+    settings.count, tile, radius, edge, settings.strength, settings.split, settings.soft, settings.shine, settings.shade,
+    tint, settings.tintOpacity, plateMode, hoverMode, labelMode, tilt, settings.spread, settings.parallax, settings.colorKey,
+    items.map(item => item.label ?? '').join('|'), gpu, liquid, maps ? 1 : 0
+  ].join('~');
   useIsomorphicLayoutEffect(() => {
     engineRef.current?.sync();
-  });
+  }, [syncKey]);
 
   const point = (index: number, event: ReactPointerEvent<HTMLElement>) => {
     if (event.pointerType === 'touch') return;

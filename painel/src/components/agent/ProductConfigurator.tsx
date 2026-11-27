@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, ChevronDown, Rocket, Bot, Loader2, RefreshCw, Shield, FlaskConical, FileSignature, ExternalLink, Settings2, Braces, AlertTriangle, X, Sparkles, Building2, Headphones, BellRing, History, PencilLine } from "lucide-react";
 import { useTemplate } from "@/hooks/useTemplates";
 import { ActivationSummary } from "@/components/agent/ActivationSummary";
+import { TerminalAtivacao } from "@/components/agent/TerminalAtivacao";
 import { resolveGradient } from "@/data/categories";
 import { extractFields, extractAudios, fillField, sanitizeFieldValue, HighlightedTextarea } from "@/components/agent/HighlightedTextarea";
 import { RespostaComMidia } from "@/components/agent/RespostaComMidia";
@@ -337,6 +338,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   // Etapa da animação de construção (0..N) durante a ativação.
   const [buildStage, setBuildStage] = useState(0);
+  const [terminalAtivacao, setTerminalAtivacao] = useState(false);
   // Quando a ativação falha/expira, guarda a mensagem — o overlay vira tela de ERRO
   // (não volta pro wizard) e o produto fica salvo como falhou/rascunho com as edições.
   const [buildError, setBuildError] = useState<string | null>(null);
@@ -1227,8 +1229,13 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       rascunhoLocal.limpar(); // agente criado → o rascunho local da ativação não vale mais
       if (!mountedRef.current) return; // usuário saiu do wizard — não navega/atualiza UI
       setBuildStage(BUILD_STEPS.length);
-      toast.success("🎉 Seu agente está pronto!", { description: "Abrindo Meus Produtos…" });
-      setTimeout(() => { if (mountedRef.current) navigate(`/meus-produtos`); }, 900);
+      if (activateNow) {
+        // Ligado na hora: mostra o terminal da ativação; ao fechar, vai para Meus agentes.
+        setTerminalAtivacao(true);
+      } else {
+        toast.success("🎉 Seu agente está pronto!", { description: "Abrindo Meus Produtos…" });
+        setTimeout(() => { if (mountedRef.current) navigate(`/meus-produtos`); }, 900);
+      }
     } catch (e: any) {
       // O servidor marca o produto como falhou quando a ativação não termina; só atualizamos a lista.
       queryClient.invalidateQueries({ queryKey: ["my-products"] });
@@ -1296,6 +1303,15 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           />
         )}
       </AnimatePresence>
+
+      <TerminalAtivacao
+        aberto={terminalAtivacao}
+        nome={name || template?.name || "Agente"}
+        produto={template?.name}
+        numero={selectedWhatsapp}
+        followupPassos={followupLigado ? (fuHoras?.length || fuPrevia?.resumo?.length || 4) : 0}
+        aoFechar={() => { setTerminalAtivacao(false); if (mountedRef.current) navigate(`/meus-produtos`); }}
+      />
 
       {/* Header / stepper — fixo no topo */}
       <div className="sticky top-0 z-30 overflow-hidden border-b border-[#E6EAF0] bg-white/85 backdrop-blur-xl">

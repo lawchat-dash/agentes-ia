@@ -12,18 +12,19 @@
 /* ------------------------------------------------------------ 1. fundo */
 .lc-casca {
   position: relative;
-  isolation: isolate;
+  /* Sem isolation: a camada das telas da plataforma (fixa, fora da casca, z 25) ficava por cima da casca inteira,
+     inclusive da lista do menu do topo (z 80). O pontilhado abaixo usa z 0 e vem antes do conteúdo. */
   background:
     radial-gradient(1100px 520px at 6% -12%, rgb(0 188 51 / .085), transparent 62%),
     radial-gradient(900px 460px at 100% -14%, rgb(16 185 129 / .055), transparent 60%),
-    linear-gradient(180deg, #F4F7FA 0%, var(--bg, #F1F5F9) 420px);
+    linear-gradient(180deg, #F6F9F7 0%, var(--bg, #F3F6F4) 420px);
 }
 .lc-casca::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
   height: 560px;
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
   background-image: radial-gradient(rgb(15 23 42 / .085) 1px, transparent 1.4px);
   background-size: 22px 22px;

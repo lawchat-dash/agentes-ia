@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { RefreshCw, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
 import { Alerta } from "./ui";
 import { MENSAGEM_POPUP_ABERTO } from "./ControleIA";
 import { TelaEntrando, linkDaHelena } from "../telas/Atendimento";
@@ -21,6 +23,17 @@ const avisar = () => ouvintes.forEach((f) => f());
 const assinar = (f: () => void) => { ouvintes.add(f); return () => { ouvintes.delete(f); }; };
 const lerVaga = () => vaga;
 const lerRecarga = () => pedidoDeRecarga;
+
+/**
+ * Abrir a conversa de um lead direto na Central (sino do topo: "Assumir conversa"). Quem pede guarda aqui o nome do
+ * lead (só para o aviso, não vai na URL) e navega para /atendimento?lead=<id_lead>. A camada, ao ver o parâmetro,
+ * espera o quadro da Central estar pronto e pede um link de entrada novo com id_lead (POST /atendimento/entrar, que
+ * já leva direto à conversa); o quadro troca para esse link. Sem atendimento aberto (404) ou erro: fica a Central
+ * normal e um aviso para abrir a conversa na lista.
+ */
+let conversaPedida: { idLead: string; nome: string } | null = null;
+export function pedirConversaNaCentral(idLead: string, nome: string) { conversaPedida = { idLead, nome }; }
+const LEAD_VALIDO = /^[0-9a-fA-F-]{36}$/;
 
 /** Recarrega (com login novo) o quadro de uma tela. */
 /** Telas pedidas para abrir por trás (Minha Conta abre todas de uma vez: trocar de aba já fica instantâneo). */
@@ -110,6 +123,28 @@ export function CamadaLawChat({ escritorio, escondida }: { escritorio: string | 
     return () => { window.removeEventListener("resize", aoMudar); window.clearTimeout(t); };
   }, []);
   const vezDaRecarga = useRef(0);
+
+  // "Assumir conversa" do sino: /atendimento?lead=... abre o chat do lead dentro do quadro da Central.
+  const local = useLocation();
+  const navegar = useNavigate();
+  const naCentral = local.pathname === "/atendimento";
+  const leadPedido = naCentral ? new URLSearchParams(local.search).get("lead") : null;
+  const central = quadros.atendimento;
+  const pedidoFeito = useRef<string | null>(null);
+  useEffect(() => {
+    if (!naCentral || !leadPedido || pedidoFeito.current === local.key) return;
+    if (!central || (!central.erro && !central.pronto)) return;   // espera a Central terminar de entrar
+    pedidoFeito.current = local.key;
+    const nome = conversaPedida?.idLead === leadPedido ? conversaPedida.nome : "o lead";
+    conversaPedida = null;
+    navegar("/atendimento", { replace: true });
+    const semConversa = () => toast.info(`Abra a conversa de ${nome} na lista.`);
+    if (!LEAD_VALIDO.test(leadPedido)) { semConversa(); return; }
+    linkDaHelena(leadPedido)
+      .then((url) => setQuadros((q) => (q.atendimento ? { ...q, atendimento: { ...q.atendimento, url, erro: null, pronto: false } } : q)))
+      .catch(semConversa);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [naCentral, leadPedido, local.key, central?.pronto, central?.erro]);
 
   // Trocou de escritório: começa do zero (as telas eram da outra conta).
   useEffect(() => { setQuadros({}); preabrir = []; origemLawChat = null; loginPronto = false; }, [escritorio]);

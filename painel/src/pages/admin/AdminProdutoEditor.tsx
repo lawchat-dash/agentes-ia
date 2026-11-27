@@ -201,6 +201,9 @@ export default function AdminProdutoEditor() {
   // obrigatório) ou tentou salvar — antes disso, um produto novo vazio não "acusa erro".
   const [tocado, setTocado] = useState(false);
   const [form, setForm] = useState<Form>(emptyForm);
+  // Status que está GRAVADO no servidor. O selo do topo mostra este (e não o do formulário): trocar o select só vale
+  // depois de salvar — se o salvamento for barrado, o selo não pode dizer "Rascunho" e depois "voltar" a Publicado.
+  const [statusSalvo, setStatusSalvo] = useState<ProdStatus | null>(null);
   const [agentes, setAgentes] = useState<AgenteForm[]>(ROLE_ORDER.map((r) => agenteFromRow(r, null)));
   const [activeRoleIdx, setActiveRoleIdx] = useState(0);
   // Linha do agente 'periododegraca' já salva — preserva o prompt ao religar o toggle na sessão.
@@ -286,6 +289,7 @@ export default function AdminProdutoEditor() {
         oferece_periodo_graca: !!t.oferece_periodo_graca,
         modo_midia: (t.modo_midia === "audio" ? "audio" : "texto"),
       });
+      setStatusSalvo((t.status ?? (t.publicado ? "publicado" : "rascunho")) as ProdStatus);
       setFaqItems(Array.isArray(t.faq) ? t.faq : []);
       setObjItems(Array.isArray(t.objecoes) ? t.objecoes : []);
       setPreserva({
@@ -437,6 +441,7 @@ export default function AdminProdutoEditor() {
       try {
         await enviar(`/admin/biblioteca/produtos/${prodId}`, payload, "PATCH");
       } catch (e: any) { toast.error(e?.message); setSaving(false); return; }
+      setStatusSalvo(finalStatus);
     } else {
       // Slug é único — checa antes de inserir para erro claro (em vez de violação genérica)
       const dup = await api<any>(`/biblioteca/produtos/${encodeURIComponent(payload.slug)}`).catch(() => null);
@@ -537,7 +542,12 @@ export default function AdminProdutoEditor() {
                   {isNew ? "Novo produto" : form.nome || "Produto sem nome"}
                 </h1>
                 {!isNew && (
-                  <Badge variant={STATUS_META[form.status].badge} className="font-medium">{STATUS_META[form.status].label}</Badge>
+                  <Badge variant={STATUS_META[statusSalvo ?? form.status].badge} className="font-medium">{STATUS_META[statusSalvo ?? form.status].label}</Badge>
+                )}
+                {!isNew && statusSalvo && form.status !== statusSalvo && (
+                  <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    vira {STATUS_META[form.status].label} ao salvar
+                  </span>
                 )}
               </div>
             </div>

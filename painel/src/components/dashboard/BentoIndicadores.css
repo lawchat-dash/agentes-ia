@@ -1,5 +1,18 @@
-/* Conteúdo dos cartões do bento de indicadores do Início (MagicBento, tema claro). */
-.lc-bento .magic-bento__content { padding: 16px 18px; gap: 0; }
+/* Bento de indicadores do Painel Inicial: grade CSS leve (sem efeitos de cursor). */
+.lc-bento-leve { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 150px; gap: 12px; }
+.lc-bento-leve__card {
+  position: relative; display: block; width: 100%; height: 100%; min-width: 0; padding: 16px 18px; text-align: left; font: inherit; color: inherit;
+  border-radius: 20px; border: 0; background: rgba(255,255,255,.92);
+  box-shadow: 0 8px 24px rgba(15,23,42,.055), inset 0 0 0 1px rgba(226,232,240,.9);
+  transition: box-shadow .2s ease, transform .2s ease;
+  animation: lc-bento-entra .45s cubic-bezier(.23, 1, .32, 1) backwards calc(var(--n, 0) * 45ms);
+}
+.lc-bento-leve__card.is-clicavel { cursor: pointer; }
+.lc-bento-leve__card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(15,23,42,.08), inset 0 0 0 1px rgba(0,188,51,.45); }
+.lc-bento-leve__card:focus-visible { outline: 2px solid #00bc33; outline-offset: 2px; }
+@keyframes lc-bento-entra { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 1100px) { .lc-bento-leve { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .lc-bento-leve { grid-template-columns: 1fr; grid-auto-rows: minmax(150px, auto); } .lc-bento-leve__card { grid-column: auto !important; } }
 .lc-bento__corpo { display: flex; flex-direction: column; height: 100%; min-width: 0; }
 .lc-bento__topo { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .lc-bento__icone { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; flex: none; }
@@ -23,11 +36,34 @@
 .lc-bento__avatares { display: inline-flex; align-items: center; margin-left: auto; padding-bottom: 2px; }
 .lc-bento__avatares span { width: 20px; height: 20px; margin-left: -6px; border-radius: 999px; border: 2px solid #fff; display: grid; place-items: center; font-size: 8px; font-weight: 700; color: #fff; letter-spacing: 0; }
 .lc-bento__avatares span.is-mais { background: #eef2f7; color: #667085; font-size: 9px; }
+/* Movimento: ícone que reage ao mouse, selo "ao vivo" pulsando, faixa que enche ao abrir, número que sobe ao entrar. */
+.lc-bento__icone { transition: transform .35s cubic-bezier(.34, 1.56, .64, 1), box-shadow .25s ease; animation: lc-bento-pop .5s cubic-bezier(.34, 1.56, .64, 1) backwards .15s; }
+.lc-bento__icone svg { transition: transform .4s cubic-bezier(.34, 1.56, .64, 1); }
+.magic-bento__card:hover .lc-bento__icone { transform: translateY(-2px) scale(1.06); box-shadow: 0 6px 14px -6px currentColor; }
+.magic-bento__card:hover .lc-bento__icone.is-pulo svg { animation: lc-bento-pulo .6s cubic-bezier(.34, 1.56, .64, 1); }
+.magic-bento__card:hover .lc-bento__icone.is-giro svg { transform: rotate(-14deg); }
+.magic-bento__card:hover .lc-bento__icone.is-balanco svg { animation: lc-bento-balanco .7s ease-in-out; }
+.lc-bento__vivo { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 2px 7px 2px 6px; border-radius: 999px; background: #e3f7e8; color: #00a32c; font-size: 10.5px; font-weight: 600; }
+.lc-bento__vivo i { position: relative; width: 6px; height: 6px; border-radius: 999px; background: #00bc33; }
+.lc-bento__vivo i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: #00bc33; animation: lc-bento-pulso 1.8s ease-out 3; }
+.lc-bento__valor { animation: lc-bento-subir .5s cubic-bezier(.23, 1, .32, 1) backwards .1s; }
+.lc-bento__faixa span { transform-origin: left center; animation: lc-bento-encher .9s cubic-bezier(.23, 1, .32, 1) backwards .25s; }
+.lc-bento__delta.is-up svg { animation: lc-bento-seta-cima 1.6s ease-in-out 2 .6s; }
+.lc-bento__delta.is-down svg { animation: lc-bento-seta-baixo 1.6s ease-in-out 2 .6s; }
+@keyframes lc-bento-pop { from { transform: scale(.6); opacity: 0; } }
+@keyframes lc-bento-pulo { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-3px) scale(1.08); } 70% { transform: translateY(1px); } }
+@keyframes lc-bento-balanco { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 50% { transform: rotate(9deg); } 75% { transform: rotate(-4deg); } }
+@keyframes lc-bento-pulso { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(2.8); opacity: 0; } }
+@keyframes lc-bento-subir { from { transform: translateY(6px); opacity: 0; } }
+@keyframes lc-bento-encher { from { transform: scaleX(0); } }
+@keyframes lc-bento-seta-cima { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes lc-bento-seta-baixo { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(2px); } }
 @media (prefers-reduced-motion: reduce) {
   .lc-bento__faixa span { transition: none; }
+  .lc-bento__icone, .lc-bento__icone svg, .lc-bento__valor, .lc-bento__faixa span, .lc-bento__delta svg, .lc-bento__vivo i::after, .lc-bento-leve__card { animation: none !important; transition: none !important; }
 }
 @media (max-width: 480px) {
-  .lc-bento .magic-bento__content { padding: 14px; }
+  .lc-bento-leve__card { padding: 14px; }
   .lc-bento__valor { font-size: 22px; }
   .lc-bento__valor--grande { font-size: 28px; }
   .lc-bento__rotulo { font-size: 12px; }

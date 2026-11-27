@@ -140,6 +140,14 @@ const SpotlightCard = ({
     let raf = 0;
     let last = 0;
     let alive = true;
+    // Caixa guardada para decidir, sem medir a cada movimento, se o cursor está perto deste cartão
+    // (sem isto todo cartão da tela media a si mesmo a cada pointermove em qualquer lugar da página).
+    let box: DOMRect | null = null;
+    const near = (x: number, y: number) => {
+      if (!box) box = root.getBoundingClientRect();
+      const gap = Math.hypot(Math.max(0, box.left - x, x - box.right), Math.max(0, box.top - y, y - box.bottom));
+      return gap <= settingsRef.current.proximity + 24;
+    };
 
     const gradient = (s: Settings, size: number, x: number, y: number, stops: string) => {
       if (s.shape === 'beam') {
@@ -180,6 +188,7 @@ const SpotlightCard = ({
       const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
       last = now;
       const rect = root.getBoundingClientRect();
+      box = rect;
       let tx = state.x;
       let ty = state.y;
       let target = 0;
@@ -232,7 +241,8 @@ const SpotlightCard = ({
       pointer.x = event.clientX;
       pointer.y = event.clientY;
       pointer.active = true;
-      if (state.presence > 0 || settingsRef.current.proximity > 0 || root.contains(event.target as Node | null)) wake();
+      if (event.pointerType === 'touch' || document.hidden) return;
+      if (state.presence > 0 || root.contains(event.target as Node | null) || (settingsRef.current.proximity > 0 && state.visible && near(event.clientX, event.clientY))) wake();
     };
     const onOut = (event: PointerEvent) => {
       if (event.relatedTarget) return;
@@ -263,11 +273,13 @@ const SpotlightCard = ({
       wake();
     };
     const onScroll = () => {
+      box = null;
       if (pointer.active || state.presence > 0) wake();
     };
 
     const observer = new IntersectionObserver(entries => {
       state.visible = entries.some(entry => entry.isIntersecting);
+      box = null;
       if (state.visible) wake();
     });
     observer.observe(root);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { CheckCircle2, Copy, KeyRound, Link2, PlugZap, RefreshCw, Save } from "lucide-react";
 import { api, enviar, formatarTelefone, quando, type Canal } from "../api";
 import { Alerta, Cabecalho, Carregando, Painel, Situacao, Vazio, useAcao, useCarregar } from "../componentes/ui";
@@ -48,8 +49,8 @@ function IntegracaoHelena({ integracao, canais, saude, webhookPossivel, aoMudar 
             <div style={{ display: "flex", gap: 8 }}>
               <input id="token-helena" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)}
                 placeholder={integracao?.final_segredo ? `Salvo, termina em ${integracao.final_segredo}` : "Cole o token aqui"} />
-              <button className="btn pri" disabled={ocupado || token.trim().length < 10}
-                onClick={() => executar(async () => { await enviar("/integracoes/helena", { token: token.trim() }, "PUT"); setToken(""); aoMudar(); }, "Token salvo e testado.")}><KeyRound />Salvar</button>
+              <BotaoBrilho size="md" radius={10} disabled={ocupado || token.trim().length < 10}
+                onClick={() => executar(async () => { await enviar("/integracoes/helena", { token: token.trim() }, "PUT"); setToken(""); aoMudar(); }, "Token salvo e testado.")}><KeyRound />Salvar</BotaoBrilho>
             </div>
             <span className="ajuda">Na LawChat: Ajustes › Integrações › Integração via API. O token fica no cofre do servidor; aqui só aparece o final.</span>
             {integracao?.erro && <Alerta tipo="bad">{integracao.erro}</Alerta>}
@@ -146,8 +147,8 @@ function IntegracaoCrm({ integracao, aoMudar }: { integracao?: Integracao; aoMud
             {painel && <span className="ajuda">Colunas: {painel.etapas.map((e) => e.titulo).join(" → ")}</span>}
           </label>
         )}
-        {paineis && <button className="btn pri" style={{ alignSelf: "flex-start" }} disabled={ocupado || !escolhido}
-          onClick={() => executar(async () => { await enviar("/integracoes/crm", { id_painel: escolhido, titulo_painel: painel?.titulo }, "PUT"); setPaineis(null); aoMudar(); }, "Painel do CRM salvo.")}><Save />Usar este painel</button>}
+        {paineis && <BotaoBrilho size="md" radius={10} style={{ alignSelf: "flex-start" }} disabled={ocupado || !escolhido}
+          onClick={() => executar(async () => { await enviar("/integracoes/crm", { id_painel: escolhido, titulo_painel: painel?.titulo }, "PUT"); setPaineis(null); aoMudar(); }, "Painel do CRM salvo.")}><Save />Usar este painel</BotaoBrilho>}
       </div>
     </Painel>
   );

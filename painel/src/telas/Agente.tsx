@@ -10,6 +10,7 @@ import { AbaFollowup, PainelFollowupDoAgente } from "./AgenteFollowup";
 import { cartoesDo, estiloIconeSecao, secoesDo } from "./agenteSecoes";
 import { HistoricoDoAgente } from "./AgenteHistorico";
 import Stepper, { Step } from "@/components/reactbits/Stepper";
+import { TerminalAtivacao } from "@/components/agent/TerminalAtivacao";
 import { AbaFuncoes } from "./AgenteFuncoes";
 
 export function TelaAgente() {
@@ -93,6 +94,7 @@ function useAtivacao(agente: Agente, aoSalvar: (a: Agente) => void) {
   const [conferindo, setConferindo] = useState(false);
   const [conferiuUmaVez, setConferiuUmaVez] = useState(false);
   const [confirmar, janelaConfirmar] = useConfirmar();
+  const [terminal, setTerminal] = useState<"teste" | "producao" | null>(null);   // terminal da ativação (só ao ligar)
 
   const conferir = async (aplicar: boolean) => {
     setConferindo(true);
@@ -118,6 +120,7 @@ function useAtivacao(agente: Agente, aoSalvar: (a: Agente) => void) {
         const salvo = await enviar<Agente>(`/agentes/${agente.id}/ativacao`, { situacao, modo });
         if (salvo.preparacao) setPrep(salvo.preparacao);
         aoSalvar(salvo);
+        if (situacao === "ativo" && (agente.situacao !== "ativo" || (modo === "producao" && agente.modo !== "producao"))) setTerminal(salvo.modo === "producao" ? "producao" : "teste");
       } catch (erro) {
         await conferir(false).catch(() => undefined);
         throw erro;
@@ -125,7 +128,14 @@ function useAtivacao(agente: Agente, aoSalvar: (a: Agente) => void) {
     }, situacao === "pausado" ? "Agente pausado." : modo === "producao" ? "Agente respondendo a todos." : "Agente ativo em teste.");
   };
   const preparar = () => executar(() => conferir(true), "Preparação feita.");
-  return { prep, conferindo, conferiuUmaVez, conferir, ativar, preparar, modoAlvo, ocupado, janelaConfirmar };
+  const { catalogo } = useSessao();
+  const janelaTerminal = (
+    <TerminalAtivacao aberto={terminal !== null} nome={agente.nome} modo={terminal}
+      produto={catalogo?.produtos.find((p) => p.id === agente.produto)?.nome ?? agente.produto}
+      numero={agente.numero_canal} followupPassos={agente.followup_resumo ? (agente.followup_resumo.ativo ? agente.followup_resumo.passos : 0) : undefined}
+      aoFechar={() => setTerminal(null)} />
+  );
+  return { prep, conferindo, conferiuUmaVez, conferir, ativar, preparar, modoAlvo, ocupado, janelaConfirmar, janelaTerminal };
 }
 
 /** Itens da conferência (todos, no passo Ativar, ou só os de um passo). */
@@ -322,6 +332,7 @@ function AbaGeral({ agente, aoSalvar }: { agente: Agente; aoSalvar: (a: Agente) 
         </Stepper>
       </div>
       {at.janelaConfirmar}
+      {at.janelaTerminal}
     </section>
   );
 }

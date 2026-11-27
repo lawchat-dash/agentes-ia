@@ -1,0 +1,47 @@
+/* Cartão do agente em "Meus agentes" (pages/MeusProdutos.tsx): no hover ele sobe um pouco, a borda acende em verde
+   seguindo o mouse (--mx/--my vêm de um único pointermove) e os ícones dos atalhos se mexem de leve. Só CSS. */
+.cartao-agente {
+  --mx: 50%;
+  --my: 0%;
+  transition: transform 260ms cubic-bezier(.23, 1, .32, 1), box-shadow 260ms ease, border-color 260ms ease;
+}
+/* Borda que acende onde o mouse está. */
+.cartao-agente::before {
+  content: ""; position: absolute; inset: 0; z-index: 4; border-radius: inherit; padding: 1.5px; pointer-events: none;
+  background: radial-gradient(240px circle at var(--mx) var(--my), rgba(0, 188, 51, .85), rgba(0, 163, 44, .25) 45%, transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0; transition: opacity 260ms ease;
+}
+/* Luz suave por dentro, também seguindo o mouse. */
+.cartao-agente::after {
+  content: ""; position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(320px circle at var(--mx) var(--my), rgba(0, 188, 51, .07), transparent 65%);
+  opacity: 0; transition: opacity 260ms ease;
+}
+.cartao-agente > * { position: relative; z-index: 1; }
+.cartao-agente > .absolute { position: absolute; }
+@media (hover: hover) and (pointer: fine) {
+  .cartao-agente:hover {
+    transform: translateY(-3px);
+    border-color: rgba(0, 188, 51, .35);
+    box-shadow: 0 18px 38px -20px rgba(0, 163, 44, .5), 0 2px 6px -2px rgba(0, 163, 44, .12);
+  }
+  .cartao-agente:hover::before, .cartao-agente:hover::after { opacity: 1; }
+  /* Ícone do agente: um pulinho. */
+  .cartao-agente .cartao-agente__icone { transition: transform 320ms cubic-bezier(.34, 1.56, .64, 1), box-shadow 260ms ease; }
+  .cartao-agente:hover .cartao-agente__icone { transform: translateY(-1px) rotate(-4deg) scale(1.05); box-shadow: 0 8px 18px -8px rgba(0, 163, 44, .55); }
+  /* Atalhos (Prompt, Follow-up, Automação, Histórico): ícones sobem um de cada vez. */
+  .cartao-agente .cartao-agente__atalho svg { transition: transform 300ms cubic-bezier(.34, 1.56, .64, 1), color 200ms ease; }
+  .cartao-agente:hover .cartao-agente__atalho svg { transform: translateY(-2px); color: #00a32c; }
+  .cartao-agente:hover .cartao-agente__atalho:nth-child(2) svg { transition-delay: 40ms; }
+  .cartao-agente:hover .cartao-agente__atalho:nth-child(3) svg { transition-delay: 80ms; }
+  .cartao-agente:hover .cartao-agente__atalho:nth-child(4) svg { transition-delay: 120ms; }
+  .cartao-agente .cartao-agente__atalho:hover svg { transform: translateY(-3px) scale(1.12); transition-delay: 0ms; }
+  .cartao-agente .cartao-agente__atalho:hover { border-color: rgba(0, 188, 51, .5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cartao-agente, .cartao-agente:hover { transform: none; }
+  .cartao-agente .cartao-agente__icone, .cartao-agente .cartao-agente__atalho svg { transition: none; transform: none !important; }
+}

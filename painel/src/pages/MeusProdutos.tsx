@@ -11,7 +11,7 @@ import {
 import {
   Plus, Loader2, Package, CircleDot, CircleDashed, Pause, AlertTriangle,
   Trash2, Search, Settings2, MessageSquare, Sparkles,
-  Workflow, Activity, RotateCcw, RotateCw, X, Phone, Bot, Send, History, Zap,
+  Workflow, Activity, RotateCcw, RotateCw, X, Phone, Bot, Send, History, Zap, Archive, ChevronDown,
 } from "lucide-react";
 import { useMyProducts, useTrashedProducts, useRetryProductProvisioning, ROLE_META, ROLE_ORDER } from "@/hooks/useProducts";
 import { getCategoryIcon, resolveGradient } from "@/data/categories";
@@ -24,7 +24,9 @@ import GlassIcons from "@/components/reactbits/GlassIcons";
 import PixelCard from "@/components/reactbits/PixelCard";
 import { BarChart3, Library, Wrench } from "lucide-react";
 import { StatusToggle } from "@/components/ui/status-toggle";
-import { ButtonHoldAndRelease } from "@/components/ui/hold-and-release-button";
+import FuseButton from "@/components/reactbits/FuseButton";
+import HoldButton from "@/components/reactbits/HoldButton";
+import "@/components/agent/cartao-agente.css";
 import { AvisoFollowupDesligado } from "@/components/followup/AvisoFollowupDesligado";
 import { SeloSaude, TipoNumero, useSaudeNumeros, type SaudeAgente } from "@/componentes/SaudeNumero";
 import { FiltroNumero } from "@/componentes/FiltroNumero";
@@ -122,8 +124,13 @@ const MeusProdutos = () => {
     if (filter === "trash" && (trashed ?? []).length === 0) setFilter("all");
   }, [filter, trashed]);
 
+  // Arquivados (migração 016): saem da lista principal e das contas; ficam na seção "Arquivados", lá embaixo.
+  const naLista = useMemo(() => ((products ?? []) as any[]).filter((p) => !p.arquivado), [products]);
+  const arquivados = useMemo(() => ((products ?? []) as any[]).filter((p) => p.arquivado), [products]);
+  const [verArquivados, setVerArquivados] = useState(false);
+
   const stats = useMemo(() => {
-    const list = (products ?? []) as any[];
+    const list = naLista;
     return {
       total: list.length,
       active: list.filter((p) => p.status === "active").length,
@@ -132,12 +139,12 @@ const MeusProdutos = () => {
       trash: (trashed ?? []).length,
       configured: list.reduce((acc, p) => acc + (p.agents?.length ?? 0), 0),
     };
-  }, [products, trashed]);
+  }, [naLista, trashed]);
 
   const filtered = useMemo(() => {
     const list = filter === "trash"
       ? (trashed ?? []) as any[]
-      : (products ?? []) as any[];
+      : naLista;
     return list.filter((p) => {
       if (filter !== "all" && filter !== "trash" && p.status !== filter) return false;
       if (search.trim()) {
@@ -147,7 +154,7 @@ const MeusProdutos = () => {
       }
       return true;
     });
-  }, [products, trashed, filter, search]);
+  }, [naLista, trashed, filter, search]);
 
   /**
    * Soft delete: envia o produto para a lixeira (30 dias).
@@ -222,6 +229,36 @@ const MeusProdutos = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Arquivar: chamado só quando o pavio do botão acaba (o "Desfazer" antes disso não chama o servidor).
+   *  O agente para de atender, sai da lista e fica em "Arquivados", com o mesmo número. */
+  const handleArquivar = async (p: any) => {
+    try {
+      await enviar(`/produtos-ativados/${p.id}/arquivar`, {});
+      await qc.invalidateQueries({ queryKey: ["my-products"] });
+      toast.success("Agente arquivado", { description: "Ele parou de atender. Para voltar, use Restaurar em Arquivados." });
+    } catch (e: any) {
+      toast.error("Não deu para arquivar", { description: erroDetalhe(e) });
+    }
+  };
+
+  /** Restaurar do arquivo: volta pausado, no mesmo número (ligue no botão quando quiser). */
+  const handleDesarquivar = async (p: any) => {
+    try {
+      await enviar(`/produtos-ativados/${p.id}/desarquivar`, {});
+      await qc.invalidateQueries({ queryKey: ["my-products"] });
+      toast.success("Agente restaurado", { description: "Ele voltou pausado. Ligue quando quiser." });
+    } catch (e: any) {
+      toast.error("Não deu para restaurar", { description: erroDetalhe(e) });
+    }
+  };
+
+  /** A luz da borda segue o mouse (um único pointermove por cartão, sem re-render). */
+  const moverLuz = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
+    e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
   };
 
   const [pendingStatus, setPendingStatus] = useState<Record<string, string>>({});
@@ -395,7 +432,7 @@ const MeusProdutos = () => {
           <p className="text-sm text-muted-foreground mt-1">{(erroLista as Error).message}</p>
           <Button variant="outline" className="mt-4" onClick={() => recarregarLista()}><RotateCw className="size-4 mr-1.5" />Tentar de novo</Button>
         </Card>
-      ) : filter !== "trash" && (!products || products.length === 0) ? (avulsos.length > 0 ? null :
+      ) : filter !== "trash" && naLista.length === 0 ? (avulsos.length > 0 || arquivados.length > 0 ? null :
         // Estado vazio com pixels verdes que se acendem ao passar o mouse (PixelCard do React Bits).
         <PixelCard theme="light" colors={["#dcfce7", "#86efac", "#00bc33"]} gap={7} speed={30} radius={16} noFocus
           style={{ width: "100%", height: "auto", minHeight: 300 }}>
@@ -454,9 +491,10 @@ const MeusProdutos = () => {
                     building ? "bg-card border-border hover:border-[var(--cat)]" :
                     p.status === "paused" ? "bg-warning/5 border-warning/30 hover:border-warning/50" :
                     p.status === "error" ? "bg-destructive/5 border-destructive/30 hover:border-destructive/50" :
-                    "bg-card border-border hover:border-[var(--cat)] hover:shadow-[0_14px_34px_-16px_var(--catShadow)] hover:-translate-y-1"
+                    "bg-card border-border cartao-agente"
                   }`}
                   style={{ ["--cat" as any]: c1, ["--catShadow" as any]: `${c1}59` }}
+                  onPointerMove={special ? undefined : moverLuz}
                 >
                   {/* Glow suave da categoria no hover (igual /biblioteca) */}
                   {!special && (
@@ -574,7 +612,7 @@ const MeusProdutos = () => {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
-                          className="size-11 rounded-xl grid place-items-center text-white shrink-0 shadow-sm"
+                          className="cartao-agente__icone size-11 rounded-xl grid place-items-center text-white shrink-0 shadow-sm"
                           style={{ backgroundImage: `linear-gradient(135deg, ${c1}, ${c2})` }}
                         >
                           <CatIcon className="size-[19px]" strokeWidth={2} />
@@ -691,7 +729,7 @@ const MeusProdutos = () => {
                         {ABAS_DO_AGENTE.map((atalho) => (
                           <AtalhoDoAgente key={atalho.chave} atalho={atalho} idAgente={p.weaver_agent_id}
                             aoHistorico={() => setHistorico({ id: p.weaver_agent_id, nome: p.name })} aoAutomacoes={() => setAutomacoes({ id: p.weaver_agent_id, nome: p.name })}
-                            className="flex min-w-0 flex-col items-center gap-1 rounded-xl border border-border/70 bg-muted/20 px-1 py-2 text-[10.5px] font-semibold leading-none text-muted-foreground transition-colors hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33]">
+                            className="cartao-agente__atalho flex min-w-0 flex-col items-center gap-1 rounded-xl border border-border/70 bg-muted/20 px-1 py-2 text-[10.5px] font-semibold leading-none text-muted-foreground transition-colors hover:border-[var(--cat)] hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33]">
                             <atalho.Icone className="size-4 shrink-0" aria-hidden />
                             <span className="w-full truncate text-center">{atalho.rotulo}</span>
                           </AtalhoDoAgente>
@@ -767,35 +805,42 @@ const MeusProdutos = () => {
                       >
                         <Phone className="size-3.5 mr-1.5" />Escolher número e ativar
                       </Button>
-                      <ButtonHoldAndRelease
-                        compact
-                        loading={busy}
-                        title="Segure para mover para a lixeira"
-                        onConfirm={() => handleDelete({ id: p.id, name: p.name, weaver_agent_id: (p as any).weaver_agent_id })}
-                      />
+                      <BotaoSegurarExcluir disabled={busy} compacto
+                        aoExcluir={() => handleDelete({ id: p.id, name: p.name, weaver_agent_id: (p as any).weaver_agent_id })} />
                     </div>
                   ) : (
-                    <div className="p-3 pt-2.5 border-t border-border/60 flex items-center gap-2 [&>*:not(:first-child)]:shrink-0">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1 min-w-0"
-                        onClick={() => navigate(`/meus-produtos/${p.id}`)}
-                      >
-                        <Settings2 className="size-3.5 mr-1.5" />Editar
-                      </Button>
-                      <StatusToggle
-                        active={isActive}
-                        loading={!!pendingStatus[p.id]}
-                        disabled={!!pendingStatus[p.id]}
-                        onToggle={(e) => togglePause(p, e)}
-                      />
-                      <ButtonHoldAndRelease
-                        compact
-                        loading={busy}
-                        title="Segure para mover para a lixeira"
-                        onConfirm={() => handleDelete({ id: p.id, name: p.name, weaver_agent_id: (p as any).weaver_agent_id })}
-                      />
+                    <div className="p-3 pt-2.5 border-t border-border/60 space-y-2">
+                      <div className="flex items-center gap-2 [&>*:not(:first-child)]:shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 min-w-0"
+                          onClick={() => navigate(`/meus-produtos/${p.id}`)}
+                        >
+                          <Settings2 className="size-3.5 mr-1.5" />Editar
+                        </Button>
+                        <StatusToggle
+                          active={isActive}
+                          loading={!!pendingStatus[p.id]}
+                          disabled={!!pendingStatus[p.id]}
+                          onToggle={(e) => togglePause(p, e)}
+                        />
+                      </div>
+                      {/* Arquivar (com pavio para desfazer) e excluir (segurando). */}
+                      <div className="flex items-center gap-2">
+                        {p.weaver_agent_id && (
+                          <FuseButton
+                            label="Arquivar" undoLabel="Desfazer" doneLabel="Arquivado"
+                            size="sm" radius={10} undoWindow={4000} fuse="outline" commitOn="fuseEnd"
+                            color="hsl(var(--foreground))" background="hsl(var(--muted) / 0.35)" fuseColor="#00bc33"
+                            className="shrink-0 border border-border/70 [--fb-h:32px] [--fb-px:12px] [--fb-fs:12.5px]"
+                            title="Arquivar: o agente para de atender e vai para Arquivados"
+                            onCommit={() => handleArquivar(p)}
+                          />
+                        )}
+                        <BotaoSegurarExcluir disabled={busy}
+                          aoExcluir={() => handleDelete({ id: p.id, name: p.name, weaver_agent_id: (p as any).weaver_agent_id })} />
+                      </div>
                     </div>
                   )}
 
@@ -807,6 +852,49 @@ const MeusProdutos = () => {
       )}
 
       {!isLoading && avulsos.length > 0 && filter !== "trash" && <AgentesAvulsos agentes={avulsos} />}
+
+      {!isLoading && arquivados.length > 0 && filter !== "trash" && (
+        <section aria-label="Agentes arquivados" className="space-y-2.5">
+          <button type="button" onClick={() => setVerArquivados((v) => !v)} aria-expanded={verArquivados}
+            className="inline-flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-bold text-foreground hover:text-[#00a32c] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00bc33]">
+            <Archive className="size-4 text-muted-foreground" />
+            Arquivados
+            <span className="text-[11px] font-bold tabular-nums text-muted-foreground">{arquivados.length}</span>
+            <ChevronDown className={`size-4 text-muted-foreground transition-transform ${verArquivados ? "rotate-180" : ""}`} />
+          </button>
+          {verArquivados && (
+            <>
+              <p className="text-xs text-muted-foreground -mt-1">Não respondem ninguém. O número continua com eles. Restaure para usar de novo.</p>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {arquivados.map((p: any) => {
+                  const CatIcon = getCategoryIcon(p.source_template?.category);
+                  return (
+                    <Card key={p.id} className="rounded-2xl border border-border/70 bg-muted/20 p-3.5 flex flex-col gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="size-9 rounded-xl grid place-items-center bg-muted text-muted-foreground shrink-0"><CatIcon className="size-4" /></div>
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-sm leading-snug truncate">{p.name}</h3>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {p.source_template?.name ?? "Agente"}{p.numero_ia ? <> · <span className="font-mono">{p.numero_ia}</span></> : null}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" className="flex-1 h-8 text-success border-success/30 hover:bg-success/10 hover:text-success"
+                          onClick={() => handleDesarquivar(p)}>
+                          <RotateCcw className="size-3.5 mr-1.5" />Restaurar
+                        </Button>
+                        <BotaoSegurarExcluir disabled={busy} compacto
+                          aoExcluir={() => handleDelete({ id: p.id, name: p.name, weaver_agent_id: p.weaver_agent_id })} />
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => { if (!o) { setDeleting(null); setDeleteConfirm(""); } }}>
         <AlertDialogContent>
@@ -890,6 +978,21 @@ const MeusProdutos = () => {
     </div>
   );
 };
+
+/** "Segure para excluir" (HoldButton): o vermelho enche enquanto a pessoa segura; só no fim manda para a lixeira.
+ *  compacto: só o ícone (cartões apertados), com o texto no title e para leitor de tela. */
+const BotaoSegurarExcluir = ({ aoExcluir, disabled, compacto }: { aoExcluir: () => void; disabled?: boolean; compacto?: boolean }) => (
+  <HoldButton
+    size="sm" radius={10} holdTime={1400} resetAfter={1500}
+    backgroundColor="color-mix(in srgb, #e5484d 9%, transparent)" fillColor="#e5484d"
+    textColor="#d13438" fillTextColor="#ffffff"
+    icon={<Trash2 className="size-3.5" aria-hidden />} doneLabel={compacto ? <Trash2 className="size-3.5" aria-hidden /> : "Na lixeira"}
+    disabled={disabled} onHold={aoExcluir} title="Segure para excluir (vai para a lixeira por 30 dias)"
+    className={`${compacto ? "shrink-0 !px-2.5" : "flex-1 min-w-0 !px-3"} !h-8 !text-[12.5px] !font-semibold border border-[#e5484d]/25`}
+  >
+    {compacto ? <span className="sr-only">Segure para excluir</span> : "Segure para excluir"}
+  </HoldButton>
+);
 
 /** Agentes da conta que não vieram de um produto da Biblioteca (criados pelo caminho antigo). */
 const AgentesAvulsos = ({ agentes }: { agentes: SaudeAgente[] }) => {

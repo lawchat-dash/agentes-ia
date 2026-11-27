@@ -1,0 +1,35 @@
+/* Gráficos próprios (components/graficos): faixa de métricas, mapa de calor e pulso do maior valor. */
+
+/* Faixa de métricas: divisórias finas entre os itens, mesmo quando a grade quebra. */
+.lc-g-faixa { gap: 1px; background-color: #eef2f6; }
+.lc-g-metrica { background-color: #fff; transition: background-color .2s ease; }
+.lc-g-metrica:hover { background-color: #fbfefc; }
+
+/* Mapa de calor: células entram em onda e crescem um pouco no hover. */
+.lc-g-celula {
+  display: block;
+  animation: lc-g-celula-entra .45s cubic-bezier(.16, 1, .3, 1) backwards;
+  transition: transform .15s ease, box-shadow .15s ease;
+  cursor: pointer;
+}
+.lc-g-celula:hover, .lc-g-celula--ativa {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #00bc33;
+  position: relative;
+  z-index: 1;
+}
+@keyframes lc-g-celula-entra {
+  from { opacity: 0; scale: .4; }
+  to { opacity: 1; scale: 1; }
+}
+
+/* Pulso suave no maior valor do gráfico de área. */
+.lc-g-pulso { transform-box: fill-box; transform-origin: center; animation: lc-g-pulso 2.2s ease-out 3; opacity: .25; }
+@keyframes lc-g-pulso {
+  0% { transform: scale(.45); opacity: .35; }
+  80%, 100% { transform: scale(1.4); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-g-celula, .lc-g-pulso { animation: none; }
+}

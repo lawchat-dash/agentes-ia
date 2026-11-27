@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { Link, useSearchParams } from "react-router-dom";
-import { useReducedMotion } from "framer-motion";
 import {
   Activity, AlertTriangle, ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen, Bot, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  Cpu, Download, FileCheck2, Heart, History, Info, LineChart as IconeLinha, MessageCircle, Receipt, Sparkles, Target, TrendingUp, Users, Wallet, Zap,
+  Cpu, Download, FileCheck2, Heart, History, Info, LineChart as IconeLinha, MessageCircle, Receipt, Sparkles, Target, TrendingUp, Users,
 } from "lucide-react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -12,36 +12,18 @@ import { quando } from "../api";
 import { useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { ListaRecargas, PedirRecarga, reais, type Movimento, type Recarga } from "./Carteira";
-import ElasticSlider from "@/components/reactbits/ElasticSlider";
+import TopoCreditos from "@/components/creditos/TopoCreditos";
+import type { Agente, PainelConsumo } from "@/components/creditos/tipos";
 
 /*
  * Créditos & Consumo (cliente, /consumo). Foco: quantos leads o saldo atende. Tudo em R$ cobrado (o que sai da
  * carteira, já com o markup); nada de US$. Só dados reais: quando é estimativa, a tela diz; sem dado, estado vazio.
  * Dados: /carteira/painel (uma ida), /carteira/conversas, /carteira/recargas e /carteira/extrato.
- * Visual: cartão principal verde-escuro (saldo) + simulador de recarga; abas em pílula; blocos brancos com ícone
+ * Visual: topo em components/creditos/TopoCreditos (faixa escura saldo + simulador, números do mês, gasto por dia,
+ * por agente, recargas; sempre 30 dias); abaixo, abas em pílula com o período escolhido; blocos brancos com ícone
  * em caixinha de cor suave. Destaques de texto na mesma fonte do painel (Inter), no verde LawChat.
  */
 
-interface Agente {
-  id_agente: string | null; agente: string; valor_brl: number; tokens: number; chamadas: number; conversas: number; contratos: number;
-  custo_por_lead_brl: number | null; custo_por_contrato_brl: number | null; conversao_pct: number | null; participacao_pct: number;
-}
-interface PainelConsumo {
-  dias: number; granularidade: "hora" | "dia";
-  carteira: { disponivel_brl: number; saldo_brl: number; bonus_brl: number; bonus_do_mes_brl: number; bonus_usado_pct: number | null;
-    consumo_mes_brl: number; modo: string; bloqueado: boolean; pausado_por_saldo: boolean; plano: string | null; mes: string };
-  custo_por_lead: { valor_brl: number | null; fonte: "periodo" | "historico_90d" | "referencia_modelo" | null; estimativa: boolean;
-    leads_com_saldo: number | null };
-  totais: { creditos_brl: number; chamadas: number; tokens: number; tokens_entrada: number; tokens_saida: number; tokens_cache: number;
-    conversas: number; contratos: number; custo_por_conversa_brl: number | null; custo_por_contrato_brl: number | null; conversao_pct: number | null };
-  serie: { quando: string; valor_brl: number; tokens: number; conversas: number }[];
-  por_funcao: { papel: string; nome: string; valor_brl: number; chamadas: number; tokens: number }[];
-  por_agente: Agente[];
-  comparativo: { ultimos_7_brl: number; anteriores_7_brl: number; ultimos_30_brl: number };
-  media_dia_brl: number | null;
-  creditos: { recargas_brl: number; recargas: number; bonus_brl: number; bonus: number; outros_brl: number;
-    por_mes: { mes: string; recargas_brl: number; bonus_brl: number }[] };
-}
 interface Conversa {
   id_lead: string; valor_brl: number; tokens: number; chamadas: number; turnos: number; mensagens: number; primeiro_em: string; ultimo_em: string;
   contato: string | null; telefone: string | null; agente: string; id_agente: string | null; contrato_assinado: boolean;
@@ -60,7 +42,6 @@ const PERIODOS = [{ d: 1, r: "24h" }, { d: 7, r: "7d" }, { d: 30, r: "30d" }, { 
 const ABAS = [{ id: "visao", r: "Visão geral", i: Activity }, { id: "agentes", r: "Por agente", i: Bot }, { id: "historico", r: "Histórico", i: Clock },
   { id: "recargas", r: "Recargas", i: Receipt }, { id: "avancado", r: "Avançado", i: TrendingUp }] as const;
 type Aba = (typeof ABAS)[number]["id"];
-const ATALHOS = [50, 150, 500, 1000];
 const nomePeriodo = (d: number) => (d === 1 ? "nas últimas 24 horas" : `nos últimos ${d} dias`);
 /** Valores pequenos (custo de um lead) com mais casas, para não virar "R$ 0,00". */
 const rs = (v: number | null | undefined) => (v == null ? "—" : reais(v, Math.abs(v) > 0 && Math.abs(v) < 0.1 ? 4 : 2));
@@ -70,7 +51,6 @@ const compacto = (v: number) => v.toLocaleString("pt-BR", { notation: "compact",
 /** Tokens por extenso curto: "813,6 mil", "1,2 mi". */
 const tokensCurto = (v: number) => (v >= 1e6 ? `${(v / 1e6).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`
   : v >= 1000 ? `${(v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil` : inteiro(v));
-const leadsDe = (valor: number, cpl: number | null) => (cpl ? Math.floor(valor / cpl + 1e-9) : null);
 
 // ============================================================================ tela
 export function TelaCreditos() {
@@ -80,45 +60,59 @@ export function TelaCreditos() {
   const irPara = (nova: Aba) => setBusca((b) => { const n = new URLSearchParams(b); n.set("aba", nova); return n; }, { replace: true });
   const [dias, setDias] = useState(30);
   const [valorSim, setValorSim] = useState(150);
-  const painel = useCarregar<PainelConsumo>(`/carteira/painel?dias=${dias}`, [escritorio, dias]);
+  // O topo usa sempre os últimos 30 dias; as abas usam o período escolhido (mesma ida quando é 30d).
+  const base30 = useCarregar<PainelConsumo>("/carteira/painel?dias=30", [escritorio]);
+  const doPeriodo = useCarregar<PainelConsumo>(dias === 30 ? null : `/carteira/painel?dias=${dias}`, [escritorio, dias]);
+  const painel = dias === 30 ? base30 : doPeriodo;
   const caras = useCarregar<Conversas>(`/carteira/conversas?dias=${dias}&ordem=custo&limite=10`, [escritorio, dias]);
   const recargas = useCarregar<Recarga[]>("/carteira/recargas", [escritorio]);
   const [pedir, setPedir] = useState<number | null>(null);
-  const aposPedir = () => { painel.recarregar(); recargas.recarregar(); };
+  const aposPedir = () => { base30.recarregar(); if (dias !== 30) doPeriodo.recarregar(); recargas.recarregar(); };
+  const verRecargas = () => { irPara("recargas"); document.getElementById("cr-detalhes")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
 
   const p = painel.dados;
   return (
     <div className="cr-tela mx-auto w-full max-w-[1240px] pb-12">
-      <Topo dias={dias} setDias={setDias} podeExportar={!!p} aoExportar={() => p && exportarCsv(p, caras.dados, dias)} aoRecarregar={() => setPedir(valorSim)} />
-
       {(recargas.dados ?? []).some((r) => r.situacao === "pendente") && (
         <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#fedf89] bg-[#fffaeb] px-4 py-3 text-[13px] text-[#b54708]">
           <Receipt className="mt-0.5 size-4 shrink-0" />
           <div><b>Você tem recarga aguardando pagamento.</b>{" "}
-            <button className="font-semibold underline" onClick={() => irPara("recargas")}>Ver na aba Recargas</button></div>
+            <button className="font-semibold underline" onClick={verRecargas}>Ver na aba Recargas</button></div>
         </div>
       )}
 
-      {p ? (
-        <div className="grid items-stretch gap-5 lg:grid-cols-2">
-          <Heroi p={p} dias={dias} valorSim={valorSim} />
-          <Simulador p={p} valor={valorSim} setValor={setValorSim} aoRecarregar={setPedir} />
-        </div>
-      ) : <Esqueleto altura={460} erro={painel.erro} />}
+      {base30.dados ? (
+        <TopoCreditos p={base30.dados} recargas={recargas.dados} erroRecargas={recargas.erro} valor={valorSim} setValor={setValorSim}
+          aoRecarregar={setPedir} aoVerRecargas={verRecargas} />
+      ) : <Esqueleto altura={460} erro={base30.erro} />}
 
-      {/* Abas em pílula */}
-      <div className="mb-6 mt-7 overflow-x-auto pb-1">
-        <div className="cr-abas inline-flex gap-1 rounded-2xl border border-[#e6ebe8] bg-white p-1.5" role="tablist" aria-label="Seções">
-          {ABAS.map((a) => {
-            const Icone = a.i;
-            const ativa = aba === a.id;
-            return (
-              <button key={a.id} role="tab" aria-selected={ativa} onClick={() => irPara(a.id)}
-                className={`cr-aba inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-[14px] font-semibold transition ${ativa ? "cr-aba-ativa text-white" : "text-[#344054] hover:bg-[#f2f5f3]"}`}>
-                <Icone className="size-4" strokeWidth={2} />{a.r}
-              </button>
-            );
-          })}
+      {/* Detalhes: abas em pílula + período + exportar */}
+      <div id="cr-detalhes" className="mb-6 mt-9 flex scroll-mt-4 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="overflow-x-auto pb-1">
+          <div className="cr-abas inline-flex gap-1 rounded-2xl border border-[#e6ebe8] bg-white p-1.5" role="tablist" aria-label="Seções">
+            {ABAS.map((a) => {
+              const Icone = a.i;
+              const ativa = aba === a.id;
+              return (
+                <button key={a.id} role="tab" aria-selected={ativa} onClick={() => irPara(a.id)}
+                  className={`cr-aba inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-[14px] font-semibold transition ${ativa ? "cr-aba-ativa text-white" : "text-[#344054] hover:bg-[#f2f5f3]"}`}>
+                  <Icone className="size-4" strokeWidth={2} />{a.r}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div role="radiogroup" aria-label="Período" className="flex rounded-xl border border-[#e6ebe8] bg-white p-1">
+            {PERIODOS.map(({ d, r }) => (
+              <button key={d} role="radio" aria-checked={dias === d} onClick={() => setDias(d)}
+                className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${dias === d ? "bg-[#0c111d] text-white" : "text-[#475467] hover:text-[#0c111d]"}`}>{r}</button>
+            ))}
+          </div>
+          <button disabled={!p} onClick={() => p && exportarCsv(p, caras.dados, dias)}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#e6ebe8] bg-white px-4 py-2 text-[13.5px] font-semibold text-[#1d2939] transition hover:bg-[#f7f9f8] disabled:opacity-40">
+            <Download className="size-4" />Exportar
+          </button>
         </div>
       </div>
 
@@ -136,231 +130,8 @@ export function TelaCreditos() {
   );
 }
 
-// ============================================================================ topo
-function Topo({ dias, setDias, podeExportar, aoExportar, aoRecarregar }: {
-  dias: number; setDias: (d: number) => void; podeExportar: boolean; aoExportar: () => void; aoRecarregar: () => void;
-}) {
-  return (
-    <header className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0">
-        <div className="text-[12px] font-bold uppercase tracking-[.14em] text-[#475467]">Créditos</div>
-        <h1 className="mt-1 text-[30px] font-extrabold leading-[1.1] tracking-[-0.025em] text-[#0c111d] md:text-[38px]">
-          Créditos <span className="cr-destaque">&amp; consumo</span>
-        </h1>
-        <p className="mt-2 max-w-[600px] text-[14.5px] leading-relaxed text-[#475467]">
-          Veja quantos leads seu saldo atende, quanto cada agente gasta e para onde vão seus créditos. Créditos de recarga não expiram.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2.5">
-        <div role="radiogroup" aria-label="Período" className="flex rounded-xl border border-[#e6ebe8] bg-white p-1">
-          {PERIODOS.map(({ d, r }) => (
-            <button key={d} role="radio" aria-checked={dias === d} onClick={() => setDias(d)}
-              className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${dias === d ? "bg-[#0c111d] text-white" : "text-[#475467] hover:text-[#0c111d]"}`}>{r}</button>
-          ))}
-        </div>
-        <button disabled={!podeExportar} onClick={aoExportar}
-          className="lc-brilho lc-brilho--borda inline-flex items-center gap-2 rounded-xl border border-[#e6ebe8] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1d2939] transition hover:bg-[#f7f9f8] disabled:opacity-40">
-          <Download className="size-4" />Exportar
-        </button>
-        <button onClick={aoRecarregar} className="cr-botao-verde inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[13.5px] font-semibold text-white">
-          <Sparkles className="size-4" />Recarregar créditos
-        </button>
-      </div>
-    </header>
-  );
-}
-
-// ============================================================================ cartão principal (saldo)
-type Nivel = "pausado" | "baixo" | "ok" | "sem_ritmo";
-function nivelSaldo(p: PainelConsumo): Nivel {
-  if (p.carteira.bloqueado) return "pausado";
-  const dias = diasDeAutonomia(p);
-  if (dias == null) return "sem_ritmo";
-  return dias < 7 ? "baixo" : "ok";
-}
 const diasDeAutonomia = (p: PainelConsumo) =>
   p.media_dia_brl && p.media_dia_brl > 0 ? Math.max(0, p.carteira.disponivel_brl) / p.media_dia_brl : null;
-
-function textoFonte(p: PainelConsumo, dias: number) {
-  const cpl = p.custo_por_lead;
-  if (cpl.fonte === "periodo") return <>Pelo seu custo médio real de {rs(cpl.valor_brl)} por lead {nomePeriodo(dias)}</>;
-  if (cpl.fonte === "historico_90d") return <>Pelo seu custo médio real de {rs(cpl.valor_brl)} por lead nos últimos 90 dias</>;
-  if (cpl.fonte === "referencia_modelo") return <>Estimativa: você ainda não tem histórico, então usamos o custo médio por lead de escritórios com o mesmo modelo de IA dos seus agentes ({rs(cpl.valor_brl)} por lead, já no seu preço)</>;
-  return null;
-}
-
-function Heroi({ p, dias, valorSim }: { p: PainelConsumo; dias: number; valorSim: number }) {
-  const c = p.carteira;
-  const cpl = p.custo_por_lead;
-  const nivel = nivelSaldo(p);
-  const autonomia = diasDeAutonomia(p);
-  const extra = p.media_dia_brl ? valorSim / p.media_dia_brl : null;
-  const negativo = c.disponivel_brl < 0;
-  const cmp = p.comparativo;
-  const variacao = cmp.anteriores_7_brl > 0 ? ((cmp.ultimos_7_brl - cmp.anteriores_7_brl) / cmp.anteriores_7_brl) * 100 : null;
-  // Barra de autonomia: a escala é a autonomia com a recarga simulada; cheio = hoje, translúcido = o que a recarga acrescenta.
-  const total = autonomia != null ? autonomia + (extra ?? 0) : 0;
-  const larguraHoje = autonomia != null && total > 0 ? Math.max(autonomia > 0 ? 1.5 : 0, (autonomia / total) * 100) : 0;
-  // Um selo só: o mais importante.
-  const selo = nivel === "pausado" ? { cor: "#ff9b85", texto: "IA em pausa" }
-    : nivel === "baixo" ? { cor: "#ffc56b", texto: "Saldo baixo" }
-    : nivel === "ok" ? { cor: "#5ee38a", texto: cpl.estimativa ? "Saudável · estimativa" : "Saudável" }
-    : { cor: "#98A2B3", texto: "Sem consumo recente" };
-  return (
-    <section className="cr-heroi relative isolate flex min-w-0 flex-col overflow-hidden rounded-[22px] p-5 text-white md:p-6">
-      {/* Cabeçalho */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-white/[.08] text-[#7cf0a0]"><Wallet className="size-4" /></span>
-          <span className="truncate text-[14px] font-semibold text-white/85">Saldo disponível</span>
-        </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/[.07] px-2.5 py-1 text-[12px] font-semibold text-white/85">
-          <span className="size-1.5 rounded-full" style={{ background: selo.cor }} aria-hidden />{selo.texto}
-        </span>
-      </div>
-
-      {/* Saldo e o que ele compra */}
-      <div className={`mt-5 break-words text-[44px] font-extrabold leading-[1] tracking-[-0.04em] tabular-nums sm:text-[52px] ${negativo ? "text-[#ff9b85]" : "text-white"}`}>
-        {negativo ? "−" : ""}{reais(Math.abs(c.disponivel_brl))}
-      </div>
-      <div className="mt-3 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        {cpl.leads_com_saldo != null ? (
-          <>
-            <span className={`text-[22px] font-bold leading-none tracking-[-0.02em] tabular-nums ${cpl.leads_com_saldo > 0 ? "text-[#7cf0a0]" : "text-white/85"}`}>
-              {cpl.leads_com_saldo > 0 && "≈ "}<Contador valor={cpl.leads_com_saldo} formato={(v) => inteiro(Math.round(v))} /> {cpl.leads_com_saldo === 1 ? "lead" : "leads"}
-            </span>
-            {autonomia != null && <span className="text-[13.5px] text-white/60">{autonomia >= 1 && autonomia < 365 ? "≈ " : ""}{formatarDias(autonomia)} no seu ritmo</span>}
-          </>
-        ) : <span className="text-[13.5px] text-white/60">Quantos leads o saldo paga aparece aqui após os primeiros atendimentos.</span>}
-      </div>
-      {(nivel === "pausado" || c.bonus_do_mes_brl > 0) && (
-        <div className="mt-2 text-[12px] text-white/50">
-          {nivel === "pausado" ? "A IA volta sozinha quando a recarga entrar." : `Bônus do mês: ${reais(c.bonus_brl)} restantes · ${pct(c.bonus_usado_pct ?? 0)} usado`}
-        </div>
-      )}
-
-      {/* Autonomia */}
-      {autonomia != null && (
-        <div className="mt-5">
-          <div className="flex items-baseline justify-between gap-3 whitespace-nowrap text-[12px] text-white/55">
-            <span>Autonomia <b className="font-semibold text-white/90">{formatarDias(autonomia)}</b></span>
-            {extra != null && <span className="text-right"><span className="hidden sm:inline">com </span>+{reais(valorSim, 0)} <b className="font-semibold text-[#7cf0a0]">{formatarDias(total)}</b></span>}
-          </div>
-          <div className="mt-2 flex h-[5px] overflow-hidden rounded-full bg-white/[.09]" role="img"
-            aria-label={`Autonomia hoje ${formatarDias(autonomia)}; com a recarga ${formatarDias(total)}`}>
-            <div className="cr-barra h-full rounded-full bg-[#5ee38a]" style={{ width: `${larguraHoje}%` }} />
-            {extra != null && <div className="cr-barra h-full bg-[#5ee38a]/35" style={{ width: `${100 - larguraHoje}%` }} />}
-          </div>
-        </div>
-      )}
-
-      <BarrasDoHeroi p={p} dias={dias} />
-
-      {/* Indicadores */}
-      <div className="cr-heroi-rodape mt-5 grid border-t border-white/10 pt-4 sm:grid-cols-3">
-        <Indicador rotulo="Custo médio por lead" valor={rs(cpl.valor_brl)}
-          nota={cpl.valor_brl == null ? "ainda sem leads" : cpl.estimativa ? "estimativa do modelo" : cpl.fonte === "historico_90d" ? "últimos 90 dias" : nomePeriodo(dias).replace(/^n(as|os) /, "")} />
-        <Indicador rotulo="Últimos 7 dias" valor={reais(cmp.ultimos_7_brl)}
-          nota={variacao == null ? (cmp.ultimos_7_brl > 0 ? "sem semana anterior" : "sem consumo") : `${variacao > 0 ? "+" : ""}${variacao.toFixed(0)}% vs. anterior`}
-          alerta={variacao != null && variacao > 50} />
-        <Indicador rotulo="Consumo do mês" valor={reais(c.consumo_mes_brl)}
-          nota={p.media_dia_brl ? `${rs(p.media_dia_brl)} por dia` : c.plano ? `plano ${c.plano}` : "desde o dia 1º"} />
-      </div>
-    </section>
-  );
-}
-
-const Indicador = ({ rotulo, valor, nota, alerta }: { rotulo: string; valor: string; nota: string; alerta?: boolean }) => (
-  <div className="cr-indicador min-w-0">
-    <div className="truncate text-[12px] text-white/55">{rotulo}</div>
-    <div className="cr-indicador-valor truncate text-[18px] font-bold tracking-[-0.01em] tabular-nums">{valor}</div>
-    <div className={`truncate text-[11.5px] ${alerta ? "text-[#ffc56b]" : "text-white/45"}`}>{nota}</div>
-  </div>
-);
-
-// ============================================================================ simulador
-/** Quanto uma recarga compra: leads (pelo custo médio por lead) e dias (pelo gasto médio por dia). */
-function Simulador({ p, valor, setValor, aoRecarregar }: { p: PainelConsumo; valor: number; setValor: (v: number) => void; aoRecarregar: (v: number) => void }) {
-  const cpl = p.custo_por_lead.valor_brl;
-  const leads = leadsDe(valor, cpl);
-  const dias = p.media_dia_brl ? valor / p.media_dia_brl : null;
-  const depois = p.carteira.disponivel_brl + valor;
-  const fracao = (valor - 10) / 1990;
-  // Anel: proporção do valor no intervalo do controle (R$ 10 a R$ 2.000).
-  const R = 52, C = 2 * Math.PI * R;
-  return (
-    <section className="cr-cartao flex min-w-0 flex-col rounded-[22px] p-5 md:p-6">
-      <div className="flex items-start gap-3">
-        <IconeCaixa cor="verde"><Zap /></IconeCaixa>
-        <div className="min-w-0">
-          <h3 className="text-[16px] font-bold text-[#0c111d]">Simulador de recarga</h3>
-          <p className="text-[13px] text-[#667085]">Arraste e veja quantos leads e dias uma recarga compra.</p>
-        </div>
-      </div>
-
-      <div className="mt-5 flex items-center gap-5">
-        <div className="relative size-[124px] shrink-0">
-          <svg viewBox="0 0 124 124" className="size-full -rotate-90" aria-hidden>
-            <circle cx="62" cy="62" r={R} fill="none" stroke="#e5ece8" strokeWidth="10" />
-            <circle cx="62" cy="62" r={R} fill="none" stroke={VERDE_ESCURO} strokeWidth="10" strokeLinecap="round" className="cr-anel"
-              strokeDasharray={`${Math.max(0.02, fracao) * C} ${C}`} />
-          </svg>
-          <div className="absolute inset-0 grid place-items-center text-center">
-            <div>
-              <div className="text-[28px] font-extrabold leading-none tracking-tight tabular-nums text-[#0a8f35]">{leads != null ? inteiro(leads) : "—"}</div>
-              <div className="mt-1 text-[12px] text-[#667085]">{leads != null ? (leads === 1 ? "lead" : "leads") : "sem histórico"}</div>
-            </div>
-          </div>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[11.5px] font-bold uppercase tracking-[.12em] text-[#667085]">Recarregar</div>
-          <div className="mt-1 text-[30px] font-extrabold leading-tight tracking-[-0.02em] tabular-nums text-[#0c111d] md:text-[34px]">{reais(valor)}</div>
-          {/* Controle com mola (React Bits ElasticSlider): mesmos valores do antigo (R$ 10 a R$ 2.000, de 10 em 10). */}
-          <ElasticSlider value={valor} startingValue={10} maxValue={2000} isStepped stepSize={10} onChange={setValor}
-            leftIcon={null} rightIcon={null} valuePosition="none" thumb thickness={6} activeThickness={12} maxStretch={14}
-            restOpacity={1} trackColor="#e5ece8" rangeColor="#0a8f35" thumbColor="#ffffff" ariaLabel="Valor da recarga"
-            formatValue={(v) => reais(v)} className="cr-elastico mt-1.5" style={{ width: "100%" }} />
-          <div className="mt-1.5 flex justify-between text-[11.5px] text-[#98A2B3]"><span>R$ 10</span><span>R$ 2.000</span></div>
-        </div>
-      </div>
-
-      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {ATALHOS.map((v) => {
-          const ativo = valor === v;
-          const n = leadsDe(v, cpl);
-          return (
-            <button key={v} onClick={() => setValor(v)} aria-pressed={ativo}
-              className={`lc-brilho lc-brilho--borda rounded-xl border px-2 py-2.5 text-center transition ${ativo ? "border-[#0a8f35] bg-[#e7f7ec] text-[#0a8f35]" : "border-[#e6ebe8] bg-white text-[#0c111d] hover:border-[#c9d6ce]"}`}>
-              <div className="text-[14px] font-bold tabular-nums">{reais(v, 0)}</div>
-              <div className={`text-[11.5px] ${ativo ? "text-[#0a8f35]/80" : "text-[#667085]"}`}>{n != null ? `≈ ${inteiro(n)} ${n === 1 ? "lead" : "leads"}` : "—"}</div>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <div className="rounded-xl bg-[#f1f4f2] px-3.5 py-3">
-          <div className="text-[12px] text-[#667085]">Duração no seu ritmo</div>
-          <div className="mt-0.5 text-[17px] font-bold tabular-nums text-[#0c111d]">{dias != null ? formatarDias(dias) : "—"}</div>
-        </div>
-        <div className="rounded-xl bg-[#f1f4f2] px-3.5 py-3">
-          <div className="text-[12px] text-[#667085]">Saldo depois da recarga</div>
-          <div className={`mt-0.5 text-[17px] font-bold tabular-nums ${depois < 0 ? "text-[#b42318]" : "text-[#0c111d]"}`}>{depois < 0 ? "−" : ""}{reais(Math.abs(depois))}</div>
-        </div>
-      </div>
-
-      <button onClick={() => aoRecarregar(valor)} className="cr-botao-verde mt-4 w-full rounded-xl py-3.5 text-[15px] font-bold text-white">
-        Recarregar {reais(valor)}
-      </button>
-      <p className="mt-3 text-[12px] leading-relaxed text-[#667085]">
-        {cpl == null ? "Ainda sem consumo para calcular. Assim que seus agentes atenderem os primeiros leads, o simulador usa o seu custo real."
-          : <>{p.custo_por_lead.estimativa ? `Estimativa pelo custo de referência do modelo de IA dos seus agentes (${rs(cpl)} por lead)` : `Pelo seu custo médio real de ${rs(cpl)} por lead`}
-            {p.media_dia_brl ? ` e gasto médio de ${rs(p.media_dia_brl)} por dia.` : ". Sem consumo nos últimos 30 dias para estimar os dias."}
-            {!p.custo_por_lead.estimativa && p.totais.conversas > 0 && p.totais.conversas < 10 && ` Com ${p.totais.conversas} ${p.totais.conversas === 1 ? "lead" : "leads"} no histórico, a estimativa ainda é aproximada.`}</>}
-      </p>
-    </section>
-  );
-}
 
 // ============================================================================ Visão geral
 function VisaoGeral({ p, dias, caras, erroCaras, irPara, recargas, aoRecarregar }: {
@@ -403,7 +174,7 @@ function VisaoGeral({ p, dias, caras, erroCaras, irPara, recargas, aoRecarregar 
             <div className="grid place-items-center rounded-2xl border border-dashed border-[#d5ddd8] px-4 py-8 text-center">
               <span className="grid size-10 place-items-center rounded-xl bg-[#f1f4f2] text-[#667085]"><Receipt className="size-4" /></span>
               <p className="mt-3 text-[14px] text-[#475467]">Nenhum pedido de recarga ainda.</p>
-              <button onClick={() => aoRecarregar(150)} className="cr-botao-verde mt-3 rounded-xl px-4 py-2 text-[13px] font-bold text-white">Pedir a primeira recarga</button>
+              <BotaoBrilho suave size="sm" radius={12} className="mt-3" onClick={() => aoRecarregar(150)}>Pedir a primeira recarga</BotaoBrilho>
             </div>
           ) : (
             <ul className="flex flex-col gap-2">
@@ -947,41 +718,6 @@ function Kpi({ icone, cor, rotulo, valor, nota, extra, pequeno }: { icone: React
   );
 }
 
-/** Gasto por dia dentro do cartão do saldo (últimos 14 dias, ou as horas em 24h): ocupa o meio do cartão. */
-function BarrasDoHeroi({ p, dias }: { p: PainelConsumo; dias: number }) {
-  const porHora = p.granularidade === "hora";
-  const serie = useMemo(() => preencherSerie(p, dias).slice(porHora ? -24 : -14), [p, dias, porHora]);
-  const max = Math.max(0, ...serie.map((s) => s.valor_brl));
-  const total = serie.reduce((t, s) => t + s.valor_brl, 0);
-  const iMax = serie.findIndex((s) => s.valor_brl === max);
-  return (
-    <div className="mt-6 flex min-h-[132px] flex-1 flex-col">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[12px] text-white/55">Gasto {porHora ? "por hora · últimas 24 h" : `por dia · últimos ${serie.length} dias`}</span>
-        <span className="text-[13px] font-semibold tabular-nums text-white/90">{reais(total)}</span>
-      </div>
-      {max > 0 ? (
-        <>
-          <div className="relative mt-3 flex min-h-[72px] flex-1 items-end gap-[6px] border-b border-white/10" role="img"
-            aria-label={`Gasto ${porHora ? "por hora" : "por dia"}: total ${reais(total)}`}>
-            {serie.map((s, i) => (
-              <div key={i} className="group relative flex h-full flex-1 items-end justify-center" title={`${s.rotulo}: ${reais(s.valor_brl)}`}>
-                <div className={`cr-coluna w-full max-w-[14px] rounded-t-[3px] transition-colors ${i === iMax ? "bg-[#5ee38a]" : "bg-[#5ee38a]/45 group-hover:bg-[#5ee38a]/80"}`}
-                  style={{ height: s.valor_brl > 0 ? `${Math.max(4, (s.valor_brl / max) * 100)}%` : "2px", opacity: s.valor_brl > 0 ? 1 : .35 }} />
-              </div>
-            ))}
-          </div>
-          <div className="mt-1.5 flex justify-between text-[10.5px] tabular-nums text-white/40">
-            <span>{serie[0]?.rotulo}</span><span>pico {reais(max)}</span><span>{serie[serie.length - 1]?.rotulo}</span>
-          </div>
-        </>
-      ) : (
-        <div className="mt-3 grid flex-1 place-items-center rounded-xl border border-dashed border-white/10 text-[12.5px] text-white/45">Sem gasto nesse intervalo.</div>
-      )}
-    </div>
-  );
-}
-
 /** Mini linha do KPI "Créditos usados". */
 function MiniLinha({ valores }: { valores: number[] }) {
   if (valores.length < 2) return null;
@@ -1029,28 +765,6 @@ const Linhas = ({ erro }: { erro?: string | null }) => erro
 const Esqueleto = ({ altura, erro }: { altura: number; erro?: string | null }) => erro
   ? <div className="cr-cartao rounded-[22px] p-5 text-[13px] text-[#b42318]">{erro}</div>
   : <div className="cr-brilho rounded-[26px]" style={{ height: altura }} />;
-
-/** Conta de 0 até o valor (suave; sem animação para quem pediu menos movimento). */
-function Contador({ valor, formato }: { valor: number; formato: (v: number) => string }) {
-  const reduzir = useReducedMotion();
-  const [atual, setAtual] = useState(reduzir ? valor : 0);
-  const de = useRef(0);
-  useEffect(() => {
-    if (reduzir) { setAtual(valor); return; }
-    const inicio = performance.now();
-    const origem = de.current;
-    let quadro = 0;
-    const passo = (agora: number) => {
-      const t = Math.min(1, (agora - inicio) / 900);
-      const v = origem + (valor - origem) * (1 - Math.pow(1 - t, 3));
-      setAtual(v);
-      if (t < 1) quadro = requestAnimationFrame(passo); else de.current = valor;
-    };
-    quadro = requestAnimationFrame(passo);
-    return () => { cancelAnimationFrame(quadro); de.current = valor; };
-  }, [valor, reduzir]);
-  return <>{formato(atual)}</>;
-}
 
 // ============================================================================ utilitários
 function formatarDias(d: number) {

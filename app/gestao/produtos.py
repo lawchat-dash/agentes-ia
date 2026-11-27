@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import armazenamento
-from app.gestao.cache_curto import CacheCurto
+from app.gestao.cache_curto import CacheCurto, limpar_todos
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
 
 api = APIRouter(prefix="/api")
@@ -90,6 +90,10 @@ def slugificar(texto: str) -> str:
 @api.get("/biblioteca/produtos")
 async def listar_produtos(pedido: Request, todos: bool = False, ctx: Contexto = Depends(TODOS)) -> list[dict[str, Any]]:
     situacoes = ["publicado", "em_breve"] + (["rascunho"] if todos and ctx.admin else [])
+    if todos and ctx.admin:
+        # A tela Admin › Produtos (que muda o catálogo) lê sempre do banco: depois de trocar o status ou salvar um prompt
+        # a lista não pode voltar ao estado anterior por uma cópia guardada.
+        return await _listar_produtos(pedido, situacoes)
     # O catálogo é o mesmo para todos os escritórios e só muda pela LawChat: 60 s (escrita no painel apaga a cópia).
     return await _CACHE_CATALOGO.obter((id(pedido.app), tuple(situacoes)), lambda: _listar_produtos(pedido, situacoes))
 
@@ -202,6 +206,7 @@ async def alterar_produto(id_produto: str, dados: dict[str, Any], pedido: Reques
         raise HTTPException(409, "Já existe um produto com esse endereço (slug).") from erro
     if not linha:
         raise HTTPException(404, "Produto não encontrado.")
+    limpar_todos()          # não depende só do middleware: o catálogo dos escritórios reflete o status na hora
     return _linha(linha)  # type: ignore[return-value]
 
 
@@ -277,6 +282,7 @@ async def _gravar_agentes(pool: asyncpg.Pool, id_produto: str, agentes: list[dic
         await conexao.execute("delete from agentesia_biblioteca_agentes where id_produto_biblioteca = $1::uuid and not (papel = any($2::text[]))",
                               id_produto, papeis)
         await conexao.execute("update agentesia_biblioteca_produtos set atualizado_em = now() where id = $1::uuid", id_produto)
+    limpar_todos()
     return _linhas(await pool.fetch("select * from agentesia_biblioteca_agentes where id_produto_biblioteca = $1::uuid order by ordem", id_produto))
 
 
@@ -429,7 +435,9 @@ _SELECT_ATIVADO = """select p.*, (select row_to_json(b) from (select id, slug, n
                             coalesce((select a.id_canal is null from agentesia_agentes a where a.id = p.id_agente), false) as precisa_ativar,
                             (select c.numero_normalizado from agentesia_agentes a join agentesia_canais c on c.id = a.id_canal_anterior
                               where a.id = p.id_agente and a.id_canal is null) as numero_liberado,
-                            (select a.config->'followup' from agentesia_agentes a where a.id = p.id_agente) as followup_config
+                            (select a.config->'followup' from agentesia_agentes a where a.id = p.id_agente) as followup_config,
+                            -- Arquivado (migração 016): fora da lista principal e sem atender; o número continua com ele.
+                            coalesce((select a.situacao = 'arquivado' from agentesia_agentes a where a.id = p.id_agente), false) as arquivado
                      from agentesia_produtos_ativados p"""
 
 
@@ -543,6 +551,8 @@ async def alterar_ativado(id_ativado: str, dados: dict[str, Any], pedido: Reques
         raise HTTPException(400, "Situação inválida.")
     if dados.get("status") == "ativo" and atual.get("precisa_ativar"):
         raise HTTPException(409, SEM_NUMERO)
+    if dados.get("status") == "ativo" and atual.get("arquivado"):
+        raise HTTPException(409, ARQUIVADO)
     nomes, valores = _sql_campos({k: v for k, v in dados.items() if k != "excluido_em"}, CAMPOS_ATIVADO)
     if nomes:
         sets = ", ".join(f"{n} = ${i + 3}{_cast(n)}" for i, n in enumerate(nomes))
@@ -949,12 +959,52 @@ async def mudar_status(id_ativado: str, dados: MudarStatus, pedido: Request, ctx
         raise HTTPException(400, "Situação inválida.")
     pool = _pool(pedido)
     produto = await _ativado(pool, ctx.escritorio(), id_ativado)
+    if produto.get("arquivado"):              # ligar ou pausar aqui tiraria do arquivo sem querer
+        raise HTTPException(409, ARQUIVADO)
     if dados.status == "ativo" and (produto.get("precisa_ativar") or produto.get("excluido_em")):
         # Sem número (voltou da lixeira) ou ainda na lixeira: ligar aqui deixaria "ativo" um agente que não atende.
         raise HTTPException(409, SEM_NUMERO if produto.get("precisa_ativar") else "Restaure o produto antes de ativar.")
     if produto.get("id_agente"):
         await pool.execute("update agentesia_agentes set situacao = $2 where id = $1::uuid", produto["id_agente"], dados.status)
     await pool.execute("update agentesia_produtos_ativados set status = $2 where id = $1::uuid", id_ativado, dados.status)
+    return await _ativado(pool, ctx.escritorio(), id_ativado)
+
+
+ARQUIVADO = "Este agente está arquivado. Restaure antes de ligar."
+
+
+@api.post("/produtos-ativados/{id_ativado}/arquivar")
+async def arquivar_produto(id_ativado: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """Arquivar: o agente para de atender (situacao 'arquivado', o motor só responde 'ativo'), os follow-ups
+    pendentes são cancelados e o produto sai da lista principal. Diferente da lixeira, o número continua com ele."""
+    pool = _pool(pedido)
+    produto = await _ativado(pool, ctx.escritorio(), id_ativado)
+    if not produto.get("id_agente") or produto.get("excluido_em"):
+        raise HTTPException(409, "Só dá para arquivar um agente já ativado e fora da lixeira.")
+    if not produto.get("arquivado"):
+        async with pool.acquire() as conexao, conexao.transaction():
+            await conexao.execute("update agentesia_agentes set situacao = 'arquivado' where id = $1::uuid", produto["id_agente"])
+            await conexao.execute("update agentesia_produtos_ativados set status = 'pausado' where id = $1::uuid", id_ativado)
+            await conexao.execute(
+                """update agentesia_followups set situacao = 'cancelado', motivo = 'agente_arquivado', atualizado_em = now()
+                   where situacao in ('pendente', 'reservado')
+                     and (id_agente = $1::uuid or id_lead in (select id from agentesia_leads where id_agente = $1::uuid))""",
+                produto["id_agente"])
+        await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_produtos_ativados",
+                                                id_registro=id_ativado, acao="alterou", resumo=f"Agente arquivado: {produto['nome']}")
+    return await _ativado(pool, ctx.escritorio(), id_ativado)
+
+
+@api.post("/produtos-ativados/{id_ativado}/desarquivar")
+async def desarquivar_produto(id_ativado: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """Restaurar do arquivo: volta pausado, no mesmo número. Quem liga é o cliente (botão ligar)."""
+    pool = _pool(pedido)
+    produto = await _ativado(pool, ctx.escritorio(), id_ativado)
+    if produto.get("arquivado"):
+        await pool.execute("update agentesia_agentes set situacao = 'pausado' where id = $1::uuid and situacao = 'arquivado'",
+                           produto["id_agente"])
+        await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_produtos_ativados",
+                                                id_registro=id_ativado, acao="alterou", resumo=f"Agente restaurado do arquivo: {produto['nome']}")
     return await _ativado(pool, ctx.escritorio(), id_ativado)
 
 

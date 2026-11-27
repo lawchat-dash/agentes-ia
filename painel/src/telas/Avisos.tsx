@@ -1,6 +1,8 @@
 // Ferramentas › Avisos no WhatsApp. A conta escolhe o número que envia e quem recebe (valem para todos os avisos) e liga
 // os avisos que quer, cada um com o texto da mensagem. Só aparecem os avisos que o sistema dispara de verdade.
 // Backend: app/gestao/rotas_avisos.py (/avisos, /avisos/conta, /avisos/ligados, /avisos/item/:chave).
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
+import BellToggle from "@/components/reactbits/BellToggle";
 import { Fragment, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -9,7 +11,7 @@ import {
   Shuffle, Trash2, UserPlus, UserRound, UserX, Video, X,
 } from "lucide-react";
 import { api, enviar, formatarTelefone } from "../api";
-import { Alerta, Carregando, Interruptor, Modal, Vazio, useAcao, useAvisar, useCarregar, useConfirmar } from "../componentes/ui";
+import { Alerta, Carregando, Modal, Vazio, useAcao, useAvisar, useCarregar, useConfirmar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import "../estilo-automacao.css";
 
@@ -156,7 +158,7 @@ export function TelaAvisos() {
               <div className="av-passo-cab"><span className={`av-num ${passos[2] ? "feito" : ""}`}>{passos[2] ? <Check /> : 3}</span>
                 <div><b>Ligar os avisos</b><small>Quais acontecimentos te avisam.</small></div></div>
               <span className="sec" style={{ fontSize: 13 }}><b className="num">{ligados}</b> {ligados === 1 ? "aviso ativo" : "avisos ativos"}</span>
-              <button type="button" className="btn sm" style={{ alignSelf: "flex-start" }} onClick={() => setJanela("gerenciar")}><Bell />Gerenciar avisos</button>
+              <BotaoBrilho suave size="sm" radius={10} style={{ alignSelf: "flex-start" }} onClick={() => setJanela("gerenciar")}><Bell />Gerenciar avisos</BotaoBrilho>
             </div>
           </div>
         </section>
@@ -177,9 +179,11 @@ export function TelaAvisos() {
                   <div className="au-cartao-corpo">
                     <div className="au-cartao-cab">
                       <span className="au-icone"><Icone /></span>
-                      <div><b title={item.nome}>{item.nome}</b>
-                        <span className={`chip ${item.ligado ? "ok" : ""}`} style={{ marginTop: 3 }}>{item.ligado ? "Ativo" : "Inativo"}</span></div>
-                      <Interruptor rotulo={`${item.nome}: ${item.ligado ? "ligado" : "desligado"}`} ligado={item.ligado} desligado={ocupado} aoMudar={(v) => alternar(item, v)} />
+                      <div><b title={item.nome}>{item.nome}</b></div>
+                      {/* Sino que liga/desliga o aviso (BellToggle do React Bits): verde e tocando quando ligado. */}
+                      <BellToggle size="sm" pressed={item.ligado} disabled={ocupado} onChange={(v) => alternar(item, v)}
+                        offLabel="Desligado" onLabel="Ligado" label={`${item.nome}: ${item.ligado ? "ligado" : "desligado"}`}
+                        badge={false} clapper waves className="av-sino" />
                     </div>
                     <p>{item.descricao}</p>
                   </div>
@@ -343,7 +347,7 @@ function JanelaGerenciar({ dados, itens, aoFechar, aoSalvar }: { dados: Dados; i
         <span className="muted" style={{ fontSize: 12.5 }}>{marcados.size} ligado(s) · {dados.destinatarios.length} destinatário{dados.destinatarios.length === 1 ? "" : "s"}</span>
         <span className="sp" />
         <button className="btn" onClick={aoFechar}>Cancelar</button>
-        <button className="btn pri" disabled={ocupado} onClick={salvar}>Salvar</button>
+        <BotaoBrilho size="md" radius={10} disabled={ocupado} onClick={salvar}>Salvar</BotaoBrilho>
       </>}>
       <div className="form">
         <div className="au-barra" style={{ margin: 0 }}>

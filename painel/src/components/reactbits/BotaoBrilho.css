@@ -13,6 +13,15 @@
 .lc-botao-brilho.specular-button:focus-visible {
   outline: 2px solid rgba(0, 188, 51, 0.55);
 }
+/* Secundário: verde-claro sobre fundo branco. */
+.lc-botao-brilho--suave.specular-button,
+.lc-botao-brilho--suave.specular-button:hover:not(:disabled) {
+  font-weight: 600;
+  background: #e3f7e8;
+  box-shadow: inset 0 0 0 1px rgba(0, 163, 44, 0.18), 0 6px 16px -12px rgba(0, 163, 44, 0.5);
+}
+.lc-botao-brilho--suave.specular-button:hover:not(:disabled) { background: #d6f2df; filter: none; }
+.lc-botao-brilho.specular-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .lc-botao-brilho.specular-button--sm { padding: 0 14px; height: 36px; font-size: 13px; }
 .lc-botao-brilho.specular-button--md { padding: 0 18px; height: 40px; font-size: 13px; }
 .lc-botao-brilho.specular-button--lg { padding: 0 22px; height: 48px; font-size: 0.92rem; }

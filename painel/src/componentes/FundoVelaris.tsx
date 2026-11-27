@@ -127,8 +127,13 @@ export function FundoVelaris({
     cores.forEach((c, i) => gl!.uniform3fv(u(`u_c${i}`), rgb(c)));
     gl.uniform1f(u("u_grain"), grao);
 
+    // Medir só quando o tamanho muda (antes lia clientWidth/clientHeight a cada quadro). O ruído é macio:
+    // densidade 1 basta e corta até 4x o trabalho da placa de vídeo em telas de alta resolução.
+    let medir = true;
     const ajustar = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (!medir) return;
+      medir = false;
+      const dpr = 1;
       const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
       const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -143,9 +148,12 @@ export function FundoVelaris({
 
     let quadro = 0;
     const inicio = performance.now();
-    const laco = (agora: number) => { desenhar(agora - inicio + 4000); quadro = requestAnimationFrame(laco); };
+    const laco = (agora: number) => {
+      if (!document.hidden) desenhar(agora - inicio + 4000);
+      quadro = requestAnimationFrame(laco);
+    };
     if (parado) desenhar(4000); else quadro = requestAnimationFrame(laco);
-    const obs = new ResizeObserver(() => { if (parado) desenhar(4000); });
+    const obs = new ResizeObserver(() => { medir = true; if (parado) desenhar(4000); });
     obs.observe(canvas);
 
     return () => {

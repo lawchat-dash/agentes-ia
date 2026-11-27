@@ -1,10 +1,12 @@
-// Indicadores do Início num bento (MagicBento do React Bits, tema claro, brilho verde LawChat seguindo o cursor).
-// Os números rolam com o Counter (React Bits). Mesmos dados que os KPIs e mini-cartões tinham antes.
+// Indicadores do Painel Inicial num bento (mesmo visual do MagicBento, tema claro), em grade CSS leve: sem ouvir o
+// mouse na janela inteira e sem laço de quadros. Realce verde só no :hover (CSS); entrada em cascata uma vez só.
+// Os números rolam com o Counter (React Bits) ao abrir. Mesmos dados que os KPIs e mini-cartões tinham antes.
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ResponsiveContainer, AreaChart, Area } from "recharts";
 import { ArrowDown, ArrowUp, Box, ChevronRight, FileSignature, Mail, MessageSquare, Package, Reply, Users, type LucideIcon } from "lucide-react";
-import MagicBento, { type MagicBentoItem } from "@/components/reactbits/MagicBento";
+/** Cartão do bento (o mesmo formato que o MagicBento recebia). */
+interface MagicBentoItem { id: string; title?: string; content: ReactNode; onClick?: () => void; colSpan?: number }
 import Counter from "@/components/reactbits/Counter";
 import "./BentoIndicadores.css";
 
@@ -32,11 +34,17 @@ function Variacao({ v, sufixo = "%" }: { v: number | null | undefined; sufixo?: 
   );
 }
 
-function Topo({ icone: Icone, rotulo, cor, fundo, acao }: { icone: LucideIcon; rotulo: string; cor: string; fundo: string; acao?: ReactNode }) {
+// O ícone ganha um jeito próprio de se mexer ao passar o mouse (ver BentoIndicadores.css: is-pulo, is-giro, is-balanco).
+type Mexida = "pulo" | "giro" | "balanco";
+
+function Topo({ icone: Icone, rotulo, cor, fundo, acao, mexida = "pulo", vivo }: {
+  icone: LucideIcon; rotulo: string; cor: string; fundo: string; acao?: ReactNode; mexida?: Mexida; vivo?: boolean;
+}) {
   return (
     <div className="lc-bento__topo">
-      <span className="lc-bento__icone" style={{ background: fundo, color: cor }}><Icone aria-hidden /></span>
+      <span className={`lc-bento__icone is-${mexida}`} style={{ background: fundo, color: cor }}><Icone aria-hidden /></span>
       <span className="lc-bento__rotulo">{rotulo}</span>
+      {vivo && <span className="lc-bento__vivo" title="Atualiza sozinho"><i aria-hidden />ao vivo</span>}
       {acao}
     </div>
   );
@@ -58,7 +66,7 @@ function Linha({ serie, chave, cor, id }: { serie: DadosBento["serie"]; chave: "
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={serie} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
           <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={cor} stopOpacity={0.22} /><stop offset="100%" stopColor={cor} stopOpacity={0} /></linearGradient></defs>
-          <Area type="monotone" dataKey={chave} stroke={cor} strokeWidth={1.75} fill={`url(#${id})`} dot={false} isAnimationActive={false} />
+          <Area type="monotone" dataKey={chave} stroke={cor} strokeWidth={1.75} fill={`url(#${id})`} dot={false} isAnimationActive animationDuration={900} animationEasing="ease-out" />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -78,7 +86,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
         id: "conversas", colSpan: 2,
         content: (
           <div className="lc-bento__corpo">
-            <Topo icone={MessageSquare} rotulo="Conversas hoje" cor="#00bc33" fundo="#e8f9ee" />
+            <Topo icone={MessageSquare} rotulo="Conversas hoje" cor="#00bc33" fundo="#e8f9ee" vivo />
             <div className="lc-bento__valor lc-bento__valor--grande"><Numero valor={d.conversasHoje} chave={`${chave}-conv`} /><Variacao v={d.conversasHojeVariacao} /></div>
             <span className="lc-bento__sub">vs. ontem · {d.serie.reduce((s, x) => s + (x.conv || 0), 0).toLocaleString("pt-BR")} nos últimos {d.dias} dias</span>
             <Linha serie={d.serie} chave="conv" cor="#22c55e" id="lcb-conv" />
@@ -89,7 +97,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
         id: "mensagens",
         content: (
           <div className="lc-bento__corpo">
-            <Topo icone={Mail} rotulo={`Mensagens (${d.dias}d)`} cor="#2563eb" fundo="#eaf1ff" />
+            <Topo icone={Mail} rotulo={`Mensagens (${d.dias}d)`} cor="#2563eb" fundo="#eaf1ff" mexida="balanco" />
             <div className="lc-bento__valor"><Numero valor={d.mensagens} chave={`${chave}-msgs`} /><Variacao v={d.mensagensVariacao} /></div>
             <span className="lc-bento__sub">trocadas</span>
             <Linha serie={d.serie} chave="msgs" cor="#3b82f6" id="lcb-msgs" />
@@ -100,7 +108,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
         id: "tokens",
         content: (
           <div className="lc-bento__corpo">
-            <Topo icone={Box} rotulo={`Tokens (${d.dias}d)`} cor="#0891b2" fundo="#e0f2fe" />
+            <Topo icone={Box} rotulo={`Tokens (${d.dias}d)`} cor="#0891b2" fundo="#e0f2fe" mexida="giro" />
             <div className="lc-bento__valor"><Numero valor={d.tokens} chave={`${chave}-tokens`} /><Variacao v={d.tokensVariacao} /></div>
             <span className="lc-bento__sub">{d.tokensSub}</span>
             <Linha serie={d.serie} chave="tokens" cor="#0ea5e9" id="lcb-tokens" />
@@ -132,7 +140,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
         id: "contratos",
         content: (
           <div className="lc-bento__corpo">
-            <Topo icone={FileSignature} rotulo="Contratos assinados" cor="#15803d" fundo="#dcfce7" />
+            <Topo icone={FileSignature} rotulo="Contratos assinados" cor="#15803d" fundo="#dcfce7" mexida="balanco" />
             <div className="lc-bento__valor"><Numero valor={d.contratos} chave={`${chave}-contratos`} /></div>
             <span className="lc-bento__sub">nos últimos {d.dias} dias, pelos agentes</span>
           </div>
@@ -142,7 +150,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
         id: "followup",
         content: (
           <div className="lc-bento__corpo">
-            <Topo icone={Reply} rotulo="Follow-up" cor="#00bc33" fundo="#e8f9ee" />
+            <Topo icone={Reply} rotulo="Follow-up" cor="#00bc33" fundo="#e8f9ee" mexida="giro" />
             <div className="lc-bento__valor"><Numero valor={pend} chave={`${chave}-followup`} /><span className="lc-bento__unidade">pendentes</span></div>
             <span className="lc-bento__sub">
               {d.followup.enviados ? <>Resposta {d.followup.taxa ?? 0}% · {d.followup.respondidos} de {d.followup.enviados}</> : "sem follow-up enviado"}
@@ -171,28 +179,16 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
   }, [d, chave, navegar]);
 
   return (
-    <MagicBento
-      className="lc-bento"
-      items={items}
-      columns={4}
-      rowHeight={150}
-      gap={12}
-      radius={20}
-      theme="light"
-      glowColor="#00bc33"
-      enableSpotlight
-      enableBorderGlow
-      spotlightRadius={260}
-      enableStars={false}
-      enableTilt={false}
-      enableMagnetism={false}
-      clickEffect={false}
-      style={{
-        "--mb-surface": "rgba(255,255,255,0.9)",
-        "--mb-shadow": "0 8px 24px rgba(15,23,42,0.055), inset 0 0 0 1px rgba(226,232,240,0.9)",
-        "--mb-spot-alpha": 0.08,
-        "--mb-glow-alpha": 0.8,
-      } as CSSProperties}
-    />
+    <div className="lc-bento lc-bento-leve" role="list">
+      {items.map((it, n) => {
+        const estilo = { "--n": n, gridColumn: it.colSpan ? `span ${it.colSpan}` : undefined } as CSSProperties;
+        return it.onClick ? (
+          <button key={it.id} type="button" role="listitem" className="magic-bento__card lc-bento-leve__card is-clicavel" style={estilo}
+            onClick={it.onClick} aria-label={it.title}>{it.content}</button>
+        ) : (
+          <div key={it.id} role="listitem" className="magic-bento__card lc-bento-leve__card" style={estilo}>{it.content}</div>
+        );
+      })}
+    </div>
   );
 }

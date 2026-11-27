@@ -155,3 +155,41 @@ async def test_sem_historico_usa_referencia_do_modelo_com_o_markup_do_escritorio
     # custo real médio R$ 0,10 por lead × markup 2,0 deste escritório (não o R$ 0,50 cobrado dos outros).
     assert pl["fonte"] == "referencia_modelo" and pl["estimativa"] is True and pl["valor_brl"] == pytest.approx(0.20)
     assert pl["leads_com_saldo"] == 50
+
+
+@com_banco
+async def test_painel_bloco_do_mes_e_saldo_depois_da_recarga(api_cobranca):  # noqa: F811
+    """Bloco "mes" (desde o dia 1º, independe do período): gasto, tokens, contratos, custo por contrato, mês anterior
+    e participação por agente com o nome do produto. Recarga confirmada traz o saldo logo depois dela."""
+    pool, esc, cliente = api_cobranca
+    ana = await _agente(pool, esc, "Ana Mês")
+    await pool.execute("insert into agentesia_produtos_ativados (id_escritorio, id_agente, nome, status) values ($1::uuid, $2::uuid, 'BPC Infantil', 'ativo')",
+                       esc, ana)
+    l1, l2 = await _lead(pool, esc, ana, "Atual", "5521900000001"), await _lead(pool, esc, ana, "Antigo", "5521900000002")
+    await _chamada(pool, esc, l1, ana, 0.10)
+    await _chamada(pool, esc, l2, ana, 0.20)
+    # A chamada do l2 e o contrato dele vão para o meio do mês anterior.
+    meio_ant = "(date_trunc('month', now() at time zone 'America/Sao_Paulo') - interval '15 days') at time zone 'America/Sao_Paulo'"
+    await pool.execute(f"update agentesia_chamadas_ia set criado_em = {meio_ant} where id_lead = $1::uuid", l2)
+    for lead, quando in ((l1, "now()"), (l2, meio_ant)):
+        await pool.execute(
+            f"insert into agentesia_contratos (id_escritorio, id_lead, versao, dados, dados_hash, situacao, assinado_em) values ($1::uuid, $2::uuid, 1, '{{}}', 'h', 'assinado', {quando})",
+            esc, lead)
+    rec = str(await pool.fetchval("insert into agentesia_recargas (id_escritorio, valor_brl, gateway) values ($1::uuid, 150, 'manual') returning id", esc))
+    await cobranca.confirmar_recarga(pool, rec)
+    await pool.fetchval("insert into agentesia_recargas (id_escritorio, valor_brl, gateway) values ($1::uuid, 50, 'manual') returning id", esc)
+
+    async with cliente("gestor") as gestor:
+        painel = (await gestor.get("/api/carteira/painel?dias=1")).json()
+        mes = painel["mes"]
+        atual = float(await pool.fetchval("select custo_brl from agentesia_chamadas_ia where id_lead = $1::uuid", l1))
+        antigo = float(await pool.fetchval("select custo_brl from agentesia_chamadas_ia where id_lead = $1::uuid", l2))
+        assert mes["creditos_brl"] == pytest.approx(atual) and mes["tokens"] == 150 and mes["contratos"] == 1
+        assert mes["custo_por_contrato_brl"] == pytest.approx(round(atual, 2))
+        assert mes["anterior"]["creditos_brl"] == pytest.approx(antigo) and mes["anterior"]["contratos"] == 1
+        assert mes["por_agente"] == [{"id_agente": ana, "agente": "Ana Mês", "produto": "BPC Infantil",
+                                      "valor_brl": pytest.approx(atual), "participacao_pct": 100.0}]
+        recargas = {r["id"]: r for r in (await gestor.get("/api/carteira/recargas")).json()}
+        saldo = await pool.fetchrow("select saldo_brl::float8 as s, bonus_brl::float8 as b from agentesia_carteiras where id_escritorio = $1::uuid", esc)
+        assert recargas[rec]["saldo_depois_brl"] == pytest.approx(saldo["s"] + saldo["b"])
+        assert [r["saldo_depois_brl"] for r in recargas.values() if r["id"] != rec] == [None]

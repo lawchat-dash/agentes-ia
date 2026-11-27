@@ -16,6 +16,8 @@ import BorderGlow from "@/components/reactbits/BorderGlow";
 import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import LogoEscrita from "@/components/reactbits/LogoEscrita";
 import TextType from "@/components/reactbits/TextType";
+import CodeSlots, { type CodeSlotsStatus } from "@/components/reactbits/CodeSlots";
+import CursorGrid from "@/components/reactbits/CursorGrid";
 
 /** Finais do título do painel escuro (um de cada vez). */
 const FINAIS_DO_TITULO = ["seu escritório.", "seu WhatsApp.", "seu dia a dia."];
@@ -157,17 +159,16 @@ const splitStyle = `
   .lcsplit-bolha.ia{background:linear-gradient(135deg,rgba(0,188,51,.9),rgba(0,153,38,.9));color:#fff;border-bottom-right-radius:6px;align-self:flex-end}
   .lcsplit-rodape{font-size:.75rem;color:rgba(240,242,245,.55);display:flex;gap:16px;flex-wrap:wrap;margin-top:28px;padding-top:16px;border-top:1px solid rgba(255,255,255,.12)}
   .lcsplit-rodape span{display:inline-flex;align-items:center;gap:5px}
-  .lcsplit-dir{display:grid;place-items:center;padding:32px 24px}
+  .lcsplit-dir{position:relative;overflow:hidden;display:grid;place-items:center;padding:32px 24px}
   .lcsplit-card{width:100%;max-width:420px;background:#fff;border:1px solid var(--l2);border-radius:24px;padding:36px 32px;
     box-shadow:0 24px 60px -28px rgba(17,19,24,.22),0 2px 8px rgba(17,19,24,.04);animation:lcUp .5s cubic-bezier(.22,1,.36,1) both}
   .lcsplit-abas{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:var(--l0);border:1px solid var(--l2);border-radius:14px;margin-bottom:18px}
   .lcsplit-aba{height:38px;border:none;border-radius:10px;background:transparent;color:var(--tdm);font-family:var(--fi);font-size:.82rem;font-weight:600;
     display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:background .2s,color .2s,box-shadow .2s}
   .lcsplit-aba[aria-selected="true"]{background:#fff;color:var(--td);box-shadow:0 1px 3px rgba(17,19,24,.1)}
-  .lcsplit-otp{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
-  .lcsplit-otp input{width:100%;height:54px;text-align:center;font-family:var(--fs);font-size:1.35rem;font-weight:600;color:var(--td);
-    background:var(--l0);border:1px solid var(--l2);border-radius:14px;outline:none;transition:border-color .2s,box-shadow .2s,background .2s}
-  .lcsplit-otp input:focus{border-color:rgba(0,188,51,.6);background:#fff;box-shadow:0 0 0 4px rgba(0,188,51,.12)}
+  .lcsplit-otp{display:flex;justify-content:center}
+  .lcsplit-grade{position:absolute;inset:0;z-index:0;pointer-events:none}
+  .lcsplit-dir > .lcsplit-brilho{position:relative;z-index:1}
   .lcsplit-linha{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:.8rem;color:var(--tdm)}
   .lcsplit-sep{display:flex;align-items:center;gap:12px;color:#A6ABB4;font-size:.75rem;margin:20px 0 14px}
   .lcsplit-sep::before,.lcsplit-sep::after{content:"";flex:1;height:1px;background:var(--l2)}
@@ -186,7 +187,7 @@ const splitStyle = `
     .lcsplit-card{padding:28px 20px}
   }
   @media (max-height: 940px){ .lcsplit-chat{display:none} }
-  @media (max-width: 380px){ .lcsplit-otp{gap:5px} .lcsplit-otp input{height:46px;font-size:1.15rem} }
+  @media (max-width: 380px){}
 `;
 
 /** O que o LawChat faz (carrossel do painel escuro da entrada). */
@@ -318,6 +319,9 @@ function TelaEntrada({ comSenha }: { comSenha: boolean }) {
         </aside>
 
         <main className="lcsplit-dir">
+          <CursorGrid className="lcsplit-grade" lightMode cellSize={56} color="#00bc33" gridColor="#0b0d0f" radius={170}
+                      gridOpacity={0.05} fillOpacity={0.07} maxOpacity={0.55} spotlight={0.55} holdTime={450}
+                      fadeDuration={900} edgeFade={0.18} clickPulse />
           <BorderGlow className="lcsplit-brilho" backgroundColor="#ffffff" borderRadius={24} glowColor="140 70 45" glowIntensity={0.7}
                       glowRadius={28} coneSpread={22} edgeSensitivity={26} fillOpacity={0.25} colors={["#00bc33", "#34d399", "#a7f3d0"]}>
           <div className="lcsplit-card">
@@ -363,11 +367,13 @@ function FormCodigo() {
   const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState("");
   const [etapa, setEtapa] = useState<"pedir" | "codigo">("pedir");
-  const [digitos, setDigitos] = useState<string[]>(Array(6).fill(""));
+  const [codigo, setCodigo] = useState("");
+  const [statusCodigo, setStatusCodigo] = useState<CodeSlotsStatus>("idle");
+  const [rodada, setRodada] = useState(0);          // muda a cada código pedido: o campo nasce vazio de novo
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [espera, setEspera] = useState(0);
-  const caixas = useRef<(HTMLInputElement | null)[]>([]);
+  const casa = typeof window !== "undefined" && window.matchMedia("(max-width: 380px)").matches ? 40 : 48;
 
   useEffect(() => {
     if (espera <= 0) return;
@@ -388,10 +394,11 @@ function FormCodigo() {
     try {
       await api("/entrar/codigo", { corpo: identificador() });
       setEtapa("codigo");
-      setDigitos(Array(6).fill(""));
+      setCodigo("");
+      setStatusCodigo("idle");
+      setRodada((r) => r + 1);
       setEspera(ESPERA_REENVIO_S);
       toast.success(meio === "email" ? "Se o e-mail tiver acesso, o código chega em instantes." : "Se o celular tiver acesso, o código chega em instantes.");
-      setTimeout(() => caixas.current[0]?.focus(), 50);
     } catch (falha) {
       setErro(mensagemDe(falha, "Não foi possível pedir o código. Tente de novo."));
     } finally {
@@ -407,6 +414,8 @@ function FormCodigo() {
       const r = await api<{ destino?: string }>("/entrar/codigo/confirmar", {
         corpo: { ...identificador(), codigo, dispositivo: idDoDispositivo() },
       });
+      setStatusCodigo("success");
+      await new Promise((ok) => setTimeout(ok, 650));   // deixa o check aparecer antes de trocar de tela
       trocarVisao("lawchat");
       // A rota /login leva a equipe LawChat para /admin/escritorios; escritório vai para /.
       window.history.replaceState(null, "", r?.destino === "/admin/escritorios" ? "/login" : "/");
@@ -414,58 +423,29 @@ function FormCodigo() {
       toast.success("Bem-vindo!");
     } catch (falha) {
       setErro(mensagemDe(falha, "Não foi possível conectar ao login."));
-      setDigitos(Array(6).fill(""));
-      setTimeout(() => caixas.current[0]?.focus(), 50);
+      setStatusCodigo("error");                          // os dígitos escorrem em vermelho e o campo esvazia
     } finally {
       setOcupado(false);
     }
   }
 
-  function digitar(i: number, valor: string) {
-    const d = valor.replace(/\D/g, "");
-    if (d.length > 1) { colar(d, i); return; }
-    const novos = [...digitos];
-    novos[i] = d;
-    setDigitos(novos);
-    if (d && i < 5) caixas.current[i + 1]?.focus();
-    if (novos.every(Boolean)) void confirmar(novos.join(""));
-  }
-
-  function colar(texto: string, inicio = 0) {
-    const d = texto.replace(/\D/g, "").slice(0, 6 - inicio);
-    if (!d) return;
-    const novos = [...digitos];
-    d.split("").forEach((c, k) => { novos[inicio + k] = c; });
-    setDigitos(novos);
-    caixas.current[Math.min(inicio + d.length, 5)]?.focus();
-    if (novos.every(Boolean)) void confirmar(novos.join(""));
-  }
-
-  function tecla(i: number, e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace" && !digitos[i] && i > 0) caixas.current[i - 1]?.focus();
-    if (e.key === "ArrowLeft" && i > 0) caixas.current[i - 1]?.focus();
-    if (e.key === "ArrowRight" && i < 5) caixas.current[i + 1]?.focus();
-  }
-
   if (etapa === "codigo") {
     const destino = meio === "email" ? email.trim() : formatarTelefone(telefone);
     return (
-      <form onSubmit={(e) => { e.preventDefault(); if (digitos.every(Boolean)) void confirmar(digitos.join("")); }}
+      <form onSubmit={(e) => { e.preventDefault(); if (codigo.length === 6) void confirmar(codigo); }}
             noValidate style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <p style={{ fontSize: ".85rem", color: "var(--tdm)", margin: 0, overflowWrap: "anywhere" }}>
           Digite o código de 6 dígitos enviado para <b style={{ color: "var(--td)" }}>{destino}</b>.
         </p>
-        <div className="lcsplit-otp" role="group" aria-label="Código de 6 dígitos">
-          {digitos.map((d, i) => (
-            <input key={i} ref={(el) => { caixas.current[i] = el; }} value={d} inputMode="numeric" maxLength={6}
-                   autoComplete={i === 0 ? "one-time-code" : "off"} aria-label={`Dígito ${i + 1}`}
-                   onChange={(e) => digitar(i, e.target.value)} onKeyDown={(e) => tecla(i, e)}
-                   onPaste={(e: ClipboardEvent<HTMLInputElement>) => { e.preventDefault(); colar(e.clipboardData.getData("text"), i); }}
-                   disabled={ocupado} />
-          ))}
+        <div className="lcsplit-otp">
+          <CodeSlots key={rodada} length={6} autoFocus disabled={ocupado && statusCodigo === "idle"} status={statusCodigo}
+                     onChange={(c) => { setCodigo(c); if (c) setStatusCodigo("idle"); }}
+                     onComplete={(c) => void confirmar(c)} ariaLabel="Código de 6 dígitos"
+                     accentColor="#00bc33" inkColor="#101828" slotColor="#f2f4f7" digitColor="#ffffff"
+                     dangerColor="#e5484d" slotSize={casa} gap={8} radius={14} bounce={0.25} />
         </div>
         {erro && <div className="lcsplit-erro" role="alert">{erro}</div>}
-        <BotaoBrilho type="submit" disabled={ocupado || !digitos.every(Boolean)} size="lg" radius={50} cheio style={{ marginTop: 6, fontFamily: "var(--fs)" }}>
+        <BotaoBrilho type="submit" disabled={ocupado || codigo.length < 6} size="lg" radius={50} cheio style={{ marginTop: 6, fontFamily: "var(--fs)" }}>
           {ocupado ? <Loader2 className="size-4 animate-spin" /> : <>Entrar<ArrowRight className="size-4" /></>}
         </BotaoBrilho>
         <div className="lcsplit-linha" style={{ marginTop: 2 }}>

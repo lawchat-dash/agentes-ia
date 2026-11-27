@@ -6,9 +6,11 @@
  *  - sem motion/react: o balanço, o badalo e as ondas são Web Animations API, como no original;
  *  - toca quando `count` sobe (chegou aviso novo) e quando `tocar` muda; com movimento reduzido, não balança;
  *  - ícone padrão do lucide-react (Bell) no lugar do @hugeicons; selo com a contagem ("9+" acima de 9).
+ *  - modo interruptor (como o original): passe `pressed` + `onChange` e ele vira um botão "sino + texto"
+ *    (offLabel/onLabel), com cores próprias para ligado/desligado; ao ligar, o sino toca.
  */
 
-import React, { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Bell } from 'lucide-react';
 import './BellToggle.css';
 
@@ -29,6 +31,19 @@ export interface BellToggleProps {
   /** Qualquer valor novo faz o sino tocar uma vez (ex.: um contador de "tocar agora"). */
   tocar?: number | string;
   className?: string;
+  /** Modo interruptor: estado ligado/desligado (controlado). */
+  pressed?: boolean;
+  onChange?: (ligado: boolean) => void;
+  offLabel?: ReactNode;
+  onLabel?: ReactNode;
+  color?: string;
+  background?: string;
+  onColor?: string;
+  onBackground?: string;
+  size?: 'sm' | 'md';
+  disabled?: boolean;
+  /** Nome para leitores de tela no modo interruptor. */
+  label?: string;
 }
 
 const SEG_EASE = 'cubic-bezier(0.77, 0, 0.175, 1)';
@@ -69,8 +84,22 @@ const BellToggle: React.FC<BellToggleProps> = ({
   ringDuration = 820,
   ringPivot = 16,
   tocar,
-  className = ''
+  className = '',
+  pressed,
+  onChange,
+  offLabel = 'Desligado',
+  onLabel = 'Ligado',
+  color = '#475467',
+  background = '#f2f4f7',
+  onColor = '#ffffff',
+  onBackground = '#00bc33',
+  size = 'md',
+  disabled = false,
+  label
 }) => {
+  const interruptor = pressed !== undefined || onChange !== undefined;
+  const [apertando, setApertando] = useState(false);
+  const prevPressed = useRef(pressed);
   const glyphRef = useRef<HTMLSpanElement>(null);
   const clapperRef = useRef<HTMLSpanElement>(null);
   const waveLeft = useRef<SVGSVGElement>(null);
@@ -121,13 +150,17 @@ const BellToggle: React.FC<BellToggleProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocar]);
 
+  // Modo interruptor: ao passar de desligado para ligado, o sino toca.
+  useEffect(() => {
+    const era = prevPressed.current;
+    prevPressed.current = pressed;
+    if (interruptor && pressed && era === false) swing(ringAmplitude, ringPasses, ringDuration);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pressed]);
+
   const showBadge = badge && count > 0;
 
-  return (
-    <span
-      className={`bell-toggle bell-toggle--icone${className ? ` ${className}` : ''}`}
-      style={{ '--bt-badge': badgeColor, '--bt-badge-ink': badgeTextColor, '--bt-pivot': `${ringPivot}%`, '--bt-icon': `${iconSize}px` } as CSSProperties}
-    >
+  const sino = (
       <span className="bell-toggle__bell" aria-hidden="true">
         <span ref={glyphRef} className="bell-toggle__glyph">
           {clapper ? (
@@ -166,6 +199,52 @@ const BellToggle: React.FC<BellToggleProps> = ({
           </span>
         ) : null}
       </span>
+  );
+
+  if (interruptor) {
+    const ligado = !!pressed;
+    const pequeno = size === 'sm';
+    return (
+      <span
+        className={`bell-toggle bell-toggle--interruptor${className ? ` ${className}` : ''}`}
+        data-on={ligado ? 'true' : 'false'}
+        data-pressed={apertando && !disabled ? '' : undefined}
+        data-disabled={disabled ? '' : undefined}
+        style={{
+          '--bt-color': color, '--bt-bg': background, '--bt-on-color': onColor, '--bt-on-bg': onBackground,
+          '--bt-badge': badgeColor, '--bt-badge-ink': badgeTextColor, '--bt-pivot': `${ringPivot}%`,
+          '--bt-icon': `${pequeno ? 14 : 16}px`, '--bt-h': pequeno ? '30px' : '40px', '--bt-fs': pequeno ? '12px' : '13.5px',
+          '--bt-px': pequeno ? '11px' : '17px', '--bt-gap': pequeno ? '6px' : '8px',
+        } as CSSProperties}
+      >
+        <button
+          type="button"
+          className="bell-toggle__button"
+          role="switch"
+          aria-checked={ligado}
+          aria-label={label}
+          disabled={disabled}
+          onPointerDown={() => setApertando(true)}
+          onPointerUp={() => setApertando(false)}
+          onPointerLeave={() => setApertando(false)}
+          onClick={() => onChange?.(!ligado)}
+        >
+          {sino}
+          <span className="bell-toggle__say">
+            <span className="bell-toggle__face bell-toggle__face--off">{offLabel}</span>
+            <span className="bell-toggle__face bell-toggle__face--on">{onLabel}</span>
+          </span>
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`bell-toggle bell-toggle--icone${className ? ` ${className}` : ''}`}
+      style={{ '--bt-badge': badgeColor, '--bt-badge-ink': badgeTextColor, '--bt-pivot': `${ringPivot}%`, '--bt-icon': `${iconSize}px` } as CSSProperties}
+    >
+      {sino}
     </span>
   );
 };

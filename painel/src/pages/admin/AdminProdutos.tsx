@@ -49,7 +49,13 @@ type ProductRow = {
   status: ProdStatus;
   versao: string | null;
   updated_at: string;
+  created_at?: string | null;
 };
+
+// Ordem FIXA da lista: mais novo primeiro pela data de CRIAÇÃO (e nome no empate). Antes ordenava por updated_at, que o
+// banco renova a cada salvamento/troca de status: o produto editado pulava para o topo e "sumia" de onde estava.
+const ordenarProdutos = (lista: ProductRow[]) => lista.slice().sort((x, y) =>
+  String(y.created_at ?? "").localeCompare(String(x.created_at ?? "")) || x.nome.localeCompare(y.nome, "pt-BR"));
 
 export default function AdminProdutos() {
   const navigate = useNavigate();
@@ -95,17 +101,16 @@ export default function AdminProdutos() {
     setCriarOpen(false);
     setNovoNome(""); setNovaArea(""); setNovaDesc("");
     if (data?.id) navigate(`/admin/produtos/${data.id}`);
-    else load();
+    else load(true);
   };
 
-  const load = async () => {
-    setLoading(true);
+  // Recarga depois de uma mudança é silenciosa: a tabela continua na tela (sem a linha "Carregando…" piscando).
+  const load = async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     try {
       // ?todos=1: a equipe LawChat recebe também os rascunhos.
       const data = await api<ProductRow[]>("/biblioteca/produtos?todos=1");
-      const lista = ((data ?? []) as ProductRow[]).slice()
-        .sort((x, y) => String(y.updated_at ?? "").localeCompare(String(x.updated_at ?? "")));
-      setRows(lista);
+      setRows(ordenarProdutos((data ?? []) as ProductRow[]));
     } catch (e: any) {
       toast.error(e?.message ?? "Erro ao carregar");
     }
@@ -134,15 +139,20 @@ export default function AdminProdutos() {
     rascunho: rows.filter((r) => r.status === "rascunho").length,
   }), [rows]);
 
+  // Troca de status: a linha muda na hora e fica no mesmo lugar; se o servidor recusar, volta ao que era.
   const setStatus = async (r: ProductRow, status: ProdStatus) => {
+    if (status === r.status) return;
+    const anterior = r.status;
+    setRows((lista) => lista.map((x) => (x.id === r.id ? { ...x, status } : x)));
     try {
       await enviar(`/admin/biblioteca/produtos/${r.id}`, { status }, "PATCH");
     } catch (e: any) {
+      setRows((lista) => lista.map((x) => (x.id === r.id ? { ...x, status: anterior } : x)));
       return toast.error(e?.status === 403 ? "Sem permissão para alterar este produto." : e?.message);
     }
     toast.success(`Status: ${STATUS_LABEL[status]}`);
     invalidarCatalogo();
-    load();
+    load(true);
   };
 
   // Exclusão do catálogo: confirmada num AlertDialog (antes era confirm() nativo).
@@ -162,7 +172,7 @@ export default function AdminProdutos() {
     setExcluindo(null);
     toast.success("Produto excluído do catálogo", { description: r.nome });
     invalidarCatalogo();
-    load();
+    load(true);
   };
 
   const duplicate = async (r: ProductRow) => {
@@ -174,7 +184,7 @@ export default function AdminProdutos() {
       return toast.error(e?.message ?? "Falha ao duplicar");
     }
     toast.success("Duplicado");
-    load();
+    load(true);
   };
 
   const statCards = [
@@ -194,7 +204,7 @@ export default function AdminProdutos() {
           <button type="button" className="btn pri" onClick={() => navigate("/admin/produtos/novo")}><Plus />Novo produto</button>
         </>} />
 
-      <ImportarCatalogoDialog open={importarOpen} onOpenChange={setImportarOpen} onImportado={() => { void load(); invalidarCatalogo(); }} />
+      <ImportarCatalogoDialog open={importarOpen} onOpenChange={setImportarOpen} onImportado={() => { void load(true); invalidarCatalogo(); }} />
 
       {/* Criar no padrão — gera produto + 5 agentes prontos (sistemaia_criar_produto_padrao) */}
       <Dialog open={criarOpen} onOpenChange={setCriarOpen}>

@@ -102,16 +102,5 @@
   .pp-barra i { transition: none; }
 }
 
-/* Dica do tutorial ao chegar na tela (componentes/GuiaRealce.tsx). */
-.lc-guia-alvo { outline: 2px solid #00BC33 !important; outline-offset: 4px; border-radius: 12px; animation: lc-guia-pulso 1.4s ease-in-out infinite; }
-@keyframes lc-guia-pulso { 0%, 100% { box-shadow: 0 0 0 0 rgb(0 188 51 / .35); } 50% { box-shadow: 0 0 0 10px rgb(0 188 51 / 0); } }
-.lc-guia-balao {
-  position: fixed; z-index: 2000; transform: translateX(-50%); padding: 8px 12px; border-radius: 10px; pointer-events: none;
-  background: #0B1324; color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; box-shadow: 0 12px 28px -10px rgb(11 19 36 / .6);
-  animation: lc-guia-entra .3s cubic-bezier(.22, 1, .36, 1) both;
-}
-.lc-guia-balao::before { content: ""; position: absolute; left: 50%; top: -5px; width: 10px; height: 10px; background: inherit; transform: translateX(-50%) rotate(45deg); border-radius: 2px; }
-.lc-guia-balao.acima { transform: translate(-50%, -100%); }
-.lc-guia-balao.acima::before { top: auto; bottom: -5px; }
-@keyframes lc-guia-entra { from { opacity: 0; margin-top: 6px; } to { opacity: 1; margin-top: 0; } }
-@media (prefers-reduced-motion: reduce) { .lc-guia-alvo, .lc-guia-balao { animation: none; } }
+/* A dica do tutorial (realce + balão) fica em componentes/guiaRealce.css. */
+

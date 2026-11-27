@@ -1,25 +1,21 @@
 import { Link } from "react-router-dom";
-import { Wallet } from "lucide-react";
 import { useCarregar } from "./ui";
+import "./saldoTopo.css";
 
-interface Estado { bloqueado: boolean; disponivel_brl?: number; bonus_usado_pct?: number | null; modo?: string }
-
-const reais = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/** Saldo da IA na barra do topo (como no painel antigo): valor e uma barrinha; clique abre Créditos. */
+/** Pílula de saldo no topo (só quem gere a conta vê valores): ● Saldo R$ 482,10  [Recarregar].
+ *  Usa a mesma rota leve do aviso de saldo (/carteira/estado, guardada 15 s no servidor). */
 export function SaldoTopo({ escritorio }: { escritorio: string }) {
-  const { dados } = useCarregar<Estado>("/carteira/estado", [escritorio]);
-  if (!dados || dados.disponivel_brl == null) return null;
-  const valor = dados.disponivel_brl;
-  // Barra: quanto do bônus do mês ainda resta; sem bônus, cheia enquanto houver saldo.
-  const pct = dados.bloqueado || valor <= 0 ? 0 : dados.bonus_usado_pct != null ? Math.max(8, 100 - dados.bonus_usado_pct) : 100;
-  const cor = dados.bloqueado || valor <= 0 ? "#ef4444" : pct < 25 ? "#f59e0b" : "#00bc33";
+  const { dados } = useCarregar<{ bloqueado: boolean; disponivel_brl?: number | string | null }>("/carteira/estado", [escritorio]);
+  if (dados?.disponivel_brl == null) return null;
+  const valor = Number(dados.disponivel_brl) || 0;
+  const tom = dados.bloqueado || valor <= 0 ? "zerado" : valor < 50 ? "baixo" : "ok";
+  const texto = valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   return (
-    <Link to="/consumo" className="lc-saldo-topo" title="Créditos da IA: ver consumo e pedir recarga">
-      <Wallet aria-hidden />
-      <span className="lc-saldo-rot">Saldo</span>
-      <b className="num" style={{ color: dados.bloqueado || valor <= 0 ? "#dc2626" : undefined }}>{reais(valor)}</b>
-      <span className="lc-saldo-barra" aria-hidden><i style={{ width: `${pct}%`, background: cor }} /></span>
-    </Link>
+    <span className={`lc-saldo-topo lc-saldo-${tom}`} title={tom === "zerado" ? "Sem saldo: a IA está pausada" : "Saldo disponível para a IA"}>
+      <i className="lc-saldo-ponto" aria-hidden />
+      <span className="lc-saldo-rotulo">Saldo</span>
+      <b className="lc-saldo-valor">{texto}</b>
+      <Link to="/consumo" className="lc-saldo-botao">Recarregar</Link>
+    </span>
   );
 }

@@ -10,7 +10,7 @@ export const SELETOR_BRILHO = ".lc-brilho, .btn:not(.ghost):not(.link), .cv-bota
 /** Dentro destes lugares o botão fica sem efeito (tabelas, menus, listas suspensas). */
 const SEM_BRILHO = "td, [role='menu'], [role='listbox'], [role='menubar'], [data-radix-popper-content-wrapper], [cmdk-root], .lc-sem-brilho";
 const ALCANCE = 115;        // px: a partir daqui o botão começa a acender
-const BUSCA_MS = 600;       // de quanto em quanto tempo a lista de botões é relida
+const BUSCA_MS = 1200;      // de quanto em quanto tempo a lista de botões é relida
 const MEDIDA_MS = 220;      // de quanto em quanto tempo as posições são medidas de novo (rolar mede na hora)
 
 let instalado = false;
@@ -22,8 +22,19 @@ export function instalarBrilhoBotoes(): void {
   const menosMovimento = mm("(prefers-reduced-motion: reduce)");
   const mouseFino = mm("(hover: hover) and (pointer: fine)");
 
+  let todos = new Set<HTMLElement>();          // botões achados na página
+  const visiveis = new Set<HTMLElement>();      // só os que estão na tela (IntersectionObserver): só estes são medidos
   let alvos: HTMLElement[] = [];
   let caixas: DOMRect[] = [];
+  const vigia = typeof IntersectionObserver === "function"
+    ? new IntersectionObserver((entradas) => {
+      for (const e of entradas) {
+        const el = e.target as HTMLElement;
+        if (e.isIntersecting) visiveis.add(el); else visiveis.delete(el);
+      }
+      ultimaMedida = -Infinity;
+    })
+    : null;
   let ultimaBusca = -Infinity;
   let ultimaMedida = -Infinity;
   let acesos = new Set<HTMLElement>();
@@ -34,14 +45,20 @@ export function instalarBrilhoBotoes(): void {
     if (agora - ultimaBusca >= BUSCA_MS) {
       ultimaBusca = agora;
       ultimaMedida = -Infinity;
-      alvos = [];
+      const novos = new Set<HTMLElement>();
       document.querySelectorAll<HTMLElement>(SELETOR_BRILHO).forEach((el) => {
-        if (!el.closest(SEM_BRILHO)) alvos.push(el);
+        if (!el.closest(SEM_BRILHO)) novos.add(el);
       });
+      if (vigia) {
+        novos.forEach((el) => { if (!todos.has(el)) vigia.observe(el); });
+        todos.forEach((el) => { if (!novos.has(el)) { vigia.unobserve(el); visiveis.delete(el); } });
+      }
+      todos = novos;
     }
     // As posições ficam guardadas por alguns quadros: medir todo quadro forçaria o navegador a refazer o layout.
     if (agora - ultimaMedida >= MEDIDA_MS) {
       ultimaMedida = agora;
+      alvos = vigia ? Array.from(visiveis) : Array.from(todos);
       caixas = alvos.map((el) => el.getBoundingClientRect());
     }
   };
@@ -53,7 +70,7 @@ export function instalarBrilhoBotoes(): void {
 
   const quadro = () => {
     agendado = false;
-    if (menosMovimento?.matches) { apagarTodos(); return; }
+    if (menosMovimento?.matches || document.hidden) { apagarTodos(); return; }
     buscar(performance.now());
     // 1) só contas com as posições guardadas (nenhuma leitura de layout aqui)
     const perto: Array<[HTMLElement, number, number, number]> = [];

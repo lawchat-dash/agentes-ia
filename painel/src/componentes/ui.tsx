@@ -74,7 +74,7 @@ const ContextoAviso = createContext<(texto: string, tipo?: "ok" | "bad") => void
 export function ProvedorAvisos({ children }: { children: ReactNode }) {
   const avisar = useCallback((texto: string, tipo: "ok" | "bad" = "ok") => {
     if (tipo === "bad") toast.error(texto, { id: `aviso-bad:${texto}`, duration: 6000 }); // id fixo: o mesmo aviso não empilha
-    else toast.success(texto, { id: `aviso-ok:${texto}`, duration: 3000 });
+    else toast.success(texto, { id: `aviso-ok:${texto}`, duration: 3000, className: "lc-toast-3s" }); // a classe acerta o pavio com os 3 s
   }, []);
   return <ContextoAviso.Provider value={avisar}>{children}</ContextoAviso.Provider>;
 }

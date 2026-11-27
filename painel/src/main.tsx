@@ -98,7 +98,7 @@ function usePreCarregarTelas(ligado: boolean, podeGerir: boolean, admin: boolean
 }
 
 const TITULOS: [RegExp, string][] = [
-  [/^\/$/, "Início"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
+  [/^\/$/, "Painel Inicial"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
   [/^\/relatorios\/campanhas/, "Relatórios › Rastreamento de campanhas"], [/^\/relatorios/, "Relatórios › Dashboard"], [/^\/erros/, "Erros"], [/^\/conversas/, "Conversas"], [/^\/atendimento/, "Central de Atendimento"],
   [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus agentes"],
   [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos no WhatsApp"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas\/followup/, "Ferramentas › Follow-up"], [/^\/ferramentas\/midia/, "Ferramentas › Biblioteca de mídia"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],

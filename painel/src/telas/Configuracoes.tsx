@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { Power, Save, UserPlus } from "lucide-react";
 import { enviar, quando } from "../api";
 import { Alerta, Cabecalho, Carregando, Interruptor, Modal, Painel, SenhaProvisoria, Vazio, useAcao, useCarregar } from "../componentes/ui";
@@ -61,7 +62,7 @@ export function TelaConfiguracoes() {
     <>
       <Cabecalho eyebrow="Configurar" titulo="Escritório" texto="Dados do escritório, interruptor geral da IA e quem acessa o painel." />
       <div className="two">
-        <Painel titulo="Dados" acoes={<button className="btn pri sm" onClick={salvar} disabled={ocupado}><Save />Salvar</button>}>
+        <Painel titulo="Dados" acoes={<BotaoBrilho size="sm" radius={10} onClick={salvar} disabled={ocupado}><Save />Salvar</BotaoBrilho>}>
           <div className="form">
             <label className="field"><span className="lbl">Nome</span><input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></label>
             <label className="field"><span className="lbl">Honorários padrão</span>
@@ -108,7 +109,7 @@ export function TelaConfiguracoes() {
             </div>
             {dados.situacao !== "ativo" && <div style={{ marginTop: 10 }}><Alerta tipo="warn">Escritório {dados.situacao}: a IA não responde.</Alerta></div>}
           </Painel>
-          <Painel titulo="Quem acessa" sem_corpo acoes={<button className="btn sm" onClick={() => setNovo({ email: "", nome: "", papel: "atendente" })}><UserPlus />Convidar</button>}>
+          <Painel titulo="Quem acessa" sem_corpo acoes={<BotaoBrilho suave size="sm" radius={10} onClick={() => setNovo({ email: "", nome: "", papel: "atendente" })}><UserPlus />Convidar</BotaoBrilho>}>
             {dados.usuarios.length === 0 ? <Vazio>Ninguém ainda. Quem entra pela LawChat aparece aqui sozinho.</Vazio> : (
               <div className="rows">{dados.usuarios.map((u) => (
                 <div key={u.id}>

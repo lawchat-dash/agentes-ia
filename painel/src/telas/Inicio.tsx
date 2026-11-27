@@ -14,8 +14,6 @@ import { formatarTelefone, quando } from "../api";
 import { Cabecalho, Carregando, Painel, Vazio, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { PainelFunil } from "./Funil";
-import BorderGlow from "@/components/ui/border-glow";
-import { useCardGlow } from "@/components/dashboard/useCardGlow";
 import { SaldoCenter, formatUSD, type ConsumoMes, type CarteiraResumo } from "@/components/dashboard/ConsumoCenter";
 import { StatusPanel } from "@/components/dashboard/StatusPanel";
 import { ActivityFeed, type ActivityItem } from "@/components/dashboard/ActivityFeed";
@@ -27,7 +25,9 @@ import { conectarAvisoAssinatura } from "@/hooks/useZapsign";
 import { toast } from "sonner";
 import { PrimeirosPassos, type PrimeirosPassosDados } from "@/components/dashboard/PrimeirosPassos";
 import { BentoIndicadores } from "@/components/dashboard/BentoIndicadores";
-import TextType from "@/components/reactbits/TextType";
+import { SaudacaoHero } from "@/components/dashboard/SaudacaoHero";
+import { OnboardingInicial } from "@/components/dashboard/OnboardingInicial";
+import { GraficosInicio, type DashboardResumo } from "@/components/dashboard/GraficosInicio";
 import "../estilo-inicio.css";
 
 /* ---------- dados da API ---------- */
@@ -66,7 +66,6 @@ const AI_FEATURES = [
 ];
 
 const TILE = "lc-card lc-metric relative overflow-hidden";
-const APP_VERSION = "v0.1.0";
 const DIAS = 30;
 const ESPERA_ALERTAS_MS = 700;
 const CORES_AGENTES = ["#22c55e", "#0ea5e9", "#2563eb", "#f59e0b", "#ef4444"];
@@ -136,11 +135,14 @@ export function TelaInicio() {
   const metricas = useCarregar<Metricas>(escritorio ? `/inicio/metricas?dias=${DIAS}` : null, [escritorio]);
   const carteira = useCarregar<CarteiraResumo>(escritorio && podeGerir ? "/carteira" : null, [escritorio]);
   const passos = useCarregar<PrimeirosPassosDados>(escritorio && podeGerir ? "/inicio/primeiros-passos" : null, [escritorio]);
+  // Relatórios (quem gere): hoje (qualificados e resposta média do herói) e os últimos 30 dias (gráficos e contratos de hoje).
+  const hojeBr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const dashHoje = useCarregar<DashboardResumo>(escritorio && podeGerir ? `/relatorios/dashboard?de=${hojeBr}&ate=${hojeBr}` : null, [escritorio, hojeBr]);
+  const dash30 = useCarregar<DashboardResumo>(escritorio && podeGerir ? "/relatorios/dashboard" : null, [escritorio]);
   const rootRef = useRef<HTMLDivElement>(null);
   const reduzirMovimento = useReducedMotion();
   const [verTodosAlertas, setVerTodosAlertas] = useState(false);
   const { dispensados, dispensar } = useAlertasDispensados(escritorio);
-  useCardGlow(rootRef, { pronto: Boolean(metricas.dados) });
   // Os números chegaram e o /inicio (alertas) não: espera no máximo ESPERA_ALERTAS_MS e mostra o resto (os alertas
   // entram depois, com animação). Antes a tela toda ficava no esqueleto esperando a rota mais lenta.
   const [semEsperarAlertas, setSemEsperarAlertas] = useState(false);
@@ -153,9 +155,6 @@ export function TelaInicio() {
   }, [temNumeros, temAlertas]);
 
   const firstName = eu?.nome?.split(" ")[0] || "você";
-  const hora = new Date().getHours();
-  const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
-  const saudacaoEmoji = hora < 12 ? "🌅" : hora < 18 ? "☀️" : hora < 20 ? "🌆" : "🌙";
 
   if (!escritorio) {
     return (
@@ -168,6 +167,9 @@ export function TelaInicio() {
   const v = metricas.dados;
   // Espera também o /inicio (de onde vêm os alertas), para eles não surgirem depois empurrando os KPIs.
   if (!v || (!temAlertas && !semEsperarAlertas)) return <Carregando erro={metricas.erro} />;
+  // Sem nenhum agente no ar: quem gere vê o onboarding (primeiros passos) no lugar do painel normal.
+  const emOnboarding = podeGerir && v.agentes_ativos === 0;
+  if (emOnboarding && !passos.dados && !passos.erro) return <Carregando />;
 
   /* ---------- alertas operacionais (topo) ---------- */
   const alertas: (AlertaOperacionalProps & { chave: string })[] = [];
@@ -278,28 +280,20 @@ export function TelaInicio() {
 
   return (
     <div ref={rootRef} className="lc-inicio pb-6 max-w-[1600px] mx-auto overflow-x-clip">
-      {/* Header */}
-      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6 flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="flex flex-wrap items-center gap-2 text-[28px] md:text-[33px] font-bold tracking-tight text-[#0b1220]">
-            {/* Saudação que se digita sozinha (React Bits TextType), uma vez só. A cópia invisível guarda o lugar:
-                o emoji e o selo não pulam enquanto as letras aparecem. */}
-            <span className="relative inline-block">
-              <span className="invisible whitespace-nowrap" aria-hidden>{saudacao}, {firstName}!</span>
-              <TextType as="span" className="!absolute inset-0 !whitespace-nowrap" text={`${saudacao}, ${firstName}!`} loop={false}
-                typingSpeed={55} initialDelay={250} cursorStyle="bar" cursorColor="#00bc33" hideCursorOnDone />
-            </span>
-            <span className="inline-block animate-[wiggle_2s_ease-in-out_infinite]" aria-hidden>{saudacaoEmoji}</span>
-            <span title={`Versão ${APP_VERSION} — em fase beta`} className="inline-flex items-center gap-1 rounded-full border border-[#fde9c8] bg-[#fff4df] px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#d97706]">
-              <Sparkles className="size-3" /> Beta
-            </span>
-          </h1>
-          <p className="text-[#667085] mt-0.5 text-[13px]">Aqui está o desempenho de hoje<span className="ml-1.5 text-[11px] text-[#98A2B3]">· {APP_VERSION}</span></p>
-        </div>
-        {podeGerir && (
-          <BotaoBrilho size="md" radius={12} onClick={() => navegar("/biblioteca")}><Plus className="size-4" /> Novo a partir da Biblioteca</BotaoBrilho>
-        )}
-      </motion.div>
+      {/* Herói: saudação e números de hoje (fora do onboarding) */}
+      {!(emOnboarding && passos.dados) && (
+        <SaudacaoHero d={{
+          nome: firstName,
+          agentesNoAr: v.agentes_ativos,
+          pessoasHoje: v.conversas_hoje,
+          contratosHoje: dash30.dados ? dash30.dados.serie.find((x) => x.dia === hojeBr)?.assinados ?? 0 : null,
+          qualificadosHoje: dashHoje.dados ? dashHoje.dados.kpis.qualificados : null,
+          respostaMediaS: dashHoje.dados?.kpis.primeira_resposta_s ?? v.resposta_media_s,
+          acao: podeGerir ? (
+            <BotaoBrilho size="md" radius={12} onClick={() => navegar("/biblioteca")}><Plus className="size-4" /> Novo a partir da Biblioteca</BotaoBrilho>
+          ) : undefined,
+        }} />
+      )}
 
       {/* Alertas operacionais */}
       <section aria-label="Avisos do escritório" className={`flex flex-col ${alertasVisiveis.length > 0 ? "mb-1.5" : ""}`}>
@@ -325,6 +319,7 @@ export function TelaInicio() {
         )}
       </section>
 
+      {emOnboarding && passos.dados ? <OnboardingInicial dados={passos.dados} /> : (<>
       {/* Primeiros passos: marcam-se sozinhos e o cartão some quando tudo está feito */}
       {podeGerir && passos.dados && <PrimeirosPassos dados={passos.dados} />}
 
@@ -339,6 +334,9 @@ export function TelaInicio() {
         followup: { pendentes: v.followup.pendentes, enviados: v.followup.enviados, respondidos: v.followup.respondidos, taxa: v.followup.taxa_resposta, taxaVariacao: v.followup.taxa_variacao },
         produtos: v.produtos, podeGerir,
       }} />
+
+      {/* Gráficos leves (SVG) dos últimos 30 dias: leads, contratos, custo, horários e conversão */}
+      {dash30.dados && <GraficosInicio d={dash30.dados} mostrarCusto={podeGerir} />}
 
       {/* Bloco superior: charts (esq, 2 sub-colunas) + Atividades (coluna alta à direita) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mt-3 items-stretch">
@@ -434,30 +432,29 @@ export function TelaInicio() {
               )}
             </Tile>
 
-            <BorderGlow className="lg:col-span-5" backgroundColor="#04140a" borderRadius={20} glowColor="142 72 52" glowIntensity={1.15} glowRadius={32} coneSpread={22} colors={["#22c55e", "#4ade80", "#16a34a"]} animated>
-              <div className="relative h-full p-6 flex flex-col overflow-hidden" style={{ background: "radial-gradient(120% 80% at 115% -5%, rgba(34,197,94,.20), transparent 50%), linear-gradient(160deg,#0a2e1a 0%,#04140a 70%)" }}>
-                {/* brilho verde sutil */}
-                <div className="absolute -left-12 top-10 size-44 rounded-full bg-[#22c55e]/15 blur-3xl pointer-events-none" />
-                {/* título */}
-                <h3 className="relative text-white font-extrabold text-[21px] leading-[1.15] tracking-tight flex items-start gap-2"><Sparkles className="size-5 text-[#4ade80] shrink-0 mt-0.5" /> <span>Atendimento com <span className="text-[#34e06b]">inteligência artificial</span></span></h3>
-                <p className="relative text-white/65 text-[12.5px] mt-2 leading-relaxed max-w-[21rem]">Automatize conversas, responda mais rápido e aumente suas conversões.</p>
-                {/* features */}
-                <div className="relative mt-4 space-y-2">
+            <div className="lc-ia-cartao lg:col-span-5">
+              <div className="lc-ia-cartao__brilho" aria-hidden />
+              <div className="lc-ia-cartao__miolo">
+                <span className="lc-ia-cartao__icone" aria-hidden><Sparkles className="size-5" /></span>
+                <h3 className="text-white font-extrabold text-[21px] leading-[1.15] tracking-tight">Atendimento com <span className="text-[#34e06b]">inteligência artificial</span></h3>
+                <p className="text-white/65 text-[13px] mt-2 leading-relaxed max-w-[22rem] mx-auto">Automatize conversas, responda mais rápido e aumente suas conversões.</p>
+                <ul className="mt-5 w-full max-w-[22rem] mx-auto space-y-2 text-left">
                   {AI_FEATURES.map((f) => (
-                    <div key={f.title} className="flex items-center gap-3 p-2.5 rounded-xl border border-white/10 bg-white/[0.04] backdrop-blur-sm">
-                      <div className="size-9 rounded-lg grid place-items-center border border-[#22c55e]/30 bg-[#22c55e]/10 text-[#4ade80] shrink-0"><f.icon className="size-4" /></div>
-                      <div className="min-w-0">
-                        <div className="text-white font-semibold text-[12.5px] leading-tight">{f.title}</div>
-                        <div className="text-white/50 text-[11px] leading-snug mt-0.5">{f.desc}</div>
-                      </div>
-                    </div>
+                    <li key={f.title} className="lc-ia-cartao__item">
+                      <span className="size-9 rounded-lg grid place-items-center border border-[#22c55e]/30 bg-[#22c55e]/10 text-[#4ade80] shrink-0"><f.icon className="size-4" /></span>
+                      <span className="min-w-0">
+                        <span className="block text-white font-semibold text-[12.5px] leading-tight">{f.title}</span>
+                        <span className="block text-white/50 text-[11px] leading-snug mt-0.5">{f.desc}</span>
+                      </span>
+                    </li>
                   ))}
+                </ul>
+                <div className="mt-5 flex flex-col items-center gap-3">
+                  <Link to="/biblioteca" className="lc-pay-btn inline-flex items-center justify-center gap-1.5 h-11 px-6 rounded-xl font-bold text-[13px] text-white">Explorar recursos <ArrowUpRight className="size-4" /></Link>
+                  <Link to="/biblioteca" className="inline-flex items-center gap-1.5 text-white/60 hover:text-white text-[12px] font-medium transition-colors"><PlayCircle className="size-4 text-[#4ade80]" /> Ver como funciona</Link>
                 </div>
-                {/* CTA */}
-                <Link to="/biblioteca" className="lc-pay-btn relative mt-4 inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-xl font-bold text-[13px] text-white w-full sm:w-fit">Explorar recursos <ArrowUpRight className="size-4" /></Link>
-                <Link to="/biblioteca" className="relative mt-3 self-start inline-flex items-center gap-1.5 text-white/55 hover:text-white text-[12px] font-medium transition-colors"><PlayCircle className="size-4 text-[#4ade80]" /> Ver como funciona</Link>
               </div>
-            </BorderGlow>
+            </div>
           </div>
         </div>
 
@@ -466,6 +463,7 @@ export function TelaInicio() {
 
       {/* Funil do agente */}
       <div className="mt-3"><PainelFunil /></div>
+      </>)}
     </div>
   );
 }

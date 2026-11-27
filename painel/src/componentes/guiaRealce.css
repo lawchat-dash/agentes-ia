@@ -1,0 +1,46 @@
+/* Menu guiado (componentes/GuiaRealce.tsx): véu escuro e borrado, alvo recortado com contorno branco + anel verde,
+   balão branco com progresso em pílulas. Só transições que rodam uma vez. */
+.lc-guia { position: fixed; inset: 0; z-index: 9000; pointer-events: none; }
+.lc-guia-veu {
+  position: fixed; pointer-events: auto;
+  background: rgb(6 19 12 / .55);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  animation: lc-guia-aparece .2s ease-out both;
+}
+.lc-guia-anel {
+  position: fixed; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 5px var(--brand-700, #00852A), 0 10px 30px rgb(0 0 0 / .25);
+  transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease;
+}
+.lc-guia-balao {
+  position: fixed; pointer-events: auto; box-sizing: border-box;
+  background: #fff; color: var(--ink, #0C1811); border-radius: 14px; padding: 14px 16px 14px;
+  box-shadow: 0 18px 48px rgb(6 19 12 / .28), 0 0 0 1px rgb(12 24 17 / .06);
+  animation: lc-guia-entra .28s cubic-bezier(.22, 1, .36, 1) both;
+}
+.lc-guia-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lc-guia-rotulo { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-700, #00852A); }
+.lc-guia-x { display: grid; place-items: center; width: 26px; height: 26px; margin: -4px -6px 0 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-3, #69786F); cursor: pointer; }
+.lc-guia-x:hover { background: var(--bg, #F3F6F4); color: var(--ink, #0C1811); }
+.lc-guia-x svg { width: 15px; height: 15px; }
+.lc-guia-titulo { margin: 4px 0 0; font-size: 15.5px; font-weight: 700; line-height: 1.3; letter-spacing: -.01em; }
+.lc-guia-texto { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-2, #3D4B43); }
+.lc-guia-rodape { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.lc-guia-espaco { flex: 1; }
+.lc-guia-pilulas { display: inline-flex; align-items: center; gap: 4px; }
+.lc-guia-pilulas i { width: 6px; height: 6px; border-radius: 999px; background: var(--line-2, #CBD8CF); transition: width .25s ease, background-color .25s ease; }
+.lc-guia-pilulas i.feito { background: var(--sage, #A7D7A4); }
+.lc-guia-pilulas i.on { width: 18px; background: var(--brand-700, #00852A); }
+.lc-guia-pular { border: 0; background: transparent; padding: 6px 8px; border-radius: 8px; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3, #69786F); cursor: pointer; }
+.lc-guia-pular:hover { color: var(--ink, #0C1811); background: var(--bg, #F3F6F4); }
+.lc-guia-acao { border: 0; border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 700; color: #fff; background: var(--brand-700, #00852A); cursor: pointer; transition: background-color .15s ease; }
+.lc-guia-acao:hover { background: var(--brand-800, #0B5E27); }
+.lc-guia-acao:focus-visible, .lc-guia-pular:focus-visible, .lc-guia-x:focus-visible { outline: 2px solid var(--brand, #00BC33); outline-offset: 2px; }
+@keyframes lc-guia-aparece { from { opacity: 0; } }
+@keyframes lc-guia-entra { from { opacity: 0; transform: translateY(6px); } }
+.lc-guia-balao.acima { animation-name: lc-guia-entra-acima; }
+@keyframes lc-guia-entra-acima { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) {
+  .lc-guia-veu, .lc-guia-balao { animation: none; }
+  .lc-guia-anel, .lc-guia-pilulas i { transition: none; }
+}

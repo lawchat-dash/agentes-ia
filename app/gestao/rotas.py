@@ -1859,6 +1859,8 @@ async def ativar_agente(id_agente: str, dados: Ativacao, pedido: Request, ctx: C
     agente = await repo.agente(ctx.escritorio(), id_agente)
     if not agente:
         raise HTTPException(404, "Agente não encontrado.")
+    if agente["situacao"] == "arquivado":
+        raise HTTPException(409, "Este agente está arquivado. Restaure em Meus agentes antes de ligar ou pausar.")
     preparacao: dict[str, Any] | None = None
     if dados.situacao == "ativo":
         modo = dados.modo or agente["modo"]
@@ -2722,7 +2724,7 @@ async def entrar_na_helena(dados: EntrarNaHelena, pedido: Request, ctx: Contexto
             raise HTTPException(404, "Esta conversa ainda não tem atendimento aberto na LawChat.")
         if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", str(id_sessao)):
             raise HTTPException(409, "Atendimento da LawChat com identificador inesperado.")
-        destino = f"/chat2/sessions/{id_sessao}/preview?interactive=true"
+        destino = f"/chat2/sessions/{id_sessao}"          # a conversa normal (sem o modo preview), já aberta
     try:
         resposta = await helena.login_integrado(email=email, id_conta=str(id_conta), destino=destino)
     except ErroHelenaApi as erro:

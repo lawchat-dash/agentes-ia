@@ -1,12 +1,13 @@
-import { AlertTriangle, Check, Info, Loader2, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, Check, Info, Loader2, X } from "lucide-react";
 import { Toaster as Sonner, toast } from "sonner";
+import "./sonner.css";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 /**
- * Avisos rápidos (sonner) no padrão LawChat: card branco, realce lateral colorido por tipo,
- * ícone em círculo, título forte e descrição cinza. O visual fica em estilo.css (.lc-toast*),
- * por isso o sonner roda "unstyled" e sem richColors (que deixava o aviso chapado).
+ * Avisos rápidos (sonner) no visual do SwipeToast do React Bits: card escuro, ícone por tipo
+ * (check verde, alerta vermelho...), botão de ação claro e o pavio queimando embaixo no tempo do aviso.
+ * Base em estilo.css (.lc-toast*), sobreposta por ./sonner.css. Todas as chamadas toast.* continuam iguais.
  */
 const icone = (tipo: string, el: React.ReactNode) => (
   <span className={`lc-toast-bolha lc-toast-bolha-${tipo}`} aria-hidden="true">{el}</span>
@@ -14,7 +15,7 @@ const icone = (tipo: string, el: React.ReactNode) => (
 
 const ICONES: NonNullable<ToasterProps["icons"]> = {
   success: icone("success", <Check strokeWidth={3} />),
-  error: icone("error", <X strokeWidth={3} />),
+  error: icone("error", <AlertCircle strokeWidth={2.5} />),
   warning: icone("warning", <AlertTriangle strokeWidth={2.5} />),
   info: icone("info", <Info strokeWidth={2.5} />),
   loading: icone("loading", <Loader2 className="animate-spin" strokeWidth={2.5} />),
@@ -28,6 +29,7 @@ const Toaster = ({ toastOptions, icons, ...props }: ToasterProps) => {
       className="toaster lc-toaster"
       closeButton
       gap={10}
+      swipeDirections={["right", "bottom", "top"]}
       {...props}
       richColors={false}
       icons={{ ...ICONES, ...icons }}

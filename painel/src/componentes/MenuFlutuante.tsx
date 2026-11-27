@@ -26,7 +26,7 @@ export function MenuFlutuante() {
   const atalhos: Atalho[] = [];
   if (escritorio) {
     if (podeGerir) atalhos.push({ para: "/biblioteca", rotulo: "Criar agente", icone: <Plus />, destaque: true });
-    atalhos.push({ para: "/", rotulo: "Início", icone: <Home /> });
+    atalhos.push({ para: "/", rotulo: "Painel Inicial", icone: <Home /> });
     if (podeGerir) atalhos.push({ para: "/agentes", rotulo: "Agentes", icone: <Bot /> });
     if (podeGerir) {
       if (lawchat && admin) atalhos.push({ para: "/erros", rotulo: "Erros", icone: <AlertOctagon /> });

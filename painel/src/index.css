@@ -8,8 +8,8 @@
 @layer base {
   :root {
     /* Lawchat-inspired: Indigo + Slate, flat, professional */
-    --background: 210 40% 96%;          /* Slate-100 #F1F5F9 */
-    --foreground: 217 33% 17%;          /* Slate-800 #1E293B */
+    --background: 140 14% 96%;          /* Slate-100 #F1F5F9 */
+    --foreground: 145 33% 7%;          /* Slate-800 #1E293B */
 
     --card: 0 0% 100%;
     --card-foreground: 217 33% 17%;
@@ -17,20 +17,20 @@
     --popover: 0 0% 100%;
     --popover-foreground: 217 33% 17%;
 
-    --primary: 136 100% 37%;            /* LawChat --g2 #00BC33 */
+    --primary: 139 100% 26%;            /* --brand-700 #00852A: botão e link (o #00BC33 fica para sinal/ao vivo) */
     --primary-foreground: 0 0% 100%;
     --primary-glow: 117 36% 75%;        /* LawChat --g1 #A7D7A4 */
 
-    --secondary: 117 36% 95%;           /* Soft sálvia tint */
+    --secondary: 140 43% 93%;           /* Soft sálvia tint */
     --secondary-foreground: 135 100% 22%;/* Deep green text */
 
-    --muted: 210 40% 96%;               /* Slate-100 */
-    --muted-foreground: 215 16% 47%;    /* Slate-500 */
+    --muted: 140 14% 96%;               /* Slate-100 */
+    --muted-foreground: 144 7% 44%;    /* Slate-500 */
 
-    --accent: 117 50% 94%;              /* Sálvia accent */
+    --accent: 140 43% 93%;              /* Sálvia accent */
     --accent-foreground: 135 100% 22%;  /* Deep green */
 
-    --destructive: 0 72% 51%;
+    --destructive: 8 71% 44%;
     --destructive-foreground: 0 0% 100%;
 
     --success: 136 100% 37%;            /* same as primary --g2 */
@@ -39,8 +39,8 @@
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 214 32% 91%;
-    --input: 213 27% 84%;
+    --border: 137 14% 90%;
+    --input: 137 12% 84%;
     --ring: 136 100% 37%;
 
     /* Cantos mais generosos, alinhados à landing (12px base) */
@@ -397,9 +397,9 @@
 
 /* ===== Dashboard premium (Apple-like, claro) — tokens do brief ===== */
 .lc-card {
-  background: rgba(255,255,255,0.82);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  /* Sem backdrop-filter: o fundo da página é quase branco, o desfoque não aparecia, mas cada cartão virava uma
+     camada que o navegador redesenhava a cada rolagem (dezenas por tela). Fundo um pouco mais opaco no lugar. */
+  background: rgba(255,255,255,0.9);
   border: 1px solid rgba(226,232,240,0.9);
   border-radius: 20px;
   box-shadow: 0 8px 24px rgba(15,23,42,0.055), inset 0 1px 0 rgba(255,255,255,0.7);
@@ -445,10 +445,10 @@
   color: #fff;
   border-radius: 18px;
   box-shadow: 0 14px 28px rgba(34,197,94,0.32), inset 0 1px 0 rgba(255,255,255,0.25);
-  transition: all .25s ease;
+  transition: transform .25s ease, box-shadow .25s ease, opacity .25s ease;
 }
 .lc-primary:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px rgba(34,197,94,0.38); }
-.lc-metric { transition: all .22s ease; }
+.lc-metric { transition: transform .22s ease, box-shadow .22s ease; }
 .lc-metric:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(15,23,42,0.08); }
 .lc-status-dot { width: 8px; height: 8px; background: #22c55e; border-radius: 999px; box-shadow: 0 0 0 6px rgba(34,197,94,.12); }
 .lc-glow { position: absolute; filter: blur(60px); background: rgba(34,197,94,0.22); border-radius: 999px; pointer-events: none; }
