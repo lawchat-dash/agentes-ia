@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import AnimatedList from "@/components/reactbits/AnimatedList";
 import { NomeDoEscritorio } from "./nomeEscritorio";
-import { PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
+import { PAGINAS_CONFIG, PAGINAS_CONTA, PAGINAS_CRM } from "../telas/MinhaConta";
 import { CamadaLawChat, preabrirLawChat } from "./camadaLawChat";
-import { estiloDaCentral, estiloDoQuadro } from "../telas/Atendimento";
+import { estiloDaCentral, estiloDoQuadro, estiloDoQuadroConfig } from "../telas/Atendimento";
 import { createPortal } from "react-dom";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig, motion } from "framer-motion";
@@ -84,10 +84,15 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
     const t = window.setTimeout(() => {
       preabrirLawChat([{ codigo: "atendimento", titulo: "Central de Atendimento", estilo: estiloDaCentral }]);
       if (!gestorDaConta) return;
-      // Só as telas do CRM entram por trás. Antes eram ~12 cópias da LawChat (Chatbots, Conta, Configurações...)
-      // rodando juntas o tempo todo, e o painel inteiro ficava lento. As outras abrem no clique e ficam montadas.
-      preabrirLawChat(PAGINAS_CRM.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })));
-    }, 2500);
+      // Todas as telas da LawChat entram por trás (uma de cada vez, a Central primeiro), já durante a tela de
+      // carregamento: ao clicar, já estão prontas. O dono prefere isso a abrir no clique.
+      preabrirLawChat([
+        { codigo: "chatbots", titulo: "Chatbots", estilo: estiloDoQuadro },
+        ...PAGINAS_CRM.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })),
+        ...PAGINAS_CONTA.filter((p) => p.codigo !== "ia" && p.codigo !== "conta").map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadro })),
+        ...PAGINAS_CONFIG.map((p) => ({ codigo: p.codigo, titulo: p.rotulo, estilo: estiloDoQuadroConfig })),
+      ]);
+    }, 300);
     return () => window.clearTimeout(t);
   }, [escritorio, gestorDaConta]);
   const celular = useCelular();

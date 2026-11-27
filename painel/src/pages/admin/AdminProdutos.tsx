@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Pencil, Plus, Trash2, Copy, Search, Package, CheckCircle2, Clock3, FileEdit, Sparkles, Loader2, Upload } from "lucide-react";
 import { categories, getCategoryIcon, resolveGradient } from "@/data/categories";
+import "./adminProdutos.css";
 import { ImportarCatalogoDialog } from "@/components/admin/ImportarCatalogoDialog";
 
 // Catálogo: agentesia_biblioteca_produtos (via /api/biblioteca e /api/admin/biblioteca). Cada produto tem
@@ -265,33 +266,28 @@ export default function AdminProdutos() {
         ))}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por nome ou slug..."
-            className="pl-9 h-10 rounded-xl"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
-          <button
-            onClick={() => setCat(null)}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${!cat ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent"}`}
-          >
-            Todas
+      {/* Barra de busca + categorias: um cartão só; categorias com contagem, as vazias ficam apagadas */}
+      <div className="ap-barra">
+        <label className="ap-busca">
+          <Search className="size-4" aria-hidden />
+          <input placeholder="Buscar por nome ou slug" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Buscar produto" />
+          {search && <button type="button" className="ap-limpar" onClick={() => setSearch("")} aria-label="Limpar busca">×</button>}
+        </label>
+        <span className="ap-divisor" aria-hidden />
+        <div className="ap-cats" role="tablist" aria-label="Categoria">
+          <button type="button" role="tab" aria-selected={!cat} className="ap-cat" onClick={() => setCat(null)}>
+            Todas <em>{rows.length}</em>
           </button>
-          {categories.map((c) => (
-            <button
-              key={c.name}
-              onClick={() => setCat(c.name)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${cat === c.name ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent"}`}
-            >
-              {c.name}
-            </button>
-          ))}
+          {categories.map((c) => {
+            const n = rows.filter((r) => r.categoria === c.name).length;
+            const Icone = c.Icon;
+            return (
+              <button key={c.name} type="button" role="tab" aria-selected={cat === c.name} data-vazia={n === 0 || undefined}
+                      className="ap-cat" onClick={() => setCat(cat === c.name ? null : c.name)}>
+                <Icone className="size-3.5" aria-hidden />{c.name}{n > 0 && <em>{n}</em>}
+              </button>
+            );
+          })}
         </div>
       </div>
 

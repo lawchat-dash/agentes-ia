@@ -83,18 +83,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
     const pend = d.followup.pendentes;
     const lista: MagicBentoItem[] = [
       {
-        id: "conversas", colSpan: 2,
-        content: (
-          <div className="lc-bento__corpo">
-            <Topo icone={MessageSquare} rotulo="Conversas hoje" cor="#00bc33" fundo="#e8f9ee" vivo />
-            <div className="lc-bento__valor lc-bento__valor--grande"><Numero valor={d.conversasHoje} chave={`${chave}-conv`} /><Variacao v={d.conversasHojeVariacao} /></div>
-            <span className="lc-bento__sub">vs. ontem · {d.serie.reduce((s, x) => s + (x.conv || 0), 0).toLocaleString("pt-BR")} nos últimos {d.dias} dias</span>
-            <Linha serie={d.serie} chave="conv" cor="#22c55e" id="lcb-conv" />
-          </div>
-        ),
-      },
-      {
-        id: "mensagens",
+        id: "mensagens", colSpan: 2,
         content: (
           <div className="lc-bento__corpo">
             <Topo icone={Mail} rotulo={`Mensagens (${d.dias}d)`} cor="#2563eb" fundo="#eaf1ff" mexida="balanco" />
@@ -137,17 +126,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
         ),
       },
       {
-        id: "contratos",
-        content: (
-          <div className="lc-bento__corpo">
-            <Topo icone={FileSignature} rotulo="Contratos assinados" cor="#15803d" fundo="#dcfce7" mexida="balanco" />
-            <div className="lc-bento__valor"><Numero valor={d.contratos} chave={`${chave}-contratos`} /></div>
-            <span className="lc-bento__sub">nos últimos {d.dias} dias, pelos agentes</span>
-          </div>
-        ),
-      },
-      {
-        id: "followup",
+        id: "followup", colSpan: 2,
         content: (
           <div className="lc-bento__corpo">
             <Topo icone={Reply} rotulo="Follow-up" cor="#00bc33" fundo="#e8f9ee" mexida="giro" />
@@ -161,7 +140,7 @@ export function BentoIndicadores({ d, chave }: { d: DadosBento; chave: string })
         ),
       },
       {
-        id: "produtos",
+        id: "produtos", colSpan: 2,
         onClick: d.podeGerir ? () => navegar("/meus-produtos") : undefined,
         title: "Produtos ativos",
         content: (

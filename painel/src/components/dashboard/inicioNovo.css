@@ -170,3 +170,30 @@
 .lc-ia-cartao__item { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; border: 1px solid rgb(255 255 255 / .1); background: rgb(255 255 255 / .04); transition: background-color .15s ease, border-color .15s ease; }
 .lc-ia-cartao__item:hover { background: rgb(255 255 255 / .07); border-color: rgb(74 222 128 / .25); }
 @media (prefers-reduced-motion: reduce) { .lc-ia-cartao, .lc-ia-cartao__item { transition: none; } }
+
+/* ---------- herói da saudação: versão clara (o dono achou o preto pesado e a fonte mono estranha) ---------- */
+section.lc-hero {
+  color: var(--ink, #0C1811);
+  background:
+    radial-gradient(70% 120% at 100% 0%, rgb(0 188 51 / .10), transparent 60%),
+    linear-gradient(180deg, #ffffff 0%, #F7FBF8 100%);
+  border: 1px solid var(--line, #E2E9E4);
+  box-shadow: 0 1px 2px rgb(12 24 17 / .04), 0 12px 28px -22px rgb(12 24 17 / .25);
+  padding: 24px 28px 22px;
+}
+section.lc-hero .lc-hero__brilho { display: none; }
+section.lc-hero .lc-hero__data { font-family: inherit; font-size: 12px; font-weight: 600; letter-spacing: .06em; color: var(--ink-3, #69786F); }
+section.lc-hero .lc-hero__pilula { background: var(--mint, #E6F5EB); color: var(--brand-800, #0B5E27); box-shadow: inset 0 0 0 1px rgb(0 133 42 / .14); }
+section.lc-hero .lc-hero__pilula.is-off { background: #F1F3F2; color: var(--ink-3, #69786F); box-shadow: inset 0 0 0 1px var(--line, #E2E9E4); }
+section.lc-hero .lc-hero__pilula.is-off i { background: #A3ADA7; }
+section.lc-hero .lc-hero__titulo { color: var(--ink, #0C1811); font-size: 27px; font-weight: 650; letter-spacing: -.025em; max-width: 52ch; }
+section.lc-hero .lc-hero__hl { color: var(--brand-700, #00852A); }
+section.lc-hero .lc-hero__stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
+section.lc-hero .lc-hero__stats > div { padding: 12px 14px; border-radius: 14px; background: #fff; border: 1px solid var(--line, #E2E9E4); }
+section.lc-hero .lc-hero__stats dt { color: var(--ink-3, #69786F); font-size: 12.5px; margin-top: 2px; }
+section.lc-hero .lc-hero__stats dd { font-family: inherit; font-size: 24px; font-weight: 700; letter-spacing: -.02em; color: var(--ink, #0C1811); }
+@media (max-width: 720px) {
+  section.lc-hero { padding: 18px; }
+  section.lc-hero .lc-hero__titulo { font-size: 22px; }
+  section.lc-hero .lc-hero__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
