@@ -21,6 +21,8 @@ interface Props {
   markers: string[];
   /** Escolheu a mídia → troca [[prefixo:nome]] pela URL no prompt (igual @ → Biblioteca). */
   onFill: (marker: string, url: string) => void;
+  /** Várias de uma vez ("Confirmar todas"): todas as trocas num passo só e um só salvamento. */
+  onFillMany?: (lista: { marcador: string; url: string }[]) => void;
   /** Excluir → remove o marcador dos textos (pra quem não tem essa mídia). */
   onRemove: (marker: string) => void;
   /** Gravações do roteiro que preenchem cada marcador (o escritório gravou a parte certa): escutar e confirmar. */
@@ -34,7 +36,12 @@ interface Props {
  * de mídia, TROCA o marcador pelo LINK direto no prompt (o bot envia o link, igual o @). Espelha a
  * "Edição rápida de Prompt" ({{ }} → valor).
  */
-export const AudioSlotsPanel = ({ markers, onFill, onRemove, sugestoes = {}, onGravarRoteiro }: Props) => {
+export const AudioSlotsPanel = ({ markers, onFill, onFillMany, onRemove, sugestoes = {}, onGravarRoteiro }: Props) => {
+  const confirmarTodas = () => {
+    const lista = Object.values(sugestoes).map((s) => ({ marcador: s.marcador, url: s.gravacao.url }));
+    if (onFillMany) onFillMany(lista);
+    else lista.forEach((t) => onFill(t.marcador, t.url));
+  };
   const [picking, setPicking] = useState<string | null>(null); // marcador em escolha
 
   return (
@@ -66,7 +73,7 @@ export const AudioSlotsPanel = ({ markers, onFill, onRemove, sugestoes = {}, onG
             </p>
           </div>
           <Button type="button" size="sm" className="gap-1.5 bg-[#00852a] hover:bg-[#00701f] text-white"
-            onClick={() => Object.values(sugestoes).forEach((s) => onFill(s.marcador, s.gravacao.url))}>
+            onClick={confirmarTodas}>
             <CheckCircle2 className="size-3.5" />Confirmar todas
           </Button>
         </div>

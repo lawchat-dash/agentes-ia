@@ -638,7 +638,7 @@ class Plano(BaseModel):
     ia_inclusa: bool = False
     selo: str | None = Field(default=None, max_length=8)
     icone: str | None = Field(default=None, max_length=20)
-    midia: bool = False                       # libera mídia nos agentes e o roteiro de gravação (migração 019)
+    midia: bool = False                       # libera o roteiro de gravação dos produtos de mídia (migração 019)
 
 
 class AlterarPlano(BaseModel):
@@ -676,7 +676,7 @@ async def _tem_017(pool: Any) -> bool:
 
 
 async def _tem_019(pool: Any) -> bool:
-    """A 019 trouxe agentesia_planos.midia (o plano libera mídia e o roteiro de gravação)."""
+    """A 019 trouxe agentesia_planos.midia (o plano libera o roteiro de gravação; a biblioteca de mídia é de todos)."""
     return bool(await pool.fetchval(
         "select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agentesia_planos'"
         " and column_name = 'midia'"))

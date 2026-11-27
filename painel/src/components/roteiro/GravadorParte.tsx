@@ -72,10 +72,13 @@ function TextoParaLer({ texto }: { texto: string }) {
   );
 }
 
-export function GravadorParte({ parte, aoMudar, liberado = true }: {
+export function GravadorParte({ parte, aoMudar, aoOcupar, liberado = true }: {
   parte: ParteRoteiro; aoMudar: (p: ParteRoteiro) => void; liberado?: boolean;
+  /** Avisado quando passa a ter (ou deixa de ter) gravação em andamento ou prévia ainda não enviada. */
+  aoOcupar?: (ocupado: boolean) => void;
 }) {
   const [confirmar, modalConfirmar] = useConfirmar();
+  const [regravar, setRegravar] = useState(false);
   const [comoAudio, setComoAudio] = useState(false);
   const video = parte.tipo === "video" && !comoAudio;
   const suportado = typeof window !== "undefined" && typeof window.MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
@@ -85,6 +88,11 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
   const [previa, setPrevia] = useState<{ blob: Blob; url: string; segundos: number; medida: Medida | null } | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [erroMic, setErroMic] = useState<string | null>(null);
+  const [abrindo, setAbrindo] = useState(false);                          // esperando a permissão do microfone/câmera
+  const iniciando = useRef(false);                                        // trava contra clique duplo em "Gravar"
+  const montado = useRef(false);
+  const avisarOcupado = useRef(aoOcupar);
+  avisarOcupado.current = aoOcupar;
   const gravador = useRef<MediaRecorder | null>(null);
   const fluxo = useRef<MediaStream | null>(null);
   const contexto = useRef<AudioContext | null>(null);
@@ -104,19 +112,38 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
     contexto.current = null;
     setNiveis(Array(14).fill(0));
   };
-  useEffect(() => () => { if (gravador.current?.state === "recording") gravador.current.stop(); limpar(); }, []);
+  useEffect(() => {
+    montado.current = true;
+    return () => {
+      montado.current = false;
+      if (gravador.current?.state === "recording") gravador.current.stop();
+      limpar();
+      avisarOcupado.current?.(false);
+    };
+  }, []);
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa.url); }, [previa]);
+  useEffect(() => { avisarOcupado.current?.(gravando || !!previa); }, [gravando, previa]);
+  // Câmera ao vivo: liga o <video> ao fluxo quando a gravação começa (o elemento já está na tela, escondido).
+  useEffect(() => {
+    const el = camera.current;
+    if (!el) return;
+    if (gravando && video && fluxo.current) { el.srcObject = fluxo.current; el.play().catch(() => {}); }
+    else el.srcObject = null;
+  }, [gravando, video]);
 
   const parar = () => { if (gravador.current?.state === "recording") gravador.current.stop(); };
 
   const comecar = async () => {
+    if (iniciando.current || gravador.current?.state === "recording") return;
+    iniciando.current = true;
+    setAbrindo(true);
     setErroMic(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia(video
         ? { audio: { echoCancellation: true, noiseSuppression: true }, video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } }
         : { audio: { echoCancellation: true, noiseSuppression: true } });
+      if (!montado.current) { stream.getTracks().forEach((t) => t.stop()); return; }   // fechou o cartão enquanto pedia permissão
       fluxo.current = stream;
-      if (video && camera.current) { camera.current.srcObject = stream; camera.current.play().catch(() => {}); }
       const tipos = video ? TIPOS_VIDEO : TIPOS_AUDIO;
       const mime = tipos.find((t) => MediaRecorder.isTypeSupported?.(t)) ?? "";
       const rec = new MediaRecorder(stream, mime ? (video ? { mimeType: mime, videoBitsPerSecond: 1_200_000, audioBitsPerSecond: 64000 }
@@ -124,11 +151,13 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
       const pedacos: Blob[] = [];
       rec.ondataavailable = (e) => { if (e.data.size) pedacos.push(e.data); };
       rec.onstop = async () => {
+        if (!montado.current) return;                                     // cartão fechado: a gravação é descartada
         const blob = new Blob(pedacos, { type: rec.mimeType || mime || (video ? "video/webm" : "audio/webm") });
         const segs = tempo.current;
         setGravando(false);
         limpar();
         const medida = await medirQualidade(blob, segs);
+        if (!montado.current) return;
         setPrevia((p) => { if (p) URL.revokeObjectURL(p.url); return { blob, url: URL.createObjectURL(blob), segundos: segs, medida }; });
       };
       try {                                       // medidor de volume (barrinhas) enquanto grava
@@ -161,10 +190,14 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
       }, 1000);
     } catch (e) {
       limpar();
+      if (!montado.current) return;
       const nome = (e as DOMException)?.name;
       setErroMic(nome === "NotAllowedError"
         ? `Não conseguimos acessar ${video ? "a câmera" : "o microfone"}. Libere a permissão no cadeado da barra de endereço ou envie um arquivo.`
         : nome === "NotFoundError" ? `Nenhum${video ? "a câmera" : " microfone"} encontrado neste aparelho.` : "Não deu para começar a gravar.");
+    } finally {
+      iniciando.current = false;
+      if (montado.current) setAbrindo(false);
     }
   };
 
@@ -177,6 +210,7 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
       });
       aoMudar(r);
       setPrevia(null);
+      setRegravar(false);                                                 // volta a mostrar o envio novo, não o gravador
       toast.success(`${parte.titulo}: enviado`, { description: "Já está na Biblioteca, na pasta Roteiros gravados." });
     } catch (e) {
       toast.error((e as Error).message);
@@ -207,7 +241,6 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
   };
 
   const g = parte.gravacao;
-  const [regravar, setRegravar] = useState(false);
   const mostrarGravador = !g || regravar || gravando || !!previa;
 
   return (
@@ -242,7 +275,7 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
       {mostrarGravador && liberado && (
         <>
           {parte.tipo === "video" && !gravando && !previa && (
-            <button type="button" className="rg-trocar" onClick={() => setComoAudio((v) => !v)}>
+            <button type="button" className="rg-trocar" disabled={abrindo} onClick={() => setComoAudio((v) => !v)}>
               {comoAudio ? <><IconeVideo size={14} />Voltar a enviar vídeo</> : <><Mic size={14} />Não quero inserir um vídeo, vou trocar por áudio</>}
             </button>
           )}
@@ -275,9 +308,9 @@ export function GravadorParte({ parte, aoMudar, liberado = true }: {
             </div>
           ) : (
             <div className="rg-botoes">
-              {suportado && <button type="button" className="rg-btn rg-btn--escuro" disabled={enviando} onClick={comecar}>
-                {video ? <IconeVideo size={15} /> : <Mic size={15} />}{video ? "Gravar vídeo" : "Gravar"}</button>}
-              <button type="button" className="rg-btn" disabled={enviando} onClick={() => arquivo.current?.click()}>
+              {suportado && <button type="button" className="rg-btn rg-btn--escuro" disabled={enviando || abrindo} onClick={comecar}>
+                {video ? <IconeVideo size={15} /> : <Mic size={15} />}{abrindo ? "Abrindo…" : video ? "Gravar vídeo" : "Gravar"}</button>}
+              <button type="button" className="rg-btn" disabled={enviando || abrindo} onClick={() => arquivo.current?.click()}>
                 <Upload size={15} />{enviando ? "Enviando…" : video ? "Enviar vídeo" : "Enviar arquivo"}</button>
               {regravar && <button type="button" className="rg-btn rg-btn--leve" onClick={() => setRegravar(false)}>Cancelar</button>}
             </div>

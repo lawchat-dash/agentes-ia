@@ -153,3 +153,106 @@ async def test_video_do_navegador_vira_mp4():
     assert extensao == "mp4" and mp4[4:8] == b"ftyp"
     ogg, ext_audio = await preparar_arquivo(_video_webm(), "audio", "video/webm", "x.webm")
     assert ext_audio == "ogg" and ogg[:4] == b"OggS"
+
+
+@precisa_pg
+async def test_marcador_escapado_chave_geral_e_pasta(ambiente):
+    cliente, _simulada, email_admin, banco = ambiente
+    from app.gestao.rotas_roteiro_gravacao import api
+    cliente._transport.app.include_router(api)
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    pool = banco._pool
+    escritorio = (await cliente.post("/api/admin/escritorios", json={
+        "nome": "Roteiro Chave", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
+    h = {"x-escritorio": escritorio["id"]}
+    a = await _produto(pool, "INSS / BPC Teste")
+    # Marcador escapado (como o editor de markdown grava) no prompt do agente: "puxar" também acha.
+    await pool.execute("update agentesia_biblioteca_agentes set texto_prompt = texto_prompt || $2 where id_produto_biblioteca = $1::uuid",
+                       a, "\nSe perguntar do prazo: \\[\\[audio:Prazo do INSS\\]\\].")
+    r = (await cliente.get(f"/api/admin/biblioteca/produtos/{a}/roteiro")).json()
+    assert ("audio", "Prazo do INSS") in [(m["tipo"], m["nome"]) for m in r["marcadores"]]
+    puxado = (await cliente.post(f"/api/admin/biblioteca/produtos/{a}/roteiro/puxar")).json()
+    assert puxado["criadas"] == 5 and any(p["marcador"] == "Prazo do INSS" for p in puxado["partes"])
+
+    # Gravação entra na pasta do produto sem subpasta falsa pelo "/" do nome.
+    honorarios = next(p for p in puxado["partes"] if p["marcador"] == "Honorários")
+    g = await cliente.post(f"/api/roteiro-gravacao/partes/{honorarios['id']}", headers=h,
+                           json={"conteudo_base64": _b64(OGG), "mime": "audio/ogg"})
+    assert g.status_code == 200, g.text
+    id_midia = g.json()["gravacao"]["id_midia"]
+    assert await pool.fetchval("select pasta from agentesia_biblioteca_midia where id = $1::uuid", id_midia) == \
+        "Roteiros gravados/INSS - BPC Teste"
+
+    def gravada(detalhe):
+        return next(p for p in detalhe["partes"] if p["id"] == honorarios["id"])["gravacao"]
+
+    # Virar parte geral, trocar a chave e tirar a chave: a gravação continua aparecendo.
+    for chave in ("Honorários gerais", "honorarios_outra", ""):
+        assert (await cliente.patch(f"/api/admin/roteiro/partes/{honorarios['id']}", json={"chave_geral": chave})).status_code == 200
+        visto = gravada((await cliente.get(f"/api/roteiro-gravacao/{a}", headers=h)).json())
+        assert visto and visto["id_midia"] == id_midia, chave
+    assert await pool.fetchval("select chave from agentesia_roteiro_gravacoes where id_escritorio = $1::uuid",
+                               escritorio["id"]) == f"parte:{honorarios['id']}"
+
+
+def _mp4(codec_video: str) -> bytes:
+    with tempfile.TemporaryDirectory() as pasta:
+        destino = os.path.join(pasta, "v.mp4")
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
+                        "-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", "-c:v", codec_video, "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-tag:v", "hvc1" if codec_video == "libx265" else "avc1", destino], check=True)
+        with open(destino, "rb") as arquivo:
+            return arquivo.read()
+
+
+def _tem_encoder(nome: str) -> bool:
+    if not shutil.which("ffmpeg"):
+        return False
+    saida = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+    return nome in saida
+
+
+@pytest.mark.skipif(not shutil.which("ffprobe") or not _tem_encoder("libx265"), reason="sem ffprobe ou libx265")
+async def test_mp4_hevc_vira_h264_e_h264_passa_direto():
+    from app.gestao.rotas_roteiro_gravacao import preparar_arquivo
+    from app.midia.conversao import codecs
+    hevc = _mp4("libx265")
+    assert await codecs(hevc, ".mp4") == ("hevc", "aac")
+    convertido, extensao = await preparar_arquivo(hevc, "video", "video/mp4", "iphone.mp4")
+    assert extensao == "mp4" and await codecs(convertido, ".mp4") == ("h264", "aac")
+    h264 = _mp4("libx264")
+    passou, _ = await preparar_arquivo(h264, "video", "video/mp4", "ok.mp4")
+    assert passou == h264
+
+
+def test_marcador_escapado_dentro_do_json():
+    """O JSON da linha dobra as barras: os marcadores são procurados nos textos já decodificados."""
+    import json
+
+    from app.gestao.rotas_roteiro_gravacao import _textos_do_json
+    linha = json.loads(json.dumps({"texto_prompt": "Envie \\[\\[audio:Prazo\\]\\]", "faq": [{"resposta": "[[video:Oi]]"}], "n": 3}))
+    pedacos: list[str] = []
+    _textos_do_json(linha, pedacos)
+    assert marcadores_do_texto("\n".join(pedacos)) == [("audio", "Prazo"), ("video", "Oi")]
+
+
+@precisa_ffmpeg
+async def test_ogg_vorbis_vira_opus_e_opus_passa_direto():
+    """Mensagem de voz do WhatsApp só em Ogg/Opus: Ogg/Vorbis anexado é convertido; Ogg/Opus passa como veio."""
+    from app.gestao.rotas_roteiro_gravacao import preparar_arquivo
+    from app.midia.conversao import codecs
+
+    def gerar(codec: str) -> bytes:
+        with tempfile.TemporaryDirectory() as pasta:
+            destino = os.path.join(pasta, "a.ogg")
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=300",
+                            "-t", "2", "-c:a", codec, destino], check=True)
+            with open(destino, "rb") as arquivo:
+                return arquivo.read()
+
+    vorbis = gerar("libvorbis")
+    saida, extensao = await preparar_arquivo(vorbis, "audio", "audio/ogg", "caro.ogg")
+    assert extensao == "ogg" and (await codecs(saida, ".ogg"))[1] == "opus"
+    opus = gerar("libopus")
+    mesma, _ = await preparar_arquivo(opus, "audio", "audio/ogg", "x.ogg")
+    assert mesma == opus

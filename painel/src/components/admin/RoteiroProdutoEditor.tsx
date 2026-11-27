@@ -70,6 +70,8 @@ export default function RoteiroProdutoEditor({ idProduto, modoMidia }: { idProdu
   const [movendo, setMovendo] = useState(false);
   const [novaId, setNovaId] = useState<string | null>(null);
   const [confirmar, janelaConfirmar] = useConfirmar();
+  // Partes excluídas: o cartão que some por exclusão não tenta salvar o que ficou pendente.
+  const apagadas = useRef(new Set<string>());
 
   const partes = useMemo(() => ordenar(dados?.partes ?? []), [dados?.partes]);
   const comParte = useMemo(() => new Set(partes.filter((p) => p.marcador).map((p) => normalizar(p.marcador))), [partes]);
@@ -140,6 +142,7 @@ export default function RoteiroProdutoEditor({ idProduto, modoMidia }: { idProdu
     if (!ok) return;
     try {
       await api(`/admin/roteiro/partes/${parte.id}`, { metodo: "DELETE" });
+      apagadas.current.add(parte.id);
       setDados((d) => (d ? { ...d, partes: d.partes.filter((p) => p.id !== parte.id) } : d));
       toast.success("Parte excluída.");
     } catch (e) {
@@ -172,7 +175,8 @@ export default function RoteiroProdutoEditor({ idProduto, modoMidia }: { idProdu
     daSecao.forEach((p, i) => linhas.push(
       <ParteCartao key={p.id} parte={p} marcadores={dados.marcadores} gerais={dados.gerais} focar={novaId === p.id}
         primeiro={i === 0} ultimo={i === daSecao.length - 1} movendo={movendo}
-        aoMudar={trocarParte} aoMover={(d) => mover(p, d)} aoApagar={() => apagar(p)} />,
+        aoMudar={trocarParte} aoMover={(d) => mover(p, d)} aoApagar={() => apagar(p)}
+        foiApagada={() => apagadas.current.has(p.id)} />,
     ));
   }
 
@@ -275,11 +279,27 @@ function Orientacoes({ idProduto, inicial, aoSalvar }: { idProduto: string; inic
   const [salvando, setSalvando] = useState(false);
   const [acabouDeSalvar, setAcabouDeSalvar] = useState(false);
   const mudou = texto.trim() !== salvo.trim();
+  // Valor atual e salvo em ref: ao sair da tela (trocar de aba) o que não foi salvo é enviado.
+  const textoRef = useRef(texto);
+  const salvoRef = useRef(salvo);
+  textoRef.current = texto;
+  const aoSalvarRef = useRef(aoSalvar);
+  aoSalvarRef.current = aoSalvar;
+
+  useEffect(() => () => {
+    const pendente = textoRef.current;
+    if (pendente.trim() === salvoRef.current.trim()) return;
+    salvoRef.current = pendente;
+    enviar(`/admin/biblioteca/produtos/${idProduto}/roteiro/orientacoes`, { texto: pendente }, "PUT")
+      .then(() => aoSalvarRef.current(pendente.trim()))
+      .catch((e) => toast.error("Não deu para salvar as orientações", { description: (e as Error).message }));
+  }, [idProduto]);
 
   const salvar = async () => {
     setSalvando(true);
     try {
       await enviar(`/admin/biblioteca/produtos/${idProduto}/roteiro/orientacoes`, { texto }, "PUT");
+      salvoRef.current = texto;
       setSalvo(texto);
       aoSalvar(texto.trim());
       setAcabouDeSalvar(true);
@@ -331,9 +351,9 @@ function diferencas(r: Rascunho, s: ParteRoteiro): Record<string, unknown> {
 
 type Estado = "parado" | "salvando" | "salvo" | "erro";
 
-function ParteCartao({ parte, marcadores, gerais, focar, primeiro, ultimo, movendo, aoMudar, aoMover, aoApagar }: {
+function ParteCartao({ parte, marcadores, gerais, focar, primeiro, ultimo, movendo, aoMudar, aoMover, aoApagar, foiApagada }: {
   parte: ParteRoteiro; marcadores: Marcador[]; gerais: Geral[]; focar: boolean; primeiro: boolean; ultimo: boolean; movendo: boolean;
-  aoMudar: (p: ParteRoteiro) => void; aoMover: (direcao: -1 | 1) => void; aoApagar: () => void;
+  aoMudar: (p: ParteRoteiro) => void; aoMover: (direcao: -1 | 1) => void; aoApagar: () => void; foiApagada: () => boolean;
 }) {
   const [r, setR] = useState<Rascunho>(() => rascunhoDe(parte));
   const rRef = useRef(r);
@@ -359,6 +379,28 @@ function ParteCartao({ parte, marcadores, gerais, focar, primeiro, ultimo, moven
     rRef.current = novo;
     setR(novo);
   }, [parte]);
+
+  // Ao sair (trocar de aba do editor, fechar): o cartão some antes do onBlur salvar. Manda o que ficou pendente,
+  // na mesma fila, sem mexer no estado do cartão (já desmontado). Parte excluída não salva.
+  const aoMudarRef = useRef(aoMudar);
+  aoMudarRef.current = aoMudar;
+  const foiApagadaRef = useRef(foiApagada);
+  foiApagadaRef.current = foiApagada;
+  useEffect(() => () => {
+    fila.current = fila.current.then(async () => {
+      if (foiApagadaRef.current()) return;
+      const enviado = rRef.current;
+      const corpo = diferencas(enviado, salvoRef.current);
+      if (Object.keys(corpo).length === 0) return;
+      try {
+        const nova = await enviar<ParteRoteiro>(`/admin/roteiro/partes/${parte.id}`, corpo, "PATCH");
+        salvoRef.current = nova;
+        aoMudarRef.current(nova);
+      } catch (e) {
+        toast.error(`Não deu para salvar "${enviado.titulo.trim() || salvoRef.current.titulo}"`, { description: (e as Error).message });
+      }
+    });
+  }, [parte.id]);
 
   useEffect(() => {
     if (focar) { tituloRef.current?.focus(); tituloRef.current?.select(); tituloRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }

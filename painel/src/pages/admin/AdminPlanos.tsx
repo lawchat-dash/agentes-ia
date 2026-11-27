@@ -11,7 +11,7 @@ export interface Plano {
   bonus_acumula: boolean; ativo: boolean; ordem: number; escritorios: number;
   preco_anual_brl?: number | null; sob_proposta?: boolean; usuarios?: number; canais_whatsapp?: number; canais_instagram?: number;
   cria_agentes?: boolean; ia_inclusa?: boolean; selo?: string | null; icone?: string | null;
-  /** Libera mídia nos agentes e o roteiro de gravação (migração 019; sem ela o campo não vem). */
+  /** Libera o roteiro de gravação dos produtos de mídia (migração 019; sem ela o campo não vem). A biblioteca de mídia é de todos. */
   midia?: boolean;
 }
 interface Adicional { id: string; codigo: string; nome: string; descricao: string | null; preco_mensal_brl: number; icone: string | null; ativo: boolean; ordem: number }
@@ -75,7 +75,7 @@ export default function AdminPlanos() {
           <table className="ap-tabela">
             <thead><tr>
               <th>Plano</th><th>Mensal</th><th>Anual (1x)</th><th className="c">Usuários</th><th className="c">WA / IG</th>
-              <th className="c">Cria agentes</th><th className="c">IA inclusa</th><th className="c">Mídia</th><th>Bônus de IA</th><th className="c">Escritórios</th><th>Status</th><th className="d">Ações</th>
+              <th className="c">Cria agentes</th><th className="c">IA inclusa</th><th className="c">Roteiro</th><th>Bônus de IA</th><th className="c">Escritórios</th><th>Status</th><th className="d">Ações</th>
             </tr></thead>
             <tbody>{planos.dados.map((p) => {
               const ic = ICONES_PLANO[p.icone ?? ""] ?? ICONES_PLANO.raio;
@@ -216,7 +216,7 @@ function EditarPlano({ plano, temMidia, aoFechar }: { plano: Partial<Plano>; tem
           <Chave rotulo="Cria agentes" ajuda="Pode montar agentes próprios." v={p.cria_agentes} aoMudar={(v) => mudar({ cria_agentes: v })} />
           <Chave rotulo="IA inclusa" ajuda="Ativação dos agentes já vem no plano." v={p.ia_inclusa} aoMudar={(v) => mudar({ ia_inclusa: v })} />
         </div>
-        {temMidia && <Chave rotulo="Mídia e roteiros" ajuda="Libera mídia nos agentes e o roteiro de gravação." v={p.midia} aoMudar={(v) => mudar({ midia: v })} />}
+        {temMidia && <Chave rotulo="Roteiro de gravação" ajuda="Libera o roteiro de gravação dos produtos de mídia." v={p.midia} aoMudar={(v) => mudar({ midia: v })} />}
         <div className="ap-form-grade">
           <Campo rotulo="Bônus mensal de IA (R$)" ajuda="Crédito de consumo da IA renovado todo mês.">
             <input inputMode="decimal" value={String(p.bonus_mensal_brl ?? 0).replace(".", ",")} onChange={(e) => mudar({ bonus_mensal_brl: numero(e.target.value) })} /></Campo>

@@ -10,6 +10,7 @@ ffmpeg vem da imagem (Dockerfile.painel e Dockerfile.ia). Sem ele, ErroConversao
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import tempfile
@@ -48,6 +49,37 @@ async def _rodar(entrada: bytes, sufixo_entrada: str, sufixo_saida: str, argumen
             raise ErroConversao(f"não deu para converter o arquivo ({detalhe[0][:160]}).")
         with open(destino, "rb") as arquivo:
             return arquivo.read()
+
+
+async def codecs(bruto: bytes, sufixo: str = ".mp4") -> tuple[str | None, str | None] | None:
+    """(codec do vídeo, codec do áudio) pelo ffprobe, ex.: ("h264", "aac"); None no lugar de uma faixa que não existe.
+    None no todo = não deu para saber (sem ffprobe, arquivo que ele não lê ou demorou demais)."""
+    if shutil.which("ffprobe") is None:
+        return None
+    with tempfile.TemporaryDirectory(prefix="lawchat-probe-") as pasta:
+        origem = os.path.join(pasta, f"entrada{sufixo}")
+        with open(origem, "wb") as arquivo:
+            arquivo.write(bruto)
+        try:
+            processo = await asyncio.create_subprocess_exec(
+                "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "json", origem,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        except OSError:
+            return None
+        try:
+            saida, _ = await asyncio.wait_for(processo.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            processo.kill()
+            return None
+        if processo.returncode != 0:
+            return None
+        try:
+            faixas = json.loads(saida or b"{}").get("streams") or []
+        except ValueError:
+            return None
+    video = next((f.get("codec_name") for f in faixas if f.get("codec_type") == "video"), None)
+    audio = next((f.get("codec_name") for f in faixas if f.get("codec_type") == "audio"), None)
+    return video, audio
 
 
 async def para_mp4(bruto: bytes, sufixo: str = ".webm") -> bytes:

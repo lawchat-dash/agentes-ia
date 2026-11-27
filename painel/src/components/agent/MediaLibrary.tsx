@@ -207,7 +207,13 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
           onOpenChange(false);
         }
       }
-      if (enviados) toast.success(enviados > 1 ? `${enviados} arquivos enviados` : "Arquivo enviado");
+      if (enviados) {
+        // O envio não leva pasta: o arquivo vai para a raiz. Com uma pasta aberta, volta para a raiz para ele aparecer.
+        const naPasta = Boolean(pasta);
+        if (naPasta) setPasta("");
+        const msg = enviados > 1 ? `${enviados} arquivos enviados` : "Arquivo enviado";
+        toast.success(naPasta ? `${msg} (${enviados > 1 ? "ficam" : "fica"} na raiz da biblioteca).` : msg);
+      }
       await fetchItems();
       invalidarMidia();
     } finally {

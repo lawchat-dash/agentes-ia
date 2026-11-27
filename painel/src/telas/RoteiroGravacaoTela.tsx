@@ -1,6 +1,7 @@
 // Roteiros (escritório): os roteiros de gravação dos produtos de mídia. Escolhe o produto e grava parte por parte.
 // /roteiros            lista de produtos com o progresso
 // /roteiros/:produto   gravação (?voltar=<caminho> mostra "Voltar para a ativação", vindo do Passo 3 da ativação)
+import { useRef } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Clapperboard, Lock, Mic, Video } from "lucide-react";
 import { Cabecalho, Carregando, Vazio, useCarregar } from "@/componentes/ui";
@@ -51,21 +52,36 @@ export function TelaRoteirosGravacao() {
   );
 }
 
+/** ?voltar= só vale para caminho interno da ativação (/ativar/… ou /meus-produtos/…): "//host" e "/\host" ficam de fora. */
+function destinoInterno(voltar: string | null): string | null {
+  if (!voltar || !/^\/(?![/\\])/.test(voltar)) return null;
+  try {
+    const u = new URL(voltar, window.location.origin);
+    if (u.origin !== window.location.origin) return null;
+    if (!/^\/(ativar|meus-produtos)\//.test(u.pathname)) return null;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return null;
+  }
+}
+
 export function TelaRoteiroGravacao() {
   const { produto } = useParams();
   const [busca] = useSearchParams();
   const navegar = useNavigate();
-  const voltar = busca.get("voltar");
-  const destino = voltar && voltar.startsWith("/") ? voltar : null;   // só caminho interno
+  const destino = destinoInterno(busca.get("voltar"));
+  // A saída passa pelo roteiro, que pergunta antes de descartar uma gravação ainda não enviada.
+  const sair = useRef<((ir: () => void) => void) | null>(null);
+  const irPara = (caminho: string) => { const ir = () => navegar(caminho); if (sair.current) sair.current(ir); else ir(); };
   return (
     <div className="stack">
       {destino && (
         <div className="rg-voltar-ativacao">
-          <button type="button" className="btn" onClick={() => navegar(destino)}><ArrowLeft />Voltar para a ativação do produto</button>
+          <button type="button" className="btn" onClick={() => irPara(destino)}><ArrowLeft />Voltar para a ativação do produto</button>
           <span className="muted" style={{ fontSize: 12.5 }}>O produto ficou salvo como rascunho: você continua de onde parou.</span>
         </div>
       )}
-      <RoteiroGravacao idProduto={produto ?? ""} aoVoltar={() => navegar(destino ?? "/roteiros")} />
+      <RoteiroGravacao idProduto={produto ?? ""} aoVoltar={() => navegar(destino ?? "/roteiros")} sair={sair} />
     </div>
   );
 }

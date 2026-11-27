@@ -88,7 +88,14 @@ export function TelaBibliotecaMidia() {
     }
     setEnviando(null);
     if (arquivo.current) arquivo.current.value = "";
-    if (enviados) { avisar(enviados > 1 ? `${enviados} arquivos enviados.` : "Arquivo enviado."); recarregar(); }
+    if (enviados) {
+      // O envio não leva pasta: o arquivo vai para a raiz. Com uma pasta aberta, volta para a raiz para ele aparecer.
+      const naPasta = Boolean(pasta);
+      if (naPasta) setPasta("");
+      const msg = enviados > 1 ? `${enviados} arquivos enviados` : "Arquivo enviado";
+      avisar(naPasta ? `${msg} (${enviados > 1 ? "ficam" : "fica"} na raiz da biblioteca).` : `${msg}.`);
+      recarregar();
+    }
   };
 
   const apagar = async (i: ItemBruto) => {

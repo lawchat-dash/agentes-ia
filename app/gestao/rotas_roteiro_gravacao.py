@@ -16,19 +16,22 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import re
 import unicodedata
 import uuid
 from typing import Any
+from urllib.parse import unquote
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import armazenamento
-from app.gestao.produtos import LIMITES_POR_TIPO, MidiaNova, _linha, _pool, apagar_midia, enviar_midia
+from app.gestao.produtos import (COTA_MIDIA, LIMITES_POR_TIPO, MidiaNova, _linha, _pool, _quem_usa_a_midia, _uso_midia,
+                                 apagar_midia, enviar_midia)
 from app.gestao.rotas import ADMIN, GESTAO, Contexto
-from app.midia.conversao import ErroConversao, para_mp4, para_ogg
+from app.midia.conversao import ErroConversao, codecs, para_mp4, para_ogg, tem_ffmpeg
 from app.midia.webm_para_ogg import eh_webm, webm_para_ogg
 from app.midia.webm_para_ogg import ErroConversao as ErroWebm
 
@@ -57,7 +60,8 @@ def marcadores_do_texto(texto: str) -> list[tuple[str, str]]:
         if not nome or normalizar(nome) in vistos:
             continue
         vistos.add(normalizar(nome))
-        tipo = "video" if prefixo.lower().startswith("v") else "audio"
+        # O catálogo escreve vídeos como [[audio:Video Inicial]]: "vídeo" no nome também conta como vídeo.
+        tipo = "video" if prefixo.lower().startswith("v") or normalizar(nome).startswith("video") else "audio"
         saida.append((tipo, nome))
     return saida
 
@@ -114,14 +118,21 @@ def _formato(bruto: bytes, mime: str | None, nome: str | None) -> str:
 
 async def preparar_arquivo(bruto: bytes, tipo: str, mime: str | None, nome: str | None) -> tuple[bytes, str]:
     """Bytes + extensão no formato que o WhatsApp entrega. Áudio: ogg/mp3/m4a passam; webm vira ogg (sem ffmpeg);
-    o resto vira ogg pelo ffmpeg. Vídeo: mp4 até 16 MB passa; o resto (webm, mov, mp4 grande) vira mp4 pelo ffmpeg."""
+    o resto vira ogg pelo ffmpeg. Vídeo: mp4 H.264/AAC até 16 MB passa; o resto (webm, mov, mp4 grande ou de outro codec,
+    como o HEVC do iPhone) vira mp4 pelo ffmpeg. Sem ffprobe/ffmpeg no servidor, o mp4 até 16 MB passa sem conferir."""
     if len(bruto) > LIMITE_ENTRADA:
         raise HTTPException(413, f"Este arquivo tem {len(bruto) / 1_048_576:.0f} MB e o limite é "
                                  f"{LIMITE_ENTRADA // 1_048_576} MB. Grave um trecho mais curto.")
     formato = _formato(bruto, mime, nome)
     try:
         if tipo == "audio":
-            if formato in ("ogg", "mp3", "m4a"):
+            if formato == "ogg":
+                # Mensagem de voz do WhatsApp só em Ogg com OPUS: Ogg/Vorbis (alguns gravadores) é convertido.
+                achados = await codecs(bruto, ".ogg") if tem_ffmpeg() else None
+                if achados is None or achados[1] == "opus":
+                    return bruto, "ogg"
+                return await para_ogg(bruto, ".ogg"), "ogg"
+            if formato in ("mp3", "m4a"):
                 return bruto, formato
             if formato == "webm":
                 try:
@@ -132,7 +143,10 @@ async def preparar_arquivo(bruto: bytes, tipo: str, mime: str | None, nome: str 
                 return await para_ogg(bruto, f".{formato}"), "ogg"
             return await para_ogg(bruto, f".{formato or 'wav'}"), "ogg"
         if formato == "mp4" and len(bruto) <= LIMITES_POR_TIPO["video"]:
-            return bruto, "mp4"
+            achados = await codecs(bruto, ".mp4") if tem_ffmpeg() else None
+            if achados is None or (achados[0] == "h264" and achados[1] in ("aac", None)):
+                return bruto, "mp4"
+            return await para_mp4(bruto, ".mp4"), "mp4"   # HEVC, áudio em outro codec etc.: o WhatsApp não toca
         if formato in ("ogg", "mp3", "m4a", "wav"):
             raise HTTPException(400, "Esta parte é de vídeo: grave ou envie um vídeo (.mp4, .mov ou .webm).")
         return await para_mp4(bruto, f".{formato}"), "mp4"
@@ -191,8 +205,24 @@ async def _marcadores_do_produto(pedido: Request, id_produto: str) -> list[tuple
            union all
            select row_to_json(a)::text from agentesia_biblioteca_agentes a where a.id_produto_biblioteca = $1::uuid""",
         id_produto)
-    # row_to_json escapa as quebras de linha: desfaz o \n para a regex não atravessar campos.
-    return marcadores_do_texto("\n".join(t["t"].replace("\\n", "\n") for t in textos))
+    # A regex roda sobre os textos de verdade, não sobre o JSON: no JSON as barras dobram (\[\[ vira \\[\\[) e o
+    # marcador escapado não seria achado. Cada texto numa linha para a regex não atravessar campos.
+    pedacos: list[str] = []
+    for t in textos:
+        _textos_do_json(json.loads(t["t"]), pedacos)
+    return marcadores_do_texto("\n".join(pedacos))
+
+
+def _textos_do_json(valor: Any, saida: list[str]) -> None:
+    """Junta em saida todos os textos (str) de dicts e listas aninhados, na ordem em que aparecem."""
+    if isinstance(valor, str):
+        saida.append(valor)
+    elif isinstance(valor, dict):
+        for item in valor.values():
+            _textos_do_json(item, saida)
+    elif isinstance(valor, list):
+        for item in valor:
+            _textos_do_json(item, saida)
 
 
 # ======================================================================================================= superadmin
@@ -312,13 +342,44 @@ async def mudar_parte(id_parte: str, dados: ParteMudar, pedido: Request, _: Cont
         mudancas["chave_geral"] = _chave_geral(mudancas["chave_geral"]) or None
     if not mudancas:
         raise HTTPException(400, "Nada para mudar.")
-    sets = ", ".join(f"{k} = ${i}" for i, k in enumerate(mudancas, 2))
-    linha = await _consultar(pedido, "fetchrow",
-                             f"update agentesia_roteiro_partes set {sets}, atualizado_em = now() where id = $1::uuid "
-                             f"returning {_COLUNAS_PARTE}", _uuid(id_parte), *mudancas.values())
-    if not linha:
+    antes = await _consultar(pedido, "fetchrow", f"select {_COLUNAS_PARTE} from agentesia_roteiro_partes where id = $1::uuid",
+                             _uuid(id_parte))
+    if not antes:
         raise HTTPException(404, "Parte não encontrada.")
+    parte = _linha(antes) or {}
+    sets = ", ".join(f"{k} = ${i}" for i, k in enumerate(mudancas, 2))
+    try:
+        async with _pool(pedido).acquire() as con, con.transaction():
+            linha = await con.fetchrow(f"update agentesia_roteiro_partes set {sets}, atualizado_em = now() where id = $1::uuid "
+                                       f"returning {_COLUNAS_PARTE}", parte["id"], *mudancas.values())
+            if not linha:
+                raise HTTPException(404, "Parte não encontrada.")
+            if "chave_geral" in mudancas and mudancas["chave_geral"] != parte.get("chave_geral"):
+                await _mudar_chave_das_gravacoes(con, parte["id"], chave_da_parte(parte),
+                                                 chave_da_parte({**parte, "chave_geral": mudancas["chave_geral"]}))
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError) as erro:
+        raise HTTPException(503, SEM_TABELA) from erro
     return _linha(linha)  # type: ignore[return-value]
+
+
+async def _mudar_chave_das_gravacoes(con: Any, id_parte: str, antiga: str, nova: str) -> None:
+    """A chave da gravação ('geral:<chave>' ou 'parte:<id>') segue a chave_geral da parte: sem isto, trocar ou tirar a
+    chave_geral esconderia o que os escritórios já gravaram. Só as gravações feitas por ESTA parte mudam: a de uma parte
+    geral pode ter sido feita pela parte de outro produto com a mesma chave, e essa continua valendo para ele.
+    Se o escritório já tem gravação na chave nova, ela fica e a desta parte sai (só o vínculo: o arquivo continua na
+    biblioteca de mídia do escritório)."""
+    if antiga == nova:
+        return
+    await con.execute(
+        """delete from agentesia_roteiro_gravacoes g
+            where g.id_parte = $1::uuid and g.chave = $2
+              and exists (select 1 from agentesia_roteiro_gravacoes o where o.id_escritorio = g.id_escritorio and o.chave = $3)""",
+        id_parte, antiga, nova)
+    await con.execute(
+        """update agentesia_roteiro_gravacoes g set chave = $3, atualizado_em = now()
+            where g.id_parte = $1::uuid and g.chave = $2
+              and not exists (select 1 from agentesia_roteiro_gravacoes o where o.id_escritorio = g.id_escritorio and o.chave = $3)""",
+        id_parte, antiga, nova)
 
 
 @api.put("/admin/biblioteca/produtos/{id_produto}/roteiro/orientacoes")
@@ -346,7 +407,34 @@ async def apagar_parte(id_parte: str, pedido: Request, _: Contexto = Depends(ADM
                              _uuid(id_parte))
     if not linha:
         raise HTTPException(404, "Parte não encontrada.")
+    await _apagar_exemplo(linha["exemplo_url"])
     return {"ok": True}
+
+
+def _caminho_do_exemplo(origem: armazenamento.Armazenamento, url: str) -> str | None:
+    """Caminho do exemplo no armazenamento pela URL gravada. Só devolve caminhos de exemplo (roteiros/<id da parte>/...):
+    uma URL de outro lugar nunca leva a apagar outro arquivo."""
+    if isinstance(origem, armazenamento.ArmazenamentoSupabase):
+        caminho = origem.caminho_da_url(url)
+    else:                                                 # local: {AGENTESIA_URL_PUBLICA}/midia/<caminho>
+        caminho = url.split("/midia/", 1)[1] if "/midia/" in url else None
+    caminho = unquote(caminho.split("?", 1)[0]) if caminho else None
+    return caminho if caminho and caminho.startswith("roteiros/") and ".." not in caminho else None
+
+
+async def _apagar_exemplo(url: str | None) -> None:
+    """Tira do armazenamento o arquivo de um exemplo que saiu (trocado, tirado ou parte apagada). Falha não trava a tela:
+    no pior caso o arquivo fica sobrando no armazenamento."""
+    if not url:
+        return
+    origem = armazenamento.de_uma_midia(url)
+    caminho = _caminho_do_exemplo(origem, url) if origem is not None else None
+    if not caminho:
+        return
+    try:
+        await origem.apagar(caminho)  # type: ignore[union-attr]
+    except (armazenamento.ErroArmazenamento, OSError) as erro:
+        armazenamento.log.warning("exemplo do roteiro não saiu do armazenamento (%s): %s", caminho, type(erro).__name__)
 
 
 @api.post("/admin/roteiro/partes/{id_parte}/exemplo")
@@ -369,15 +457,23 @@ async def enviar_exemplo(id_parte: str, dados: Arquivo, pedido: Request, _: Cont
         raise HTTPException(502, str(erro)) from erro
     linha = await _consultar(pedido, "fetchrow", f"update agentesia_roteiro_partes set exemplo_url = $2, atualizado_em = now() "
                              f"where id = $1::uuid returning {_COLUNAS_PARTE}", parte["id"], url)
+    if not linha:                                         # a parte saiu enquanto o arquivo subia: o novo não fica órfão
+        await _apagar_exemplo(url)
+        raise HTTPException(404, "Parte não encontrada.")
+    if parte["exemplo_url"] and parte["exemplo_url"] != url:
+        await _apagar_exemplo(parte["exemplo_url"])       # o exemplo anterior sai do armazenamento
     return _linha(linha)  # type: ignore[return-value]
 
 
 @api.delete("/admin/roteiro/partes/{id_parte}/exemplo")
 async def tirar_exemplo(id_parte: str, pedido: Request, _: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    anterior = await _consultar(pedido, "fetchval", "select exemplo_url from agentesia_roteiro_partes where id = $1::uuid",
+                                _uuid(id_parte))
     linha = await _consultar(pedido, "fetchrow", f"update agentesia_roteiro_partes set exemplo_url = null, atualizado_em = now() "
                              f"where id = $1::uuid returning {_COLUNAS_PARTE}", _uuid(id_parte))
     if not linha:
         raise HTTPException(404, "Parte não encontrada.")
+    await _apagar_exemplo(anterior)
     return _linha(linha)  # type: ignore[return-value]
 
 
@@ -462,16 +558,23 @@ async def gravar_parte(id_parte: str, dados: Gravacao, pedido: Request, ctx: Con
     tipo = "audio" if dados.como_audio else parte["tipo"]
     bruto, extensao = await preparar_arquivo(_decodificar(dados.conteudo_base64), tipo, dados.mime, dados.nome)
     titulo = parte["titulo"][:150]
-    nome = f"{parte['ordem'] // 10:02d} - {titulo}" if parte["ordem"] else titulo
-    criada = await enviar_midia(MidiaNova(nome=f"{nome}.{extensao}", conteudo_base64=base64.b64encode(bruto).decode()),
-                                pedido, ctx)
-    pasta = "Roteiros gravados/Gerais" if parte.get("chave_geral") else f"Roteiros gravados/{parte['produto_nome']}"
+    # Número = a posição da parte na tela do roteiro (a mesma do "Áudio 03"), para a pasta seguir a ordem da tela.
+    ordem_na_tela = [str(x["id"]) for x in await _partes(pedido, str(parte["id_produto_biblioteca"]), so_ativas=True)]
+    posicao = ordem_na_tela.index(str(parte["id"])) + 1 if str(parte["id"]) in ordem_na_tela else 0
+    nome = f"{posicao:02d} - {titulo}" if posicao else titulo
     pool = _pool(pedido)
-    await pool.execute("update agentesia_biblioteca_midia set nome = $2, pasta = $3 where id = $1::uuid",
-                       criada["id"], nome[:200], pasta)
     chave = chave_da_parte(parte)
     anterior = await pool.fetchval("select id_midia from agentesia_roteiro_gravacoes where id_escritorio = $1::uuid and chave = $2",
                                    ctx.escritorio(), chave)
+    if anterior and await _abrir_espaco(pedido, ctx, str(anterior), len(bruto)):
+        anterior = None                                   # já saiu (e o vínculo com ele, em cascata)
+    criada = await enviar_midia(MidiaNova(nome=f"{nome}.{extensao}", conteudo_base64=base64.b64encode(bruto).decode()),
+                                pedido, ctx)
+    # "/" no nome do produto viraria uma subpasta que não existe na biblioteca.
+    produto_pasta = re.sub(r"\s*[/\\]+\s*", " - ", parte["produto_nome"] or "").strip() or "Produto"
+    pasta = "Roteiros gravados/Gerais" if parte.get("chave_geral") else f"Roteiros gravados/{produto_pasta}"
+    await pool.execute("update agentesia_biblioteca_midia set nome = $2, pasta = $3 where id = $1::uuid",
+                       criada["id"], nome[:200], pasta)
     await pool.execute(
         """insert into agentesia_roteiro_gravacoes (id_escritorio, chave, id_parte, id_midia, duracao_s, pico, silencio_pct,
                                                     qualidade, id_usuario)
@@ -488,6 +591,28 @@ async def gravar_parte(id_parte: str, dados: Gravacao, pedido: Request, ctx: Con
             pass
     gravacoes = await _gravacoes_do_escritorio(pedido, ctx)
     return _com_gravacao(parte, gravacoes)
+
+
+async def _abrir_espaco(pedido: Request, ctx: Contexto, id_anterior: str, tamanho_novo: int) -> bool:
+    """Regravar perto da cota: o arquivo antigo ainda conta no espaço e o novo seria recusado. Só nesse caso (e se tirar o
+    antigo basta para caber o novo) a gravação antiga sai ANTES de subir a nova. Fora disso a ordem é a de sempre (sobe
+    a nova, depois apaga a antiga), para uma falha no envio não fazer a pessoa perder o que já tinha gravado.
+    Não sai se um prompt ainda usa o link dela. True = a antiga foi apagada."""
+    pool = _pool(pedido)
+    usado = await _uso_midia(pool, ctx.escritorio())
+    if usado + tamanho_novo <= COTA_MIDIA:
+        return False
+    antiga = await pool.fetchrow("select url, caminho_storage, tamanho_bytes from agentesia_biblioteca_midia "
+                                 "where id = $1::uuid and id_escritorio = $2::uuid", id_anterior, ctx.escritorio())
+    if not antiga or usado - int(antiga["tamanho_bytes"] or 0) + tamanho_novo > COTA_MIDIA:
+        return False
+    if await _quem_usa_a_midia(pool, ctx.escritorio(), antiga["caminho_storage"] or antiga["url"]):
+        return False
+    try:
+        await apagar_midia(id_anterior, pedido, ctx)
+    except HTTPException:
+        return False
+    return True
 
 
 @api.delete("/roteiro-gravacao/partes/{id_parte}")

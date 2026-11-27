@@ -139,6 +139,9 @@ const mapProdutoAtivado = (p: any) => ({
   source_template: p.biblioteca
     ? {
         id: p.biblioteca.id,
+        // slug: o rascunho em Meus agentes reabre a ativação por /ativar/<slug>?continuar=1 (sem ele caía na tela
+        // "Retome a ativação pela biblioteca" e a pessoa perdia o ponto onde parou).
+        slug: p.biblioteca.slug,
         name: p.biblioteca.nome,
         icon: p.biblioteca.icone,
         cover_gradient: p.biblioteca.capa_gradiente,

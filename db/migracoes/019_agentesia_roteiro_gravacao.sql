@@ -10,7 +10,7 @@
 --    ou 'parte:<id da parte>'); regravar substitui. O arquivo é um item da biblioteca de mídia.
 -- C) agentesia_biblioteca_midia ganha "pasta" (ex.: "Roteiros gravados/Auxílio-Acidente").
 -- D) agentesia_biblioteca_produtos ganha roteiro_orientacoes (texto antes de começar a gravar).
--- E) agentesia_planos ganha "midia" (o plano libera mídia e roteiros); ligado em pro_plus, master e enterprise.
+-- E) agentesia_planos ganha "midia" (o plano libera o roteiro de gravação dos produtos de mídia; a biblioteca de mídia continua aberta a todos); ligado em pro_plus, master e enterprise.
 --
 -- Só acrescenta. Pode rodar mais de uma vez e com o servidor no ar. Depende da 002, 007 e 017.
 -- Para desfazer: desfazer_019.sql.

@@ -404,6 +404,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       // Onde a pessoa parou (passo, aba do conteúdo, agente) e os campos já aplicados: ao reabrir o rascunho em
       // Produtos ela continua dali, sem refazer nada.
       step, step3Tab, activeRoleIdx, fieldValues, appliedValues,
+      // Follow-up e "ativar agora" (passos 5 e 6): a retomada volta com o que a pessoa escolheu.
+      followupLigado, fuHoras, activateNow,
       ...extra,
     };
     try {
@@ -467,19 +469,33 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // Roteiro de gravação do produto (produtos de mídia): card da lateral e gravações que combinam com os marcadores.
   const roteiro = useRoteiroDoProduto(template?.id, isAudio && step === 3);
 
-  // Retomar o rascunho (Meus agentes › Rascunho, ou a volta do Roteiro de gravação): ?continuar=1 carrega o rascunho do
-  // servidor na hora e abre no passo onde a pessoa parou (pelo menos o Conteúdo), sem refazer Identidade e Comportamento.
+  // Retomar o rascunho: se o escritório já tem um rascunho deste produto com conteúdo (Meus agentes › Rascunho, a volta do
+  // Roteiro de gravação, ou abrir o produto de novo pela Biblioteca), carrega na hora e abre no passo onde a pessoa parou
+  // (pelo menos o Conteúdo), sem refazer Identidade e Comportamento. Não depende só do ?continuar=1 do endereço: depois de
+  // recarregar a página o componente pode montar de novo, e o rascunho continua sendo a fonte de onde parou.
   const [busca, setBusca] = useSearchParams();
   const retomou = useRef(false);
   useEffect(() => {
-    if (isEdit || retomou.current || !template?.id || groupId || bootstrapping || !busca.get("continuar")) return;
+    if (isEdit || retomou.current || !template?.id || groupId || bootstrapping) return;
     retomou.current = true;
+    const pediu = !!busca.get("continuar");
     void (async () => {
+      let temRascunho = pediu;
+      if (!temRascunho) {
+        try {
+          const meus = await api<any[]>("/produtos-ativados?lixeira=0");
+          temRascunho = (meus ?? []).some((p) => p.id_produto_biblioteca === template.id && p.status === "rascunho"
+            && Array.isArray(p.rascunho?.pipelineAgents) && p.rascunho.pipelineAgents.length > 0);
+        } catch { /* sem a lista: começa do passo 1, como antes */ }
+      }
+      if (!temRascunho) return;
       if (!(await bootstrapPipeline())) return;
       setStep(Math.max(3, passoSalvo.current ?? 3));
-      const sem = new URLSearchParams(busca);
-      sem.delete("continuar");
-      setBusca(sem, { replace: true });
+      if (pediu) {
+        const sem = new URLSearchParams(busca);
+        sem.delete("continuar");
+        setBusca(sem, { replace: true });
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template?.id, isEdit, groupId]);
@@ -615,6 +631,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       name, selectedWhatsapp, selectedModel, temperature, responseDelay, humanPause, schedule24,
       pipelineAgents: agentes, faqItems, objectionItems, knowledgeItems, integrations,
       generalRules, dadosEscritorio, honorariosTexto, fieldValues, appliedValues,
+      followupLigado, fuHoras, activateNow,
       // posição na tela (não conta como alteração)
       step, step3Tab, activeRoleIdx,
     };
@@ -664,6 +681,9 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     if (typeof d.honorariosTexto === "string") setHonorariosTexto(d.honorariosTexto);
     if (d.fieldValues) setFieldValues(d.fieldValues);
     if (Array.isArray(d.appliedValues)) setAppliedValues(d.appliedValues);
+    if (typeof d.followupLigado === "boolean") setFollowupLigado(d.followupLigado);
+    if (d.fuHoras === null || Array.isArray(d.fuHoras)) setFuHoras(d.fuHoras);
+    if (typeof d.activateNow === "boolean") setActivateNow(d.activateNow);
     if (typeof d.step === "number") setStep(Math.min(STEP_COUNT, Math.max(1, d.step)));
     if (d.step3Tab) setStep3Tab(d.step3Tab);
     const nAg = Array.isArray(d.pipelineAgents) ? d.pipelineAgents.length : pipelineAgentsRef.current.length;
@@ -671,6 +691,15 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     setEditorVersion((v) => v + 1); // remonta o editor do agente com o texto recuperado
     toast.success("Alterações recuperadas", { description: "Revise e salve para não perder de novo." });
   };
+
+  // Salvar o rascunho DEPOIS que as trocas entram no estado: quem troca textos com setState funcional
+  // (mídias, campos {{ }}) pede aqui em vez de chamar salvarRascunho() na hora — na hora ele leria o
+  // estado velho do closure e gravaria o texto de antes. O efeito roda com o estado novo, uma vez só.
+  const [pedidoSalvar, setPedidoSalvar] = useState(0);
+  useEffect(() => {
+    if (pedidoSalvar) void salvarRascunho();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoSalvar]);
 
   if (isLoading) return <div className="grid place-items-center py-20"><Loader2 className="size-8 text-primary animate-spin" /></div>;
   if (!template) {
@@ -711,6 +740,13 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       const catalogStamp = [catDefaults?.updated_at, ...bibAgents.map((b: any) => b.updated_at)]
         .filter(Boolean).sort().pop() ?? null;
       catalogStampRef.current = catalogStamp;
+
+      // Follow-up e "ativar agora" são ESCOLHAS da pessoa (não conteúdo): voltam nos dois casos.
+      const restaurarEscolhasFinais = (r: any) => {
+        if (typeof r.followupLigado === "boolean") setFollowupLigado(r.followupLigado);
+        if (r.fuHoras === null || Array.isArray(r.fuHoras)) setFuHoras(r.fuHoras);
+        if (typeof r.activateNow === "boolean") setActivateNow(r.activateNow);
+      };
 
       // Reconstrói os agentes a partir do MODELO do catálogo (a fonte da verdade).
       const montarAgentesDoCatalogo = (): PipelineAgent[] => {
@@ -760,6 +796,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         if (typeof r.schedule24 === "boolean") setSchedule24(r.schedule24);
         if (r.fieldValues && typeof r.fieldValues === "object") setFieldValues(r.fieldValues);
         if (Array.isArray(r.appliedValues)) setAppliedValues(r.appliedValues);
+        restaurarEscolhasFinais(r);
         // Continua de onde parou.
         passoSalvo.current = typeof r.step === "number" ? Math.min(STEP_COUNT, Math.max(1, r.step)) : null;
         if (r.step3Tab) setStep3Tab(r.step3Tab);
@@ -785,6 +822,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         if (typeof r.responseDelay === "number") setResponseDelay(r.responseDelay);
         if (typeof r.humanPause === "number") setHumanPause(r.humanPause);
         if (typeof r.schedule24 === "boolean") setSchedule24(r.schedule24);
+        restaurarEscolhasFinais(r);
         if (hadDraft && draftStale) {
           toast.info("O modelo do catálogo foi atualizado", { description: "Recarregamos os prompts e o conteúdo padrão." });
         }
@@ -908,6 +946,24 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   /** Salva o rascunho onde parou e abre o roteiro (tela única de gravação); a volta retoma daqui. */
   const gravarRoteiro = async () => {
     if (!template?.id) return;
+    // Captura o texto que está sendo digitado no agente em foco (só com o editor montado, aba "agente").
+    if (step === 3 && step3Tab === "agente") flushHandlerRef.current?.();
+    if (isEdit) {
+      // Edição: a volta do roteiro não retoma o que ainda não foi salvo — pede para salvar antes de sair.
+      // (mesmos critérios do editChanges: nome, boas-vindas, prompt e gatilho de transferência, sem espaços nas pontas)
+      const t = (v: any) => String(v ?? "").trim();
+      const digitouAgora = pipelineAgentsRef.current.some((a, i) => {
+        const b = pipelineAgents[i];
+        return !b || a.role !== b.role || t(a.name) !== t(b.name) || t(a.welcome) !== t(b.welcome)
+          || t(freeformOf(a.blocks)) !== t(freeformOf(b.blocks))
+          || t(blockOf(a.blocks, "handoff_trigger")) !== t(blockOf(b.blocks, "handoff_trigger"));
+      });
+      if (digitouAgora || rascunhoLocal.sujo || (editChanges?.total ?? 0) > 0) {
+        rascunhoLocal.gravarAgora(); // guarda no navegador o que foi editado (rede de segurança)
+        toast.warning("Salve as alterações antes de ir gravar o roteiro.", { id: "roteiro-salvar-antes" });
+        return;
+      }
+    }
     await salvarRascunho();
     if (isEdit) rascunhoLocal.gravarAgora();
     const aqui = isEdit ? window.location.pathname : `${window.location.pathname}?continuar=1`;
@@ -1064,23 +1120,29 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     setFieldValues((d) => ({ ...d, [field]: v }));
     setAppliedValues((prev) => (prev.includes(v) ? prev : [...prev, v]));
     setEditorVersion((n) => n + 1); // remonta o editor com o texto novo
-    void salvarRascunho();
+    setPedidoSalvar((n) => n + 1); // salva depois do commit, com os textos já trocados
   };
 
   /** Escolheu o áudio de um [[audio:marcador]] → troca o marcador pela URL em TODO o produto
    *  (prompts + FAQ + objeções + regras + dados). O link fica inline, igual ao @ (o bot envia). */
-  const fillAudioMarker = (marker: string, url: string) => {
-    if (!url) return;
-    setGeneralRules((g) => fillAudioInText(g, marker, url));
-    setDadosEscritorio((d) => fillAudioInText(d, marker, url));
-    setHonorariosTexto((d) => fillAudioInText(d, marker, url));
-    const next = pipelineAgentsRef.current.map((a) => fillAgentAudio(a, marker, url));
+  const fillAudioMarker = (marker: string, url: string) => fillAudioMarkers([{ marcador: marker, url }]);
+
+  /** Várias trocas de uma vez ("Confirmar todas" do roteiro): encadeia todas sobre o mesmo texto,
+   *  num só render, e salva o rascunho UMA vez, já com os textos novos (pedido para depois do commit). */
+  const fillAudioMarkers = (lista: { marcador: string; url: string }[]) => {
+    const trocas = lista.filter((t) => t.marcador && t.url);
+    if (!trocas.length) return;
+    const noTexto = (txt: string) => trocas.reduce((t, { marcador, url }) => fillAudioInText(t, marcador, url), txt);
+    setGeneralRules((g) => noTexto(g));
+    setDadosEscritorio((d) => noTexto(d));
+    setHonorariosTexto((d) => noTexto(d));
+    const next = pipelineAgentsRef.current.map((a) => trocas.reduce((ag, { marcador, url }) => fillAgentAudio(ag, marcador, url), a));
     pipelineAgentsRef.current = next;
     setPipelineAgents(next);
-    setFaqItems((prev) => prev.map((it) => ({ pergunta: fillAudioInText(it.pergunta ?? "", marker, url), resposta: fillAudioInText(it.resposta ?? "", marker, url) })));
-    setObjectionItems((prev) => prev.map((it) => ({ titulo: fillAudioInText(it.titulo ?? "", marker, url), resposta: fillAudioInText(it.resposta ?? "", marker, url) })));
+    setFaqItems((prev) => prev.map((it) => ({ pergunta: noTexto(it.pergunta ?? ""), resposta: noTexto(it.resposta ?? "") })));
+    setObjectionItems((prev) => prev.map((it) => ({ titulo: noTexto(it.titulo ?? ""), resposta: noTexto(it.resposta ?? "") })));
     setEditorVersion((n) => n + 1); // remonta o editor com o link inserido
-    void salvarRascunho();
+    setPedidoSalvar((n) => n + 1);  // salva com o estado novo (salvarRascunho() aqui gravaria o texto de antes)
   };
 
   /** "Excluir" um [[prefixo:nome]] — remove o marcador de TODO o conteúdo (pra quem não tem essa
@@ -1095,7 +1157,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     setFaqItems((prev) => prev.map((it) => ({ pergunta: fillAudioInText(it.pergunta ?? "", marker, ""), resposta: fillAudioInText(it.resposta ?? "", marker, "") })));
     setObjectionItems((prev) => prev.map((it) => ({ titulo: fillAudioInText(it.titulo ?? "", marker, ""), resposta: fillAudioInText(it.resposta ?? "", marker, "") })));
     setEditorVersion((n) => n + 1);
-    void salvarRascunho();
+    setPedidoSalvar((n) => n + 1); // salva depois do commit, com os textos já trocados
   };
 
   // "Excluir" um campo {{ }} — remove o token de TODO o conteúdo (pra quem não tem aquele
@@ -1111,7 +1173,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     setObjectionItems((prev) => prev.map((it) => ({ titulo: fillField(it.titulo ?? "", field, ""), resposta: fillField(it.resposta ?? "", field, "") })));
     setGlobalDraft((d) => { const n = { ...d }; delete n[field]; return n; });
     setEditorVersion((n) => n + 1);
-    void salvarRascunho();
+    setPedidoSalvar((n) => n + 1); // salva depois do commit, com os textos já trocados
   };
 
   // O editor avisa quando o conteúdo do agente difere do original (personalizado).
@@ -2108,6 +2170,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                     <AudioSlotsPanel
                       markers={audioMarkers}
                       onFill={fillAudioMarker}
+                      onFillMany={fillAudioMarkers}
                       onRemove={excludeAudioMarker}
                       sugestoes={sugestoesRoteiro}
                       onGravarRoteiro={roteiro?.total ? gravarRoteiro : undefined}

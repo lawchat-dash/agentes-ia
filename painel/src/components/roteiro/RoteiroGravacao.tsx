@@ -1,16 +1,17 @@
 // Roteiro de gravação de um produto: orientações, materiais principais (vídeos + áudios) e quebra de objeção, com
 // progresso e cada parte num cartão que abre. Tela Roteiros e card da ativação do produto usam este mesmo componente.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Lock, Mic, Video } from "lucide-react";
-import { useCarregar } from "@/componentes/ui";
+import { useCarregar, useConfirmar } from "@/componentes/ui";
 import { GravadorParte } from "./GravadorParte";
 import type { ParteRoteiro, RoteiroDoProduto } from "./tipos";
 import "./roteiro.css";
 
 type Passo = "orientacoes" | "principais" | "objecoes";
 
-function CartaoParte({ parte, numero, aberto, aoAbrir, aoMudar, liberado }: {
-  parte: ParteRoteiro; numero: number; aberto: boolean; aoAbrir: () => void; aoMudar: (p: ParteRoteiro) => void; liberado: boolean;
+function CartaoParte({ parte, numero, aberto, aoAbrir, aoMudar, aoOcupar, liberado }: {
+  parte: ParteRoteiro; numero: number; aberto: boolean; aoAbrir: () => void; aoMudar: (p: ParteRoteiro) => void;
+  aoOcupar: (ocupado: boolean) => void; liberado: boolean;
 }) {
   const feito = !!parte.gravacao;
   const Icone = parte.tipo === "video" ? Video : Mic;
@@ -25,23 +26,42 @@ function CartaoParte({ parte, numero, aberto, aoAbrir, aoMudar, liberado }: {
         <span className={`rg-check ${feito ? "on" : ""}`} aria-label={feito ? "Enviado" : "Falta enviar"}>{feito && <Check size={14} strokeWidth={3} />}</span>
         <ChevronDown size={16} className="rg-seta" />
       </button>
-      {aberto && <GravadorParte parte={parte} aoMudar={aoMudar} liberado={liberado} />}
+      {aberto && <GravadorParte parte={parte} aoMudar={aoMudar} aoOcupar={aoOcupar} liberado={liberado} />}
     </div>
   );
 }
 
-export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVoltar }: {
+export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVoltar, sair }: {
   idProduto: string;
   /** Avisado a cada envio/exclusão (a ativação usa para trocar o marcador do prompt pelo link). */
   aoGravou?: (parte: ParteRoteiro) => void;
   compacto?: boolean;
   aoVoltar?: () => void;
+  /** Preenchido aqui: quem está fora (ex.: "Voltar para a ativação") chama antes de sair, e só sai se confirmar o descarte. */
+  sair?: MutableRefObject<((ir: () => void) => void) | null>;
 }) {
   const { dados, erro } = useCarregar<RoteiroDoProduto>(`/roteiro-gravacao/${idProduto}`, [idProduto], { guardar: false });
+  const [confirmar, modalConfirmar] = useConfirmar();
   const [partes, setPartes] = useState<ParteRoteiro[]>([]);
   const [passo, setPasso] = useState<Passo>(compacto ? "principais" : "orientacoes");
   const [aberta, setAberta] = useState<string | null>(null);
+  // Parte com gravação em andamento ou prévia ainda não enviada: fechar/trocar o cartão descartaria sem aviso.
+  const [ocupada, setOcupada] = useState<string | null>(null);
   useEffect(() => { if (dados) setPartes(dados.partes); }, [dados]);
+
+  /** Faz `ir` direto ou, se há gravação não enviada, só depois de confirmar o descarte. */
+  const seguir = async (ir: () => void) => {
+    if (ocupada && !(await confirmar({ titulo: "Descartar a gravação?", texto: "Descartar a gravação que ainda não foi enviada?", confirmar: "Descartar", perigo: true }))) return;
+    setOcupada(null);
+    ir();
+  };
+  useEffect(() => {
+    if (!sair) return;
+    sair.current = (ir) => { void seguir(ir); };
+    return () => { sair.current = null; };
+  });
+  const irPasso = (novo: Passo) => { if (novo !== passo) void seguir(() => setPasso(novo)); };
+  const voltar = aoVoltar && (() => { void seguir(aoVoltar); });
 
   const principais = useMemo(() => partes.filter((p) => p.secao !== "objecoes"), [partes]);
   const objecoes = useMemo(() => partes.filter((p) => p.secao === "objecoes"), [partes]);
@@ -80,12 +100,12 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
     <div className={`rg ${compacto ? "rg--compacto" : ""}`}>
       {!compacto && (
         <div className="rg-topo">
-          {aoVoltar && <button type="button" className="rg-voltar" onClick={aoVoltar}><ArrowLeft size={15} />Roteiros</button>}
+          {voltar && <button type="button" className="rg-voltar" onClick={voltar}><ArrowLeft size={15} />Roteiros</button>}
           <h2>Seu roteiro de gravação</h2>
           <p>{dados.produto.nome}</p>
           <div className="rg-passos">
             {passos.map((p, i) => (
-              <button key={p.id} type="button" className={i <= indice ? "on" : ""} onClick={() => setPasso(p.id)}>
+              <button key={p.id} type="button" className={i <= indice ? "on" : ""} onClick={() => irPasso(p.id)}>
                 <i /><span>{i + 1}. {p.rotulo}</span>
               </button>
             ))}
@@ -107,7 +127,7 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
         <div className="rg-abas">
           {passos.map((p) => {
             const l = p.id === "objecoes" ? objecoes : principais;
-            return <button key={p.id} type="button" className={passo === p.id ? "on" : ""} onClick={() => setPasso(p.id)}>{p.rotulo} <small>{feitas(l)}/{l.length}</small></button>;
+            return <button key={p.id} type="button" className={passo === p.id ? "on" : ""} onClick={() => irPasso(p.id)}>{p.rotulo} <small>{feitas(l)}/{l.length}</small></button>;
           })}
         </div>
       )}
@@ -142,7 +162,8 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
           <div className="rg-cartoes">
             {lista.map((p) => (
               <CartaoParte key={p.id} parte={p} numero={partes.indexOf(p) + 1} aberto={aberta === p.id} liberado={dados.liberado}
-                aoAbrir={() => setAberta((a) => (a === p.id ? null : p.id))} aoMudar={mudar} />
+                aoAbrir={() => { void seguir(() => setAberta((a) => (a === p.id ? null : p.id))); }} aoMudar={mudar}
+                aoOcupar={(o) => setOcupada((atual) => (o ? p.id : atual === p.id ? null : atual))} />
             ))}
           </div>
         </div>
@@ -150,13 +171,14 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
 
       {!compacto && (
         <div className="rg-rodape">
-          {indice > 0 ? <button type="button" className="rg-btn" onClick={() => setPasso(passos[indice - 1].id)}><ArrowLeft size={15} />Voltar</button> : <span />}
+          {indice > 0 ? <button type="button" className="rg-btn" onClick={() => irPasso(passos[indice - 1].id)}><ArrowLeft size={15} />Voltar</button> : <span />}
           {indice < passos.length - 1
-            ? <button type="button" className="rg-btn rg-btn--pri" onClick={() => setPasso(passos[indice + 1].id)}>
+            ? <button type="button" className="rg-btn rg-btn--pri" onClick={() => irPasso(passos[indice + 1].id)}>
                 {passo === "orientacoes" ? "Começar a gravar" : "Próximo"}<ArrowRight size={15} /></button>
-            : aoVoltar && <button type="button" className="rg-btn rg-btn--pri" onClick={aoVoltar}><Check size={15} />{gravadas === total ? "Concluído" : "Salvar e sair"}</button>}
+            : voltar && <button type="button" className="rg-btn rg-btn--pri" onClick={voltar}><Check size={15} />{gravadas === total ? "Concluído" : "Salvar e sair"}</button>}
         </div>
       )}
+      {modalConfirmar}
     </div>
   );
 }
