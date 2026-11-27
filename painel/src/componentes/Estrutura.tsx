@@ -171,6 +171,7 @@ export function Estrutura({ titulo, children }: { titulo: ReactNode; children: R
       { para: "/admin/escritorios", rotulo: "Contas", icone: <Building2 className="i" /> },
       { para: "/admin/produtos", rotulo: "Produtos", icone: <LayoutGrid className="i" /> },
       { para: "/admin/modelos", rotulo: "Modelos de agente", icone: <BookOpen className="i" /> },
+      { para: "/admin/planos", rotulo: "Planos", icone: <Package className="i" /> },
       { para: "/admin/cobranca?aba=recargas", rotulo: "Recargas", icone: <CreditCard className="i" /> },
       { para: "/admin/cobranca?aba=carteiras", rotulo: "Financeiro", icone: <Wallet className="i" /> },
       { para: "/admin/erros", rotulo: "Erros da IA", icone: <AlertOctagon className="i" /> },

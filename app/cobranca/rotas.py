@@ -597,6 +597,15 @@ class Plano(BaseModel):
     bonus_acumula: bool = False
     ativo: bool = True
     ordem: int = 0
+    preco_anual_brl: float | None = Field(default=None, ge=0, le=10_000_000)
+    sob_proposta: bool = False
+    usuarios: int = Field(default=1, ge=0, le=9999)
+    canais_whatsapp: int = Field(default=1, ge=0, le=9999)
+    canais_instagram: int = Field(default=0, ge=0, le=9999)
+    cria_agentes: bool = False
+    ia_inclusa: bool = False
+    selo: str | None = Field(default=None, max_length=8)
+    icone: str | None = Field(default=None, max_length=20)
 
 
 class AlterarPlano(BaseModel):
@@ -607,6 +616,34 @@ class AlterarPlano(BaseModel):
     bonus_acumula: bool | None = None
     ativo: bool | None = None
     ordem: int | None = None
+    preco_anual_brl: float | None = Field(default=None, ge=0, le=10_000_000)
+    limpar_preco_anual: bool = False          # volta para "12 meses com desconto" (preco_anual_brl = null)
+    sob_proposta: bool | None = None
+    usuarios: int | None = Field(default=None, ge=0, le=9999)
+    canais_whatsapp: int | None = Field(default=None, ge=0, le=9999)
+    canais_instagram: int | None = Field(default=None, ge=0, le=9999)
+    cria_agentes: bool | None = None
+    ia_inclusa: bool | None = None
+    selo: str | None = Field(default=None, max_length=8)
+    icone: str | None = Field(default=None, max_length=20)
+
+
+_RECURSOS_PLANO = ("preco_anual_brl", "sob_proposta", "usuarios", "canais_whatsapp", "canais_instagram", "cria_agentes",
+                   "ia_inclusa", "selo", "icone")
+
+_COLUNAS_PLANO_017 = """, preco_anual_brl::float8 as preco_anual_brl, sob_proposta, usuarios, canais_whatsapp, canais_instagram,
+                    cria_agentes, ia_inclusa, selo, icone"""
+
+
+async def _tem_017(pool: Any) -> bool:
+    return bool(await pool.fetchval(
+        "select 1 from information_schema.columns where table_schema = 'public' and table_name = 'agentesia_planos'"
+        " and column_name = 'cria_agentes'"))
+
+
+async def _exigir_017(pool: Any) -> None:
+    if not await _tem_017(pool):
+        raise HTTPException(503, "Recursos dos planos ainda não instalados no banco (migração 017).")
 
 
 _COLUNAS_PLANO = """id, codigo, nome, descricao, preco_mensal_brl::float8 as preco_mensal_brl,
@@ -618,7 +655,8 @@ _COLUNAS_PLANO = """id, codigo, nome, descricao, preco_mensal_brl::float8 as pre
 async def listar_planos(pedido: Request, _: Contexto = Depends(ADMIN)) -> list[dict[str, Any]]:
     pool = _pool(pedido)
     await _exigir_007(pool)
-    return _linhas(await pool.fetch(f"select {_COLUNAS_PLANO} from agentesia_planos order by ordem, nome"))
+    extra = _COLUNAS_PLANO_017 if await _tem_017(pool) else ""
+    return _linhas(await pool.fetch(f"select {_COLUNAS_PLANO}{extra} from agentesia_planos order by ordem, nome"))
 
 
 @api.post("/admin/planos")
@@ -627,11 +665,16 @@ async def criar_plano(dados: Plano, pedido: Request, ctx: Contexto = Depends(ADM
     await _exigir_007(pool)
     if await pool.fetchval("select 1 from agentesia_planos where codigo = $1", dados.codigo):
         raise HTTPException(409, "Já existe um plano com esse código.")
+    tem17 = await _tem_017(pool)
+    valores = dados.model_dump()
+    valores["nome"] = dados.nome.strip()
+    colunas = ["codigo", "nome", "descricao", "preco_mensal_brl", "bonus_mensal_brl", "bonus_acumula", "ativo", "ordem"]
+    if tem17:
+        colunas += list(_RECURSOS_PLANO)
+    marcas = ", ".join(f"${i}" for i in range(1, len(colunas) + 1))
     plano = _linha(await pool.fetchrow(
-        f"""insert into agentesia_planos (codigo, nome, descricao, preco_mensal_brl, bonus_mensal_brl, bonus_acumula, ativo, ordem)
-            values ($1, $2, $3, $4, $5, $6, $7, $8) returning {_COLUNAS_PLANO}""",
-        dados.codigo, dados.nome.strip(), dados.descricao, dados.preco_mensal_brl, dados.bonus_mensal_brl,
-        dados.bonus_acumula, dados.ativo, dados.ordem))
+        f"insert into agentesia_planos ({', '.join(colunas)}) values ({marcas}) "
+        f"returning {_COLUNAS_PLANO}{_COLUNAS_PLANO_017 if tem17 else ''}", *[valores[c] for c in colunas]))
     await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=None, tabela="agentesia_planos",
                                             id_registro=str(plano["id"]), acao="criou", resumo=f"Plano {dados.nome} criado",
                                             depois=dados.model_dump())
@@ -643,19 +686,129 @@ async def alterar_plano(id_plano: str, dados: AlterarPlano, pedido: Request, ctx
     """Mudar o bônus vale a partir do mês seguinte (o bônus do mês já creditado não muda)."""
     pool = _pool(pedido)
     await _exigir_007(pool)
-    antes = _linha(await pool.fetchrow(f"select {_COLUNAS_PLANO} from agentesia_planos where id = $1::uuid", id_plano))
+    tem17 = await _tem_017(pool)
+    cols = f"{_COLUNAS_PLANO}{_COLUNAS_PLANO_017 if tem17 else ''}"
+    antes = _linha(await pool.fetchrow(f"select {cols} from agentesia_planos where id = $1::uuid", id_plano))
     if not antes:
         raise HTTPException(404, "Plano não encontrado.")
-    mudancas = {k: v for k, v in dados.model_dump().items() if v is not None}
+    bruto = dados.model_dump()
+    limpar_anual = bruto.pop("limpar_preco_anual")
+    mudancas = {k: v for k, v in bruto.items() if v is not None and (tem17 or k not in _RECURSOS_PLANO)}
+    for k in ("selo", "icone"):
+        if k in mudancas:
+            mudancas[k] = mudancas[k] or None
+    if limpar_anual and tem17:
+        mudancas["preco_anual_brl"] = None
     if not mudancas:
         return antes
     sets = ", ".join(f"{k} = ${i}" for i, k in enumerate(mudancas, 2))
     plano = _linha(await pool.fetchrow(
-        f"update agentesia_planos set {sets} where id = $1::uuid returning {_COLUNAS_PLANO}", id_plano, *mudancas.values()))
+        f"update agentesia_planos set {sets}, atualizado_em = now() where id = $1::uuid returning {cols}",
+        id_plano, *mudancas.values()))
     await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=None, tabela="agentesia_planos",
                                             id_registro=id_plano, acao="alterou", resumo=f"Plano {plano['nome']} alterado",
                                             antes={k: antes.get(k) for k in mudancas}, depois=mudancas)
     return plano
+
+
+@api.delete("/admin/planos/{id_plano}")
+async def excluir_plano(id_plano: str, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    """Só exclui plano que nenhum escritório usa (senão: desative)."""
+    pool = _pool(pedido)
+    await _exigir_007(pool)
+    plano = _linha(await pool.fetchrow(f"select {_COLUNAS_PLANO} from agentesia_planos where id = $1::uuid", id_plano))
+    if not plano:
+        raise HTTPException(404, "Plano não encontrado.")
+    if plano["escritorios"]:
+        raise HTTPException(409, f"{plano['escritorios']} escritório(s) usam este plano. Desative em vez de excluir.")
+    await pool.execute("delete from agentesia_planos where id = $1::uuid", id_plano)
+    await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=None, tabela="agentesia_planos",
+                                            id_registro=id_plano, acao="apagou", resumo=f"Plano {plano['nome']} excluído",
+                                            antes={k: plano.get(k) for k in ("codigo", "nome", "preco_mensal_brl")})
+    return {"ok": True}
+
+
+# ============================================================================ admin: adicionais (sempre mensais)
+class Adicional(BaseModel):
+    codigo: str = Field(pattern=r"^[a-z0-9_-]{2,40}$")
+    nome: str = Field(min_length=2, max_length=80)
+    descricao: str | None = None
+    preco_mensal_brl: float = Field(ge=0, le=1_000_000)
+    icone: str | None = Field(default=None, max_length=20)
+    ativo: bool = True
+    ordem: int = 0
+
+
+class AlterarAdicional(BaseModel):
+    nome: str | None = Field(default=None, min_length=2, max_length=80)
+    descricao: str | None = None
+    preco_mensal_brl: float | None = Field(default=None, ge=0, le=1_000_000)
+    icone: str | None = Field(default=None, max_length=20)
+    ativo: bool | None = None
+    ordem: int | None = None
+
+
+_COLUNAS_ADICIONAL = ("id, codigo, nome, descricao, preco_mensal_brl::float8 as preco_mensal_brl, icone, ativo, ordem, "
+                      "criado_em, atualizado_em")
+
+
+@api.get("/admin/adicionais")
+async def listar_adicionais(pedido: Request, _: Contexto = Depends(ADMIN)) -> list[dict[str, Any]]:
+    pool = _pool(pedido)
+    if not await _tem_017(pool):
+        return []
+    return _linhas(await pool.fetch(f"select {_COLUNAS_ADICIONAL} from agentesia_adicionais order by ordem, nome"))
+
+
+@api.post("/admin/adicionais")
+async def criar_adicional(dados: Adicional, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    pool = _pool(pedido)
+    await _exigir_017(pool)
+    if await pool.fetchval("select 1 from agentesia_adicionais where codigo = $1", dados.codigo):
+        raise HTTPException(409, "Já existe um adicional com esse código.")
+    item = _linha(await pool.fetchrow(
+        f"""insert into agentesia_adicionais (codigo, nome, descricao, preco_mensal_brl, icone, ativo, ordem)
+            values ($1, $2, $3, $4, $5, $6, $7) returning {_COLUNAS_ADICIONAL}""",
+        dados.codigo, dados.nome.strip(), dados.descricao, dados.preco_mensal_brl, dados.icone, dados.ativo, dados.ordem))
+    await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=None, tabela="agentesia_adicionais",
+                                            id_registro=str(item["id"]), acao="criou", resumo=f"Adicional {dados.nome} criado",
+                                            depois=dados.model_dump())
+    return item
+
+
+@api.patch("/admin/adicionais/{id_adicional}")
+async def alterar_adicional(id_adicional: str, dados: AlterarAdicional, pedido: Request,
+                            ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    pool = _pool(pedido)
+    await _exigir_017(pool)
+    antes = _linha(await pool.fetchrow(f"select {_COLUNAS_ADICIONAL} from agentesia_adicionais where id = $1::uuid", id_adicional))
+    if not antes:
+        raise HTTPException(404, "Adicional não encontrado.")
+    mudancas = {k: v for k, v in dados.model_dump().items() if v is not None}
+    if not mudancas:
+        return antes
+    sets = ", ".join(f"{k} = ${i}" for i, k in enumerate(mudancas, 2))
+    item = _linha(await pool.fetchrow(
+        f"update agentesia_adicionais set {sets}, atualizado_em = now() where id = $1::uuid returning {_COLUNAS_ADICIONAL}",
+        id_adicional, *mudancas.values()))
+    await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=None, tabela="agentesia_adicionais",
+                                            id_registro=id_adicional, acao="alterou", resumo=f"Adicional {item['nome']} alterado",
+                                            antes={k: antes.get(k) for k in mudancas}, depois=mudancas)
+    return item
+
+
+@api.delete("/admin/adicionais/{id_adicional}")
+async def excluir_adicional(id_adicional: str, pedido: Request, ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    pool = _pool(pedido)
+    await _exigir_017(pool)
+    item = _linha(await pool.fetchrow(f"select {_COLUNAS_ADICIONAL} from agentesia_adicionais where id = $1::uuid", id_adicional))
+    if not item:
+        raise HTTPException(404, "Adicional não encontrado.")
+    await pool.execute("delete from agentesia_adicionais where id = $1::uuid", id_adicional)
+    await _repo(pedido).registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=None, tabela="agentesia_adicionais",
+                                            id_registro=id_adicional, acao="apagou", resumo=f"Adicional {item['nome']} excluído",
+                                            antes={"codigo": item["codigo"], "nome": item["nome"]})
+    return {"ok": True}
 
 
 # ============================================================================ admin: carteiras

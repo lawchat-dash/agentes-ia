@@ -63,6 +63,7 @@ const Biblioteca = lazy(() => import("@/pages/Biblioteca"));
 const BibliotecaDetalhes = lazy(() => import("@/pages/BibliotecaDetalhes"));
 const MeusProdutos = lazy(() => import("@/pages/MeusProdutos"));
 const AdminProdutos = lazy(() => import("@/pages/admin/AdminProdutos"));
+const AdminPlanos = lazy(() => import("@/pages/admin/AdminPlanos"));
 const AdminProdutoEditor = lazy(() => import("@/pages/admin/AdminProdutoEditor"));
 const Ativar = lazy(() => import("@/pages/Ativar"));
 const ProdutoEditor = lazy(() => import("@/pages/ProdutoEditor"));
@@ -210,6 +211,7 @@ function ComEstrutura() {
           <Route path="/admin/cobranca" element={<TelaAdminCobranca />} />
           <Route path="/admin/followup" element={<TelaAdminFollowup />} />
           <Route path="/admin/produtos" element={<AdminProdutos />} />
+          <Route path="/admin/planos" element={<AdminPlanos />} />
           <Route path="/admin/produtos/:id" element={<AdminProdutoEditor />} />
         </>}
         <Route path="/entrar" element={<Navigate to="/" replace />} />

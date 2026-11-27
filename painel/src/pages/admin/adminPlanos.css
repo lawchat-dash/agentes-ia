@@ -1,0 +1,78 @@
+/* Admin › Planos (catálogo comercial). Paleta do estilo.css. */
+.ap-aviso { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-radius: 12px; font-size: 13.5px;
+  background: #FFF7E8; border: 1px solid #F3DDB3; color: #6B4A12; }
+.ap-aviso svg { flex: none; color: var(--warn, #A85B06); }
+.ap-aviso--ruim { background: #FDECEA; border-color: #F4C7C0; color: #7A2416; }
+.ap-aviso--ruim svg { color: var(--danger, #BF3520); }
+
+.ap-tabela-caixa { border: 1px solid var(--line, #E2E9E4); border-radius: 16px; background: #fff; overflow-x: auto;
+  box-shadow: 0 1px 2px rgba(6, 19, 12, .04); }
+.ap-tabela { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 860px; }
+.ap-tabela th { text-align: left; font-weight: 500; font-size: 13px; color: var(--ink-3, #69786F); padding: 14px 16px;
+  background: #FAFCFB; border-bottom: 1px solid var(--line, #E2E9E4); white-space: nowrap; }
+.ap-tabela td { padding: 14px 16px; border-bottom: 1px solid var(--line, #E2E9E4); vertical-align: middle; color: var(--ink, #0C1811); }
+.ap-tabela tr:last-child td { border-bottom: 0; }
+.ap-tabela tbody tr { transition: background .15s; }
+.ap-tabela tbody tr:hover { background: #FAFCFB; }
+.ap-tabela .c { text-align: center; }
+.ap-tabela .d { text-align: right; }
+.ap-inativo td { opacity: .55; }
+
+.ap-plano { display: flex; gap: 12px; align-items: center; min-width: 170px; }
+.ap-plano b { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.ap-plano code, .ap-cod { display: block; margin-top: 2px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3, #69786F); background: none; padding: 0; }
+.ap-plano-ico { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 2px 6px -2px rgba(6, 19, 12, .3); }
+.ap-plano-ico.pequeno { width: 28px; height: 28px; border-radius: 8px; }
+.ap-selo { font-size: 14px; line-height: 1; }
+.ap-valor { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ap-valor small { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-3, #69786F); }
+.ap-proposta { color: var(--ink-2, #3D4B43); font-style: italic; }
+.ap-num { display: inline-grid; place-items: center; min-width: 30px; height: 24px; padding: 0 8px; border-radius: 99px;
+  background: var(--mint, #E6F5EB); color: var(--brand-800, #0B5E27); font-weight: 600; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ap-mono { font-variant-numeric: tabular-nums; }
+.ap-sim { width: 17px; height: 17px; color: var(--brand, #00BC33); display: inline-block; }
+.ap-nao { width: 15px; height: 15px; color: #B6C0BA; display: inline-block; }
+.ap-status { display: inline-flex; align-items: center; height: 24px; padding: 0 11px; border-radius: 99px; font-size: 12.5px; font-weight: 600;
+  background: var(--surface-2, #F3F6F4); color: var(--ink-3, #69786F); }
+.ap-status.on { background: var(--brand, #00BC33); color: #fff; }
+.ap-acoes { display: inline-flex; gap: 4px; }
+.ap-acoes button { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; border: 0; background: transparent;
+  color: var(--ink-2, #3D4B43); cursor: pointer; transition: background .15s, color .15s; }
+.ap-acoes button:hover { background: var(--mint, #E6F5EB); color: var(--brand-800, #0B5E27); }
+.ap-acoes button.perigo { color: var(--danger, #BF3520); }
+.ap-acoes button.perigo:hover { background: #FDECEA; }
+.ap-ad { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+.ap-ad svg { color: var(--brand-700, #00852A); }
+
+.ap-sub { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.ap-sub h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; font-weight: 600; color: var(--ink, #0C1811); }
+.ap-sub h3 svg { color: var(--brand, #00BC33); }
+.ap-sub h3 span { font-weight: 400; color: var(--ink-3, #69786F); font-size: 14px; }
+
+/* Formulário */
+.ap-form { gap: 14px; }
+.ap-form-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.ap-form-grade.tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ap-form-linha { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ap-escolhas { display: flex; flex-wrap: wrap; gap: 6px; }
+.ap-escolhas button { min-width: 38px; height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line, #E2E9E4); background: #fff;
+  font-size: 15px; cursor: pointer; color: var(--ink-2, #3D4B43); display: grid; place-items: center; transition: border-color .15s, box-shadow .15s; }
+.ap-escolhas button:not(:has(svg)):not(:has(span)) { font-size: 13px; }
+.ap-escolhas button.on { border-color: var(--brand, #00BC33); box-shadow: 0 0 0 3px rgba(0, 188, 51, .15); }
+.ap-chave { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--line, #E2E9E4); background: #fff; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.ap-chave:hover { border-color: rgba(0, 188, 51, .4); }
+.ap-chave.on { background: #F4FBF6; border-color: rgba(0, 188, 51, .45); }
+.ap-chave-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ap-chave-txt b { font-size: 13.5px; font-weight: 600; color: var(--ink, #0C1811); }
+.ap-chave-txt small { font-size: 12px; color: var(--ink-3, #69786F); }
+.ap-chave i { flex: none; position: relative; width: 36px; height: 20px; border-radius: 99px; background: #CBD5CF; transition: background .2s; }
+.ap-chave i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .2); transition: transform .2s cubic-bezier(.2, .8, .2, 1); }
+.ap-chave.on i { background: var(--brand, #00BC33); }
+.ap-chave.on i::after { transform: translateX(16px); }
+.ap-link { border: 0; background: none; padding: 0; color: var(--brand-700, #00852A); font-weight: 600; cursor: pointer; text-decoration: underline; font-size: inherit; }
+@media (max-width: 640px) {
+  .ap-form-grade, .ap-form-grade.tres { grid-template-columns: minmax(0, 1fr); }
+}
