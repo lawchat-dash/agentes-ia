@@ -381,8 +381,14 @@ function MenuDoTopo({ itens }: { itens: Item[] }) {
     return () => { document.removeEventListener("mousedown", fechar); document.removeEventListener("keydown", esc); };
   }, [aberto]);
   const caminho = local.pathname;
+  const busca = local.search;
   const ativo = (para: string) => {
-    const base = para.split("?")[0];
+    const [base, consulta] = para.split("?");
+    // Itens com ?aba= (Recargas, Financeiro, Planos) dividem a mesma tela: aceso só o da aba aberta.
+    if (consulta) {
+      const aba = new URLSearchParams(consulta).get("aba");
+      return caminho === base && (new URLSearchParams(busca).get("aba") ?? "carteiras") === aba;
+    }
     if (base === "/") return caminho === "/";
     if (base === "/meus-produtos") return caminho.startsWith("/meus-produtos") || caminho.startsWith("/agentes");
     return caminho === base || caminho.startsWith(base + "/");
