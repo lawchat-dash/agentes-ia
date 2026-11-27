@@ -444,7 +444,7 @@ class ProdutoCatalogo:
                           "deduza. Um \"não\" ou \"sim\" curto só vale para o fato que a ÚLTIMA pergunta da atendente "
                           "perguntou, exatamente; advogado de antes ou de outro caso = tem_advogado_no_caso nao):")
             linhas += [f"- {fato}: {GUIA_DA_QUALIFICACAO.get(fato, fato)}" for fato in self.fatos_de_qualificacao]
-        linhas.append(sinais_catalogo.guia_do_extrator(self.beneficio))
+        linhas.append(sinais_catalogo.guia_do_extrator(self.beneficio, descricoes_dos_sinais(self.config)))
         linhas.append("Intenções:")
         linhas += [f"- {n}: {d}" for n, d in DESCRICAO_INTENCOES_BASE.items()]
         linhas.append("- diz_que_assinou: diz que já assinou o contrato.")
@@ -813,6 +813,160 @@ FORMATO_NOTIFICACAO = """- "notificacao": preencha "analise_humana" só quando o
 BLOCO_HONORARIOS = ("# HONORÁRIOS DO ESCRITÓRIO (use exatamente assim; não mude número nem condição, não ofereça desconto e "
                     "não calcule o valor do caso do lead)\n")
 
+# Honorários do produto (transcrição do áudio do escritório, config.conhecimento.honorarios): só nas etapas que falam
+# de valor e contrato.
+PAPEIS_COM_HONORARIOS_TEXTO = ("closer", "contratos", "assinatura")
+TITULO_HONORARIOS_TEXTO = ("# HONORÁRIOS DO ESCRITÓRIO (transcrição do áudio; responda com estes números quando o lead "
+                           "perguntar valor, porcentagem ou como paga)")
+
+USO_DA_BASE = ("# USO DA BASE DE CONHECIMENTO\nO roteiro manda mais que a base. Use a base só para o que o roteiro não "
+               "responde, com suas palavras, em 1 ou 2 frases, e volte para a etapa. Se não estiver na base, diga que vai "
+               "confirmar com a equipe; nunca invente.")
+
+
+# ---------------------------------------------------------------------------- regras do sistema editáveis por produto
+# Cada bloco de texto do motor pode ser trocado por produto no painel do super admin (aba "Regras do sistema"). Fica no
+# produto da biblioteca (config_modelo.regras_sistema) e a ativação/sincronização copia para config.catalogo.regras_sistema.
+# Texto vazio ou chave ausente = vale o padrão do código. O FORMATO base (o JSON da resposta) é só leitura: editá-lo
+# quebraria a leitura da resposta.
+_DESTINOS_DA_PASSAGEM = ("sdr", "periododegraca", "closer", "contratos", "assinatura", "desqualificado")
+_QUEM_PASSA_PARA = {"sdr": "o Desqualificado (quando o lead diz que algo mudou)",
+                    "periododegraca": "o SDR", "closer": "o SDR e o Período de Graça",
+                    "contratos": "o Closer", "assinatura": "nenhuma etapa (a geração do contrato põe o lead lá)",
+                    "desqualificado": "todas as etapas de qualificação e o Contratos"}
+_FAMILIAS_EDITAVEIS = {"bpc_infantil": "BPC infantil", "bpc_idoso": "BPC idoso", "bpc_geral": "BPC (geral)"}
+
+
+def _bloco(chave: str, titulo: str, grupo: str, quando_entra: str, padrao: str, obrigatorios: tuple[str, ...] = (),
+           opcionais: tuple[str, ...] = (), editavel: bool = True) -> dict[str, Any]:
+    return {"chave": chave, "titulo": titulo, "grupo": grupo, "quando_entra": quando_entra, "padrao": padrao,
+            "editavel": editavel, "placeholders": list(obrigatorios + opcionais), "obrigatorios": list(obrigatorios)}
+
+
+def blocos_do_sistema() -> list[dict[str, Any]]:
+    """Os blocos de texto que o motor põe no prompt, na ordem em que entram, com o padrão do código."""
+    blocos = [
+        _bloco("objecoes", "Como usar as objeções", "Conhecimento",
+               "Todas as etapas, antes da lista de objeções do escritório (quando o produto tem objeções)", REGRA_OBJECOES),
+        _bloco("uso_base", "Uso da base de conhecimento", "Conhecimento",
+               "Todas as etapas, quando há FAQ, objeções, dados do escritório ou documentos", USO_DA_BASE),
+        _bloco("conversa", "Regras da conversa", "Conduta", "Todas as etapas", REGRAS_CONVERSA),
+        _bloco("nao_inventar", "O que a IA nunca inventa", "Conduta", "Todas as etapas", REGRAS_NAO_INVENTAR),
+        _bloco("entrada", "Começo da etapa", "Conduta",
+               "Etapas com mensagem de entrada (as que recebem o lead de outra)", REGRA_ENTRADA, ("{frase}",)),
+        _bloco("desqualificar", "Desqualificação", "Conduta",
+               "Etapas que podem passar o lead para o Desqualificado", REGRA_DESQUALIFICAR),
+        _bloco("calculadora", "Datas e contas (calculadora)", "Conduta",
+               "Etapas com a calculadora de datas ligada (SDR e Período de Graça, no padrão)", REGRA_CALCULADORA),
+        _bloco("papel_contratos", "Coleta dos dados do contrato", "Etapa", "Só no Contratos", REGRA_COLETA),
+        _bloco("papel_assinatura", "Etapa de assinatura", "Etapa", "Só na Assinatura", REGRA_ASSINATURA, ("{dado_errado}",)),
+        _bloco("papel_desqualificado", "Encerramento", "Etapa", "Só no Desqualificado", REGRA_ENCERRAMENTO),
+    ]
+    blocos += [_bloco(f"familia_{familia}", f"Regras do {nome}", "Família do produto", f"Só nos produtos {nome}",
+                      REGRAS_DA_FAMILIA[familia]) for familia, nome in _FAMILIAS_EDITAVEIS.items()]
+    blocos.append(_bloco("midia", "Áudios e mídias do roteiro", "Conduta",
+                         "Etapas cujo roteiro, objeções ou base têm link de áudio, vídeo ou imagem", REGRA_MIDIA))
+    blocos.append(_bloco("formato", "Formato da resposta (JSON)", "Formato",
+                         "Todas as etapas (só leitura: mudar este texto quebra a leitura da resposta)", FORMATO.strip(),
+                         editavel=False))
+    blocos += [
+        _bloco("ferramenta_buscar_cep", "Ferramenta: busca de CEP", "Ferramentas",
+               "Etapas com a busca de CEP (Contratos, no padrão)", FORMATO_FERRAMENTAS["buscar_cep"].rstrip("\n")),
+        _bloco("ferramenta_zapsign", "Ferramenta: gerar contrato (ZapSign)", "Ferramentas",
+               "Etapas que geram o contrato (Contratos, com a função de contrato ligada)",
+               FORMATO_FERRAMENTAS["zapsign"].rstrip("\n")),
+        _bloco("notificacao_analise_humana", "Aviso à equipe: análise humana", "Avisos à equipe",
+               "Etapas com o aviso à equipe (roteiro com → @Análise da equipe)", FORMATO_NOTIFICACAO.rstrip("\n")),
+        _bloco("passagem", "Passagem de etapa", "Passagem de etapa",
+               "Etapas que podem passar o lead para outra", REGRA_PASSAGEM, ("{destinos}",)),
+        _bloco("sem_passagem", "Etapa sem passagem", "Passagem de etapa",
+               "Etapas que não passam o lead (Assinatura e Desqualificado, no padrão)", SEM_PASSAGEM),
+    ]
+    blocos += [_bloco(f"passagem_{destino}", f"Quando passar para {NOMES[destino]}", "Passagem de etapa",
+                      f"Na lista de destinos de quem pode passar para {NOMES[destino]} ({_QUEM_PASSA_PARA[destino]}); "
+                      "vazio = não entra nada", "") for destino in _DESTINOS_DA_PASSAGEM]
+    for sinal, padrao in sinais_catalogo.DESCRICAO_DOS_SINAIS.items():
+        quando = ("Leitura das mensagens do lead, só nas etapas do contrato" if sinal in sinais_catalogo.SO_NO_CONTRATO
+                  else "Leitura das mensagens do lead (extrator), em todas as etapas com aviso à equipe")
+        blocos.append(_bloco(f"notificacao_{sinal}", f"Aviso à equipe: {sinal.replace('_', ' ')}", "Avisos à equipe",
+                             quando, padrao, opcionais=("{conversa}",) if "{conversa}" in padrao else ()))
+    return blocos
+
+
+def _padroes() -> dict[str, dict[str, Any]]:
+    global _PADROES
+    if _PADROES is None:
+        _PADROES = {b["chave"]: b for b in blocos_do_sistema()}
+    return _PADROES
+
+
+_PADROES: dict[str, dict[str, Any]] | None = None
+
+
+def texto_do_bloco(chave: str, textos: dict[str, str] | None = None, linha: bool = False) -> str:
+    """O texto do bloco: o editado no painel (regras_sistema) ou, vazio/ausente, o padrão do código. `linha=True` para os
+    trechos que entram no meio do FORMATO (ferramentas, aviso à equipe): o padrão vem como está, o editado ganha o "\\n" final."""
+    proprio = (textos or {}).get(chave)
+    if isinstance(proprio, str) and proprio.strip() and _padroes().get(chave, {}).get("editavel", False):
+        # Nos trechos do FORMATO, o recuo do começo ("  · zapsign:") fica como o super admin escreveu.
+        return proprio.strip("\r\n").rstrip() + "\n" if linha else proprio.strip()
+    if chave.startswith("ferramenta_"):
+        return FORMATO_FERRAMENTAS.get(chave.removeprefix("ferramenta_"), "")
+    if chave == "notificacao_analise_humana":
+        return FORMATO_NOTIFICACAO
+    return str(_padroes().get(chave, {}).get("padrao") or "")
+
+
+def regras_sistema_do_config(config: dict[str, Any] | None) -> dict[str, str]:
+    """config.catalogo.regras_sistema do agente ({chave: texto}), só com texto preenchido."""
+    bruto = ((config or {}).get("catalogo") or {}).get("regras_sistema")
+    if not isinstance(bruto, dict):
+        return {}
+    return {str(k): v for k, v in bruto.items() if isinstance(v, str) and v.strip()}
+
+
+def descricoes_dos_sinais(config: dict[str, Any] | None) -> dict[str, str]:
+    """As descrições dos sinais editadas no painel (notificacao_<sinal>), para o guia do extrator."""
+    return {chave.removeprefix("notificacao_"): texto for chave, texto in regras_sistema_do_config(config).items()
+            if chave.startswith("notificacao_") and chave != "notificacao_analise_humana"}
+
+
+def limpar_regras_sistema(bruto: Any) -> tuple[dict[str, str], list[str]]:
+    """Confere o que o painel manda salvar: chave conhecida e editável, texto, placeholders obrigatórios. Devolve
+    (o que fica, erros). Texto vazio ou igual ao padrão sai (vale o padrão)."""
+    if bruto is None:
+        return {}, []
+    if not isinstance(bruto, dict):
+        return {}, ["regras_sistema precisa ser um objeto {chave: texto}."]
+    padroes = _padroes()
+    limpo: dict[str, str] = {}
+    erros: list[str] = []
+    for chave, texto in bruto.items():
+        bloco = padroes.get(str(chave))
+        if bloco is None:
+            erros.append(f"Bloco desconhecido: {chave}.")
+            continue
+        if texto is None or (isinstance(texto, str) and not texto.strip()):
+            continue
+        if not isinstance(texto, str):
+            erros.append(f"{bloco['titulo']}: o texto precisa ser uma string.")
+            continue
+        if not bloco["editavel"]:
+            if texto.strip() != bloco["padrao"].strip():
+                erros.append(f"{bloco['titulo']} é só leitura.")
+            continue
+        if len(texto) > 20000:
+            erros.append(f"{bloco['titulo']}: texto longo demais (máximo 20 mil caracteres).")
+            continue
+        faltam = [p for p in bloco["obrigatorios"] if p not in texto]
+        if faltam:
+            erros.append(f"{bloco['titulo']}: o texto precisa manter {', '.join(faltam)} (o motor troca pelo valor real).")
+            continue
+        if texto.strip() != bloco["padrao"].strip():
+            limpo[str(chave)] = texto.strip("\r\n").rstrip()
+    return limpo, erros
+
+
 _ANALISE_DA_EQUIPE = re.compile(r"@\s*An[aá]lise\s+da\s+equipe", re.IGNORECASE)
 
 
@@ -827,44 +981,53 @@ def _frase_de_entrada(papeis: dict[str, Any] | None, papel: str) -> str:
 
 
 def regras_do_motor(papel: str, ferramentas: dict[str, Any] | None, destinos: list[str],
-                    papeis: dict[str, Any] | None = None, com_midia: bool = False, familia: str | None = None) -> str:
+                    papeis: dict[str, Any] | None = None, com_midia: bool = False, familia: str | None = None,
+                    textos: dict[str, str] | None = None) -> str:
     """Bloco "# REGRAS DO ATENDIMENTO (sistema)", em camadas: conduta e anti-invenção (todo papel); começo da etapa
     (papel com mensagem de entrada); desqualificação (destino "desqualificado"); calculadora (papel com a calculadora);
     a regra própria do papel (coleta, assinatura, encerramento), a da família do produto (BPC) e a das mídias (roteiro
-    com link de áudio, vídeo ou imagem). Estático por papel, ferramentas, família e roteiro."""
+    com link de áudio, vídeo ou imagem). Estático por papel, ferramentas, família e roteiro.
+    `textos` (config.catalogo.regras_sistema): o texto editado de cada bloco no painel; o que não vier vale o padrão."""
     ferramentas = ferramentas or {}
-    partes = [REGRAS_CONVERSA, REGRAS_NAO_INVENTAR]
+    partes = [texto_do_bloco("conversa", textos), texto_do_bloco("nao_inventar", textos)]
     if frase := _frase_de_entrada(papeis, papel):
-        partes.append(REGRA_ENTRADA.replace("{frase}", " ".join(frase.split())))
+        partes.append(texto_do_bloco("entrada", textos).replace("{frase}", " ".join(frase.split())))
     if "desqualificado" in destinos and papel != "desqualificado":
-        partes.append(REGRA_DESQUALIFICAR)
+        partes.append(texto_do_bloco("desqualificar", textos))
     if ferramentas.get("calculadora"):
-        partes.append(REGRA_CALCULADORA)
+        partes.append(texto_do_bloco("calculadora", textos))
     if papel in REGRAS_DO_PAPEL:
         # Dado errado na assinatura: só cita a regra do zapsign se o papel pode acioná-lo (sem ele, vale o roteiro).
         com_zapsign = "zapsign" in (ferramentas.get("acoes") or [])
-        partes.append(REGRAS_DO_PAPEL[papel].replace(
+        partes.append(texto_do_bloco(f"papel_{papel}", textos).replace(
             "{dado_errado}", "aí vale a regra do zapsign" if com_zapsign else "aí siga o roteiro para dado errado"))
     if familia in REGRAS_DA_FAMILIA:
-        partes.append(REGRAS_DA_FAMILIA[familia])
+        partes.append(texto_do_bloco(f"familia_{familia}", textos))
     if com_midia:
-        partes.append(REGRA_MIDIA)
+        partes.append(texto_do_bloco("midia", textos))
     return "\n\n".join(partes)
 
 
 def formato(destinos: list[str], acoes: list[str], notificacoes: tuple[str, ...] | list[str] = (),
-            papeis: dict[str, Any] | None = None) -> str:
+            papeis: dict[str, Any] | None = None, textos: dict[str, str] | None = None) -> str:
     """O "# FORMATO DA RESPOSTA (sistema)": o texto de cada ferramenta que o papel aciona, o aviso à equipe e a passagem
-    de etapa com a mensagem de entrada de cada destino (a frase de troca chega ao modelo por aqui, não pelo roteiro)."""
+    de etapa com a mensagem de entrada de cada destino (a frase de troca chega ao modelo por aqui, não pelo roteiro).
+    `textos` (config.catalogo.regras_sistema): blocos editados no painel; "passagem_<destino>" é a descrição de quando
+    passar para aquele destino (vazia no padrão: só entra quando o super admin escreve). O FORMATO base é fixo."""
     linhas = []
     for destino in destinos:
         frase = _frase_de_entrada(papeis, destino)
-        linhas.append(f'  · {NOMES.get(destino, destino)} = "{destino}": '
-                      + (f'"{" ".join(frase.split())}"' if frase else "(sem mensagem de entrada)"))
-    passagem = REGRA_PASSAGEM.replace("{destinos}", "\n".join(linhas)) if destinos else SEM_PASSAGEM
+        linha = (f'  · {NOMES.get(destino, destino)} = "{destino}": '
+                 + (f'"{" ".join(frase.split())}"' if frase else "(sem mensagem de entrada)"))
+        if quando := " ".join(texto_do_bloco(f"passagem_{destino}", textos).split()):
+            linha += f"\n    Quando passar para {NOMES.get(destino, destino)}: {quando}"
+        linhas.append(linha)
+    passagem = (texto_do_bloco("passagem", textos).replace("{destinos}", "\n".join(linhas)) if destinos
+                else texto_do_bloco("sem_passagem", textos))
     return (FORMATO.replace("{acoes}", ", ".join(f'"{a}"' for a in acoes) or "nenhuma")
-            .replace("{ferramentas}", "".join(t for a, t in FORMATO_FERRAMENTAS.items() if a in acoes))
-            .replace("{notificacao}", FORMATO_NOTIFICACAO if notificacoes else "")
+            .replace("{ferramentas}", "".join(texto_do_bloco(f"ferramenta_{a}", textos, linha=True)
+                                              for a in FORMATO_FERRAMENTAS if a in acoes))
+            .replace("{notificacao}", texto_do_bloco("notificacao_analise_humana", textos, linha=True) if notificacoes else "")
             .replace("{passagem}", passagem))
 
 
@@ -952,7 +1115,8 @@ def montar_sistema(*, prompt: str, nome_agente: str, escritorio: str, conhecimen
                    notificacoes: tuple[str, ...] | list[str] = (), papel: str = "",
                    ferramentas: dict[str, Any] | None = None, papeis: dict[str, Any] | None = None,
                    honorarios: str | None = None, variaveis: dict[str, str] | None = None,
-                   familia: str | None = None) -> str:
+                   familia: str | None = None, regras_sistema: dict[str, str] | None = None,
+                   honorarios_texto: str | None = None) -> str:
     """Sistema do agente do papel: o roteiro (variáveis já trocadas), as regras do escritório, os honorários, a base,
     as REGRAS DO ATENDIMENTO do motor, o FORMATO e, por último, os fatos do sistema (o que muda por lead). A data de hoje (o 'A data de hoje é' dos agentes
     do n8n) vai no conteúdo do turno: com a hora no começo do sistema, nenhum turno reaproveitaria o cache do provedor."""
@@ -966,13 +1130,15 @@ def montar_sistema(*, prompt: str, nome_agente: str, escritorio: str, conhecimen
         partes.append("# REGRAS GERAIS DO ESCRITÓRIO\n" + preencher_variaveis(regras, valores)[0].strip())
     if (honorarios or "").strip():
         partes.append(BLOCO_HONORARIOS + preencher_variaveis(honorarios, valores)[0].strip())
+    if papel in PAPEIS_COM_HONORARIOS_TEXTO and (texto := preencher_variaveis(
+            sem_marcadores_de_midia(honorarios_texto), valores)[0].strip()):
+        partes.append(TITULO_HONORARIOS_TEXTO + "\n" + texto)
     if conhecimento_texto:
-        partes.append("# USO DA BASE DE CONHECIMENTO\nO roteiro manda mais que a base. Use a base só para o que o roteiro não responde, "
-                      "com suas palavras, em 1 ou 2 frases, e volte para a etapa. Se não estiver na base, diga que vai confirmar "
-                      "com a equipe; nunca invente.\n\n" + preencher_variaveis(conhecimento_texto, valores)[0])
+        partes.append(texto_do_bloco("uso_base", regras_sistema) + "\n\n" + preencher_variaveis(conhecimento_texto, valores)[0])
     partes.append(regras_do_motor(papel, ferramentas, destinos, papeis,
-                                  com_midia=bool(urls_de_midia(prompt, regras, conhecimento_texto)), familia=familia))
-    partes.append(formato(destinos, acoes, notificacoes, papeis))
+                                  com_midia=bool(urls_de_midia(prompt, regras, conhecimento_texto)), familia=familia,
+                                  textos=regras_sistema))
+    partes.append(formato(destinos, acoes, notificacoes, papeis, textos=regras_sistema))
     # Os FATOS DO SISTEMA mudam por lead (nome, telefone, contrato) e por turno (contas da calculadora): vão no fim, para
     # tudo o que é fixo do agente e do papel (roteiro, regras, base, regras do motor, formato) ser o mesmo prefixo em toda
     # chamada e entrar no cache do provedor, inclusive entre leads diferentes.
@@ -980,6 +1146,45 @@ def montar_sistema(*, prompt: str, nome_agente: str, escritorio: str, conhecimen
         partes.append("# FATOS DO SISTEMA (do cadastro e das contas do sistema; não contrarie)\n"
                       + "\n".join(f"- {k}: {v}" for k, v in fatos_sistema.items() if v))
     return "\n\n".join(partes)
+
+
+def previa_do_sistema(config: dict[str, Any], papel: str, roteiro: str, conhecimento: dict[str, Any] | None = None) -> str:
+    """O sistema COMPLETO que a IA do papel recebe (prévia do painel do super admin), montado pela mesma montar_sistema
+    do turno, com o mesmo cálculo de destinos, ações e aviso à equipe. As variáveis {{X}} ficam à mostra, sem valor
+    (cada escritório preenche as suas), e os fatos de cada lead entram só como lembrete do lugar onde aparecem."""
+    from app.cerebro import agente
+
+    produto = carregar(config)
+    papeis = (config.get("catalogo") or {}).get("papeis") or {}
+    do_prompt, acoes = ferramentas_do_prompt(roteiro or "")
+    prompt = expandir_transferencias(roteiro or "", papeis)
+    ordem = list(produto.papeis)
+    destinos = []
+    for destino in dict.fromkeys(list((papeis.get(papel) or {}).get("destinos") or []) + do_prompt):
+        # O mesmo filtro do turno (_destinos_permitidos): só para a frente; Contratos não passa para Assinatura.
+        if destino not in ordem or destino == papel or (papel == "contratos" and destino == "assinatura"):
+            continue
+        if destino != "desqualificado" and papel in ordem and ordem.index(destino) < ordem.index(papel):
+            continue
+        destinos.append(destino)
+    ferramentas = produto.ferramentas_do_papel(papel)
+    acoes = [a for a in dict.fromkeys(acoes + ferramentas["acoes"]) if a != "zapsign" or produto.contrato]
+    notificacoes = sinais_catalogo.DO_AGENTE if ferramentas["notificacao"] or pede_analise_da_equipe(prompt) else ()
+    regras_sistema = regras_sistema_do_config(config)
+    conhecimento_texto = agente.montar_conhecimento(conhecimento, texto_do_bloco("objecoes", regras_sistema))
+    regras = (config.get("catalogo") or {}).get("regras")
+    honorarios = "{{HONORARIOS}}"
+    honorarios_texto = str((conhecimento or {}).get("honorarios") or "")
+    nomes = [_VARIAVEL.findall(t or "") for t in [prompt, regras, conhecimento_texto, honorarios, honorarios_texto]
+             + [str((c or {}).get("mensagem_troca") or "") for c in papeis.values() if isinstance(c, dict)]]
+    valores = {chave_da_variavel(n): "{{" + chave_da_variavel(n) + "}}" for grupo in nomes for n in grupo}
+    return montar_sistema(
+        prompt=prompt, nome_agente="", escritorio="", conhecimento_texto=conhecimento_texto, regras=regras,
+        destinos=destinos, acoes=acoes, notificacoes=notificacoes, papel=papel, ferramentas=ferramentas,
+        papeis=papeis_com_variaveis(papeis, valores), honorarios=honorarios, variaveis=valores,
+        familia=familia_do_produto(config), regras_sistema=regras_sistema, honorarios_texto=honorarios_texto,
+        fatos_sistema={"(prévia)": "aqui entram os fatos do lead (nome, telefone, contrato, contas de datas), "
+                                   "preenchidos pelo sistema a cada conversa"})
 
 
 _MARCADOR_DE_MIDIA = re.compile(r"\\?\[\\?\[\s*(?:[aá]udio|v[ií]deo|m[ií]dia|media|imagem)\s*:[^\]\n]*\\?\]\\?\]", re.I)

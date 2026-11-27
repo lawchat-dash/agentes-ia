@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Building2 } from "lucide-react";
+import { Building2, type LucideIcon } from "lucide-react";
 import { RichPromptEditor, RichPromptEditorHandle } from "@/components/agent/RichPromptEditor";
 import { MediaLibrary } from "@/components/agent/MediaLibrary";
 import { useBibliotecaMidia } from "@/hooks/useBibliotecaMidia";
@@ -16,6 +16,10 @@ interface Props {
   handoffOptions?: string[];
   /** Valores já preenchidos na Edição rápida — realça os {{ }} em roxo. */
   highlights?: string[];
+  /** Outro bloco de nível produto com o mesmo editor (ex.: Honorários). Sem eles, é o "Dados do Escritório". */
+  titulo?: string;
+  descricao?: string;
+  Icone?: LucideIcon;
 }
 
 /**
@@ -24,7 +28,7 @@ interface Props {
  * Guardado separado (sistemaia_produtos_ativados.dados_escritorio) e injetado nos
  * prompts na ativação (prompts.dados_escritorio).
  */
-export const DadosEscritorioPanel = ({ value, onChange, accent, handoffOptions = [], highlights = [] }: Props) => {
+export const DadosEscritorioPanel = ({ value, onChange, accent, handoffOptions = [], highlights = [], titulo, descricao, Icone = Building2 }: Props) => {
   const { items: midiaItems } = useBibliotecaMidia();
   const midiaLiberada = usePlanFeatures().has("midia");
   const richRef = useRef<RichPromptEditorHandle>(null);
@@ -37,13 +41,12 @@ export const DadosEscritorioPanel = ({ value, onChange, accent, handoffOptions =
           className="size-9 rounded-xl grid place-items-center text-white shrink-0"
           style={{ backgroundColor: accent ?? "#00bc33" }}
         >
-          <Building2 className="size-[18px]" />
+          <Icone className="size-[18px]" />
         </div>
         <div>
-          <Label className="text-sm font-semibold text-[#101828]">Dados do Escritório</Label>
+          <Label className="text-sm font-semibold text-[#101828]">{titulo ?? "Dados do Escritório"}</Label>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Informações da firma que o agente usa em qualquer etapa — nome, endereço, horários,
-            áreas de atuação, formas de contato. Vale para todos os agentes.
+            {descricao ?? "Informações da firma que o agente usa em qualquer etapa — nome, endereço, horários, áreas de atuação, formas de contato. Vale para todos os agentes."}
           </p>
         </div>
       </div>

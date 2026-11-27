@@ -66,46 +66,58 @@ def do_papel(sinais: tuple[str, ...], ferramentas: dict[str, Any]) -> tuple[str,
     return tuple(s for s in sinais if contrato or s not in SO_NO_CONTRATO)
 
 
-def guia_do_extrator(beneficio: str | None = None) -> str:
-    """Regras de cada sinal para o extrator, com os 'NÃO é' do prompt do n8n. Na dúvida, não marque."""
+# Descrição de cada sinal para o extrator, com os 'NÃO é' do prompt do n8n. Editável por produto no painel do super
+# admin (config.catalogo.regras_sistema["notificacao_<sinal>"]); "{conversa}" vira o benefício em conversa.
+DESCRICAO_DOS_SINAIS = {
+    "quer_videochamada": "pede chamada de vídeo (vídeo, Zoom, Meet, \"te ver por chamada\"). NÃO é: \"deixa eu ver\", "
+                         "\"ver com a esposa\", \"quero conversar\", pedido de áudio.",
+    "quer_audio": "pede áudio ou voz (\"manda um áudio\", \"prefiro voz\", \"explica em áudio\"). NÃO é: \"ouvi falar\", "
+                  "\"quero ouvir como funciona\", só ter mandado áudios.",
+    "nao_sabe_ler": "diz que não sabe ler ou lê com dificuldade. NÃO é: \"não li ainda\", \"não entendi\".",
+    "cliente_antigo": "afirma vínculo com ESTE escritório (\"já sou cliente de vocês\", \"vocês já cuidam do meu processo\"). "
+                      "NÃO é: \"tenho advogado\", \"meu advogado disse\", processo em OUTRO lugar.",
+    "outro_beneficio": "pede um benefício diferente do que está em conversa{conversa}. NÃO é: menção genérica a INSS "
+                       "ou benefício, nem contar que recebe ou recebeu outro.",
+    "dificuldade_assinatura": "problema no ato de assinar (\"link não abre\", \"não consigo assinar\", \"deu erro na "
+                              "assinatura\"). NÃO é: dúvida geral sobre o contrato.",
+    "muitas_objecoes": "resistência repetida 3 ou mais vezes que trava o avanço (inclui a mesma pergunta repetida 3 ou "
+                       "mais vezes depois de respondida). NÃO é: uma objeção ou dúvida isolada; reclamar que a atendente "
+                       "repetiu a pergunta (\"já te falei\", \"já respondi\", \"como eu disse\") NÃO é objeção.",
+    "foto_contrato": "(só na fase do contrato): manda foto, print ou arquivo do contrato (ou de uma página dele), ou diz "
+                     "que acabou de mandar. NÃO é: selfie, documento pessoal (RG, CNH), laudo, comprovante, só falar do contrato.",
+    "endereco_sem_falar": "(só na fase do contrato): recusa passar o endereço, desvia sem informar ou questiona o motivo "
+                          "sem fornecer. NÃO é: já informou (mesmo incompleto), pediu tempo para procurar, ainda não foi pedido.",
+    "contrato_manual": "(só na fase do contrato): pede contrato físico ou impresso; quem assina é representante, curador, "
+                       "procurador ou responsável por menor; não consegue assinatura digital de jeito nenhum (sem celular, sem e-mail, "
+                       "sem documento com foto). NÃO é: dificuldade pontual com o link (isso é dificuldade_assinatura).",
+    "atendimento_presencial": "quer ir pessoalmente ao escritório ou ser atendido presencialmente (\"posso ir aí?\", "
+                              "\"prefiro ir pessoalmente\", \"quero marcar para ir no escritório\"). NÃO é: só perguntar onde fica o escritório "
+                              "ou o endereço dele.",
+    "ligacao_telefonica": "pede uma ligação de telefone (\"me liga\", \"pode me ligar?\", \"prefiro por telefone\"). "
+                          "NÃO é: chamada de vídeo (isso é quer_videochamada), pedido de áudio, passar o número para o contrato.",
+    "parceria_comercial": "não procura benefício para si; oferece serviço, parceria, indicação paga, anúncio ou "
+                          "venda ao escritório (\"sou de uma agência\", \"quero ser parceiro\", \"tenho uma proposta para o escritório\"). "
+                          "NÃO é: indicar um parente que precisa do benefício.",
+    "deficiencia_auditiva": "diz que é surdo, tem deficiência auditiva ou não consegue ouvir áudio (\"sou surda\", "
+                            "\"não escuto áudio\", \"tenho problema de audição\"). NÃO é: estar sem fone, em lugar barulhento, não poder "
+                            "ouvir agora.",
+}
+
+
+def guia_do_extrator(beneficio: str | None = None, descricoes: dict[str, str] | None = None) -> str:
+    """Regras de cada sinal para o extrator, com os 'NÃO é' do prompt do n8n. Na dúvida, não marque.
+
+    `descricoes` troca a descrição de um sinal (texto editado no painel); o que não vier vale o padrão."""
     conversa = f" ({beneficio})" if beneficio else ""
-    return "\n".join([
-        "Sinais (marque só com gatilho literal e explícito nas palavras do lead; na dúvida, não marque):",
-        "- quer_videochamada: pede chamada de vídeo (vídeo, Zoom, Meet, \"te ver por chamada\"). NÃO é: \"deixa eu ver\", "
-        "\"ver com a esposa\", \"quero conversar\", pedido de áudio.",
-        "- quer_audio: pede áudio ou voz (\"manda um áudio\", \"prefiro voz\", \"explica em áudio\"). NÃO é: \"ouvi falar\", "
-        "\"quero ouvir como funciona\", só ter mandado áudios.",
-        "- nao_sabe_ler: diz que não sabe ler ou lê com dificuldade. NÃO é: \"não li ainda\", \"não entendi\".",
-        "- cliente_antigo: afirma vínculo com ESTE escritório (\"já sou cliente de vocês\", \"vocês já cuidam do meu processo\"). "
-        "NÃO é: \"tenho advogado\", \"meu advogado disse\", processo em OUTRO lugar.",
-        f"- outro_beneficio: pede um benefício diferente do que está em conversa{conversa}. NÃO é: menção genérica a INSS "
-        "ou benefício, nem contar que recebe ou recebeu outro.",
-        "- dificuldade_assinatura: problema no ato de assinar (\"link não abre\", \"não consigo assinar\", \"deu erro na "
-        "assinatura\"). NÃO é: dúvida geral sobre o contrato.",
-        "- muitas_objecoes: resistência repetida 3 ou mais vezes que trava o avanço (inclui a mesma pergunta repetida 3 ou "
-        "mais vezes depois de respondida). NÃO é: uma objeção ou dúvida isolada; reclamar que a atendente repetiu a "
-        "pergunta (\"já te falei\", \"já respondi\", \"como eu disse\") NÃO é objeção.",
-        "- foto_contrato (só na fase do contrato): manda foto, print ou arquivo do contrato (ou de uma página dele), ou diz "
-        "que acabou de mandar. NÃO é: selfie, documento pessoal (RG, CNH), laudo, comprovante, só falar do contrato.",
-        "- endereco_sem_falar (só na fase do contrato): recusa passar o endereço, desvia sem informar ou questiona o motivo "
-        "sem fornecer. NÃO é: já informou (mesmo incompleto), pediu tempo para procurar, ainda não foi pedido.",
-        "- contrato_manual (só na fase do contrato): pede contrato físico ou impresso; quem assina é representante, curador, "
-        "procurador ou responsável por menor; não consegue assinatura digital de jeito nenhum (sem celular, sem e-mail, "
-        "sem documento com foto). NÃO é: dificuldade pontual com o link (isso é dificuldade_assinatura).",
-        "- atendimento_presencial: quer ir pessoalmente ao escritório ou ser atendido presencialmente (\"posso ir aí?\", "
-        "\"prefiro ir pessoalmente\", \"quero marcar para ir no escritório\"). NÃO é: só perguntar onde fica o escritório "
-        "ou o endereço dele.",
-        "- ligacao_telefonica: pede uma ligação de telefone (\"me liga\", \"pode me ligar?\", \"prefiro por telefone\"). "
-        "NÃO é: chamada de vídeo (isso é quer_videochamada), pedido de áudio, passar o número para o contrato.",
-        "- parceria_comercial: não procura benefício para si; oferece serviço, parceria, indicação paga, anúncio ou "
-        "venda ao escritório (\"sou de uma agência\", \"quero ser parceiro\", \"tenho uma proposta para o escritório\"). "
-        "NÃO é: indicar um parente que precisa do benefício.",
-        "- deficiencia_auditiva: diz que é surdo, tem deficiência auditiva ou não consegue ouvir áudio (\"sou surda\", "
-        "\"não escuto áudio\", \"tenho problema de audição\"). NÃO é: estar sem fone, em lugar barulhento, não poder "
-        "ouvir agora.",
-        "Não marcam nada: endereço ou \"onde fica o escritório\", preço, prazo, \"como funciona\", "
-        "saudações e confirmações (\"ok\", \"blz\", \"sim\").",
-    ])
+    descricoes = descricoes or {}
+    linhas = ["Sinais (marque só com gatilho literal e explícito nas palavras do lead; na dúvida, não marque):"]
+    for sinal, padrao in DESCRICAO_DOS_SINAIS.items():
+        texto = " ".join(str(descricoes.get(sinal) or "").split()) or padrao
+        separador = " " if texto.startswith("(") else ": "
+        linhas.append(f"- {sinal}{separador}{texto.replace('{conversa}', conversa)}")
+    linhas.append("Não marcam nada: endereço ou \"onde fica o escritório\", preço, prazo, \"como funciona\", "
+                  "saudações e confirmações (\"ok\", \"blz\", \"sim\").")
+    return "\n".join(linhas)
 
 
 # Ajustes do auditor para o catálogo (mesmo formato de auditor.PARTES).

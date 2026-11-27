@@ -176,6 +176,9 @@ const ProdutoEditor = () => {
       integrations: p.integrations ?? {},
       generalRules,
       dadosEscritorio,
+      // Honorários (transcrição do áudio) gravados no agente; undefined = nunca gravado (vale o do produto).
+      honorariosTexto: typeof p.honorarios_texto === "string" ? p.honorarios_texto
+        : (typeof rasc.honorariosTexto === "string" ? rasc.honorariosTexto : undefined),
       selectedModel,
       temperature: num(ag.temperatura, pcfg.temperatura, pmc.temperature, Array.isArray(rasc.temperature) ? rasc.temperature[0] : undefined),
       // Delay de resposta / pausa: nível AGENTE. Sem isso o wizard caía no default (10s / 30min)

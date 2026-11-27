@@ -12,8 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, Save, Loader2, CheckCircle2, AlertCircle, Plus, MessageSquare, Shield, X, ListChecks, Info, Sparkles, Palette, User, Check, Repeat, Circle, Building2, Download, BookOpen, Hourglass, Music, ArrowRightLeft } from "lucide-react";
+import { ArrowLeft, Save, Loader2, CheckCircle2, AlertCircle, Plus, MessageSquare, Shield, X, ListChecks, Info, Sparkles, Palette, User, Check, Repeat, Circle, Building2, Download, BookOpen, Hourglass, Music, ArrowRightLeft, Cpu, Scale } from "lucide-react";
 import BibliotecaConhecimentoManager from "@/components/admin/BibliotecaConhecimentoManager";
+import { RegrasSistemaEditor } from "@/components/admin/RegrasSistemaEditor";
 import { categories, resolveGradient, GRADIENT_PRESETS } from "@/data/categories";
 import { RichPromptEditor, RichPromptEditorHandle } from "@/components/agent/RichPromptEditor";
 import { RespostaComMidia } from "@/components/agent/RespostaComMidia";
@@ -232,6 +233,10 @@ export default function AdminProdutoEditor() {
   const [editorKey, setEditorKey] = useState(0);
   const [faqItems, setFaqItems] = useState<FaqItem[]>([]);
   const [objItems, setObjItems] = useState<ObjItem[]>([]);
+  // Regras do sistema (aba "Regras do sistema"): textos do motor editados neste produto → config_modelo.regras_sistema.
+  const [regrasSistema, setRegrasSistema] = useState<Record<string, string>>({});
+  // Honorários (transcrição do áudio) com {{campos}} → config_modelo.honorarios_texto.
+  const [honorariosTexto, setHonorariosTexto] = useState("");
   // Follow-up (padrão do catálogo)
   const [fupCadence, setFupCadence] = useState<FollowupCadenceItem[]>([]);
   const [fupRestart, setFupRestart] = useState(true);
@@ -296,6 +301,9 @@ export default function AdminProdutoEditor() {
         config_modelo: t.config_modelo ?? { temperature: 0.5, max_tokens: 1024 },
         padrao_followup: t.padrao_followup ?? {},
       });
+      const rs = t.config_modelo?.regras_sistema;
+      setRegrasSistema(rs && typeof rs === "object" && !Array.isArray(rs) ? rs : {});
+      setHonorariosTexto(typeof t.config_modelo?.honorarios_texto === "string" ? t.config_modelo.honorarios_texto : "");
 
       // Agentes do funil (o que o cliente realmente consome)
       const ags = await api<any[]>(`/biblioteca/produtos/${t.id}/agentes`).catch(() => [] as any[]);
@@ -333,7 +341,7 @@ export default function AdminProdutoEditor() {
   const rascunhoLocal = useRascunhoLocal({
     chave: `admin-produto:${isNew ? "novo" : id}`,
     habilitado: !loading,
-    obter: () => ({ form, agentes, faqItems, objItems, fupCadence, fupRestart, fupAgentes, tab, activeRoleIdx }),
+    obter: () => ({ form, agentes, faqItems, objItems, fupCadence, fupRestart, fupAgentes, regrasSistema, honorariosTexto, tab, activeRoleIdx }),
     // Só conteúdo: sem posição de aba nem ids (ids mudam ao salvar e não são edição do admin).
     conteudo: (d) => JSON.parse(JSON.stringify({ ...d, tab: undefined, activeRoleIdx: undefined },
       (k, v) => (k === "id" ? undefined : v))),
@@ -348,6 +356,8 @@ export default function AdminProdutoEditor() {
     if (Array.isArray(d.fupCadence)) setFupCadence(d.fupCadence);
     if (typeof d.fupRestart === "boolean") setFupRestart(d.fupRestart);
     if (d.fupAgentes) setFupAgentes(d.fupAgentes);
+    if (d.regrasSistema && typeof d.regrasSistema === "object") setRegrasSistema(d.regrasSistema);
+    if (typeof d.honorariosTexto === "string") setHonorariosTexto(d.honorariosTexto);
     if (typeof d.tab === "string") setTab(d.tab);
     const n = Array.isArray(d.agentes) ? d.agentes.length : agentes.length;
     if (typeof d.activeRoleIdx === "number") setActiveRoleIdx(Math.min(Math.max(0, d.activeRoleIdx), Math.max(0, n - 1)));
@@ -410,7 +420,8 @@ export default function AdminProdutoEditor() {
       modelo_recomendado: form.modelo_recomendado,
       versao: form.versao,
       status: finalStatus,
-      config_modelo: preserva.config_modelo,
+      // O servidor junta com o config_modelo salvo (merge) e confere as regras do sistema (placeholders).
+      config_modelo: { ...(preserva.config_modelo ?? {}), regras_sistema: regrasSistema, honorarios_texto: honorariosTexto.trim() },
       // Follow-up padrão: cadência + prompts por etapa, tudo no jsonb do produto.
       padrao_followup: {
         ...(preserva.padrao_followup ?? {}),
@@ -488,7 +499,7 @@ export default function AdminProdutoEditor() {
       setAgentes((arr) => arr.map((x) => (idPorPapel.has(x.papel) ? { ...x, id: idPorPapel.get(x.papel)! } : x)));
     } catch (e: any) { toast.error(`Agentes: ${e?.message}`); setSaving(false); return; }
 
-    setPreserva((p) => ({ ...p, padrao_followup: payload.padrao_followup }));
+    setPreserva((p) => ({ ...p, config_modelo: payload.config_modelo, padrao_followup: payload.padrao_followup }));
 
     // Invalida o catálogo do cliente (/biblioteca) p/ refletir na hora (staleTime 30s).
     qc.invalidateQueries({ queryKey: ["templates"] });
@@ -593,6 +604,7 @@ export default function AdminProdutoEditor() {
             { v: "conteudo", l: "Conteúdo", Icon: ListChecks },
             { v: "conhecimento", l: "Conhecimento", Icon: BookOpen },
             { v: "followup", l: "Follow-up", count: fupCadence.length, Icon: Repeat },
+            { v: "regras", l: "Regras do sistema", count: Object.keys(regrasSistema).length || undefined, Icon: Cpu },
           ].map((t) => {
             const active = tab === t.v;
             return (
@@ -1009,6 +1021,25 @@ export default function AdminProdutoEditor() {
             </p>
           </Card>
 
+          {/* Honorários (transcrição do áudio) */}
+          <Card className="p-6 space-y-3.5">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl grid place-items-center shrink-0 text-white" style={{ backgroundImage: `linear-gradient(135deg, ${catC1}, ${catC2})` }}><Scale className="size-[18px]" /></div>
+              <div>
+                <h3 className="text-base font-semibold">Honorários (transcrição do áudio)</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Como o escritório cobra, com os números em campos. Entra no Closer, no Contratos e na Assinatura.</p>
+              </div>
+            </div>
+            <RespostaComMidia
+              value={honorariosTexto}
+              onChange={setHonorariosTexto}
+              showMidia={form.modo_midia === "audio"}
+            />
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Info className="size-3 shrink-0" /> Ex.: <code className="text-[#7c3aed]">{"{{HONORARIOS QTD SALARIOS}}"}</code> salários, em até <code className="text-[#7c3aed]">{"{{HONORARIOS VEZES SEM JUROS}}"}</code>x. O cliente preenche na Edição rápida.
+            </p>
+          </Card>
+
           {/* FAQ */}
           <Card className="p-6 space-y-4">
             <div className="flex items-center gap-3">
@@ -1082,6 +1113,19 @@ export default function AdminProdutoEditor() {
               <Plus className="size-4 mr-1.5" />Adicionar objeção
             </Button>
           </Card>
+        </TabsContent>
+
+        {/* REGRAS DO SISTEMA — textos do motor que entram no prompt, editáveis por produto */}
+        <TabsContent value="regras" className="mt-0 space-y-4">
+          <RegrasSistemaEditor
+            idProduto={form.id}
+            value={regrasSistema}
+            onChange={setRegrasSistema}
+            etapas={agentes
+              .filter((a) => a.papel !== "periododegraca" || form.oferece_periodo_graca)
+              .map((a) => ({ papel: a.papel, label: a.nome_exibicao || ROLE_META[a.papel]?.label || a.papel }))}
+            accent={[catC1, catC2]}
+          />
         </TabsContent>
 
         {/* CONHECIMENTO — docs padrão do produto (copiados travados na ativação) */}

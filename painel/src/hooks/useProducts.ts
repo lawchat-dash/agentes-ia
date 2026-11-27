@@ -123,6 +123,7 @@ const mapProdutoAtivado = (p: any) => ({
   integrations: p.integracoes ?? {},
   // Campos da nossa API usados pelo assistente no modo edição (comportamento real do agente e rascunho).
   dados_escritorio: p.dados_escritorio ?? null,
+  honorarios_texto: p.honorarios_texto ?? null,
   rascunho: p.rascunho ?? null,
   agente: p.agente ?? null,
   id_canal: p.id_canal ?? null,

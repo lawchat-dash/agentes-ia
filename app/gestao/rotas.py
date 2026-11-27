@@ -1533,6 +1533,8 @@ def _limpar_conhecimento(bruto: dict[str, Any]) -> dict[str, Any]:
                 for o in bruto.get("objecoes") or [] if isinstance(o, dict) and str(o.get("objecao") or "").strip()][:base.LIMITE_OBJECOES]
     limpo: dict[str, Any] = {"faq": faq, "objecoes": objecoes,
                              "dados_escritorio": str(bruto.get("dados_escritorio") or "").strip()[:4000]}
+    if honorarios := str(bruto.get("honorarios") or "").strip():
+        limpo["honorarios"] = honorarios[:6000]      # honorários do produto (transcrição do áudio), vindos da ativação
     for chave, menor, maior in (("teto_documentos", base.TETO_MINIMO, base.TETO_MAXIMO), ("trechos_por_turno", 1, 8),
                                 ("nota_minima", 0.0, 0.95)):
         valor = bruto.get(chave)
@@ -1746,7 +1748,9 @@ async def alterar_agente(id_agente: str, dados: AlterarAgente, pedido: Request,
     if dados.pausa_sem_volta is not None:
         config["pausa_sem_volta"] = dados.pausa_sem_volta
     if dados.conhecimento is not None:
-        config["conhecimento"] = _limpar_conhecimento(dados.conhecimento)
+        # Os honorários do produto (vindos da ativação) ficam quando a aba Conhecimento não os manda.
+        config["conhecimento"] = _limpar_conhecimento(
+            {"honorarios": (config.get("conhecimento") or {}).get("honorarios"), **dados.conhecimento})
     if dados.funcoes is not None:
         prontas = {f["id"] for f in FUNCOES if f["pronta"]}
         config["funcoes"] = {k: bool(v) for k, v in dados.funcoes.items() if k in prontas}

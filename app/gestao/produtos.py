@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import armazenamento
+from app.cerebro import catalogo as catalogo_motor
 from app.gestao.cache_curto import CacheCurto, limpar_todos
 from app.gestao.rotas import ADMIN, GESTAO, TODOS, Contexto, _repo
 
@@ -195,6 +196,8 @@ async def alterar_produto(id_produto: str, dados: dict[str, Any], pedido: Reques
         dados["slug"] = slugificar(dados["slug"])
     if dados.get("status") not in (None, "rascunho", "em_breve", "publicado"):
         raise HTTPException(400, "Situação inválida.")
+    if "config_modelo" in dados:
+        dados["config_modelo"] = await _config_modelo_juntado(_pool(pedido), id_produto, dados["config_modelo"])
     nomes, valores = _sql_campos(dados, CAMPOS_PRODUTO)
     if not nomes:
         return await _produto(_pool(pedido), id_produto, ctx)
@@ -208,6 +211,109 @@ async def alterar_produto(id_produto: str, dados: dict[str, Any], pedido: Reques
         raise HTTPException(404, "Produto não encontrado.")
     limpar_todos()          # não depende só do middleware: o catálogo dos escritórios reflete o status na hora
     return _linha(linha)  # type: ignore[return-value]
+
+
+async def _config_modelo_juntado(pool: asyncpg.Pool, id_produto: str, novo: Any) -> dict[str, Any]:
+    """config_modelo do PATCH por cima do que está salvo (merge raso: as chaves que não vierem ficam). As regras do
+    sistema (aba "Regras do sistema") são conferidas: bloco conhecido, placeholders obrigatórios mantidos."""
+    if novo is not None and not isinstance(novo, dict):
+        raise HTTPException(400, "config_modelo precisa ser um objeto.")
+    salvo = await pool.fetchval("select config_modelo from agentesia_biblioteca_produtos where id = $1::uuid", id_produto)
+    salvo = json.loads(salvo) if isinstance(salvo, str) else dict(salvo or {})
+    juntado = {**salvo, **(novo or {})}
+    if "regras_sistema" in (novo or {}):
+        limpo, erros = catalogo_motor.limpar_regras_sistema(novo["regras_sistema"])
+        if erros:
+            raise HTTPException(400, " ".join(erros))
+        juntado["regras_sistema"] = limpo
+    return juntado
+
+
+@api.get("/admin/biblioteca/regras-sistema")
+async def regras_do_sistema(ctx: Contexto = Depends(ADMIN)) -> list[dict[str, Any]]:
+    """Os blocos de texto que o motor põe no prompt (aba "Regras do sistema"), com o padrão do código."""
+    return catalogo_motor.blocos_do_sistema()
+
+
+class PreviaSistema(BaseModel):
+    papel: str = "sdr"
+    # As regras da aba como estão na tela (ainda sem salvar). None = as salvas no produto.
+    regras_sistema: dict[str, Any] | None = None
+
+
+@api.get("/admin/biblioteca/produtos/{id_produto}/previa-sistema")
+async def previa_sistema(id_produto: str, pedido: Request, papel: str = "sdr", ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    return await _previa_sistema(_pool(pedido), ctx, id_produto, PreviaSistema(papel=papel))
+
+
+@api.post("/admin/biblioteca/produtos/{id_produto}/previa-sistema")
+async def previa_sistema_com_edicao(id_produto: str, dados: PreviaSistema, pedido: Request,
+                                    ctx: Contexto = Depends(ADMIN)) -> dict[str, Any]:
+    return await _previa_sistema(_pool(pedido), ctx, id_produto, dados)
+
+
+async def _previa_sistema(pool: asyncpg.Pool, ctx: Contexto, id_produto: str, dados: PreviaSistema) -> dict[str, Any]:
+    """O prompt de sistema completo que a IA do papel recebe, montado pela função real do turno, com o roteiro, o
+    conteúdo e as frases de troca SALVOS do produto e as variáveis {{ }} sem valor."""
+    if dados.papel not in PAPEIS:
+        raise HTTPException(400, "Etapa inválida.")
+    produto = await _produto(pool, id_produto, ctx)
+    agentes = _linhas(await pool.fetch(
+        "select papel, nome_exibicao, texto_prompt from agentesia_biblioteca_agentes where id_produto_biblioteca = $1::uuid "
+        "order by ordem", produto["id"]))
+    frases = await pool.fetch(
+        """select etapa_destino, frase from agentesia_frases_troca
+           where id_produto_biblioteca is null or id_produto_biblioteca = $1::uuid
+           order by (id_produto_biblioteca is null), ordem""", produto["id"])
+    entrada: dict[str, str] = {}
+    for f in frases:
+        entrada.setdefault(f["etapa_destino"], f["frase"])
+    papeis_do_produto = [a["papel"] for a in agentes if a["papel"] in PAPEIS]
+    if dados.papel not in papeis_do_produto:
+        papeis_do_produto.append(dados.papel)
+    papeis = {p: {"nome": NOMES_PAPEL.get(p, p), "mensagem_troca": entrada.get(p),
+                  "destinos": [d for d in DESTINOS.get(p, []) if d in papeis_do_produto]} for p in papeis_do_produto}
+    if dados.regras_sistema is not None:
+        regras_sistema, erros = catalogo_motor.limpar_regras_sistema(dados.regras_sistema)
+        if erros:
+            raise HTTPException(400, " ".join(erros))
+    else:
+        regras_sistema = _regras_sistema_do_produto(produto)
+    config = {"catalogo": {"slug": produto.get("slug"), "nome": produto.get("nome"), "papeis": papeis,
+                           "regras": produto.get("regras_markdown"), "regras_sistema": regras_sistema},
+              "funcoes": {"contrato_zapsign": True, "buscar_cep": True}}
+    conhecimento = {
+        "faq": [{"pergunta": f.get("pergunta") or f.get("q") or "", "resposta": f.get("resposta") or f.get("a") or ""}
+                for f in produto.get("faq") or []],
+        "objecoes": [{"objecao": o.get("titulo") or o.get("gatilho") or o.get("objecao") or "", "resposta": o.get("resposta") or ""}
+                     for o in produto.get("objecoes") or []],
+        "dados_escritorio": produto.get("dados_escritorio") or "",
+        "honorarios": _honorarios_texto(Ativar(), produto),
+    }
+    roteiro = next((a.get("texto_prompt") or "" for a in agentes if a["papel"] == dados.papel), "")
+    sistema = catalogo_motor.previa_do_sistema(config, dados.papel, roteiro, conhecimento)
+    return {"papel": dados.papel, "nome": NOMES_PAPEL.get(dados.papel, dados.papel), "sistema": sistema,
+            "caracteres": len(sistema), "editados": sorted(regras_sistema)}
+
+
+def _regras_sistema_do_produto(produto: dict[str, Any]) -> dict[str, str]:
+    """config_modelo.regras_sistema do produto da biblioteca, só com o que passa na conferência (o resto vale o padrão)."""
+    config_modelo = produto.get("config_modelo")
+    if isinstance(config_modelo, str):
+        try:
+            config_modelo = json.loads(config_modelo)
+        except json.JSONDecodeError:
+            config_modelo = {}
+    bruto = (config_modelo or {}).get("regras_sistema") if isinstance(config_modelo, dict) else None
+    if not isinstance(bruto, dict):
+        return {}
+    # Bloco a bloco: um texto que não passa (placeholder tirado no banco) cai no padrão sem derrubar os outros.
+    limpo: dict[str, str] = {}
+    for chave, texto in bruto.items():
+        aceito, erros = catalogo_motor.limpar_regras_sistema({chave: texto})
+        if not erros:
+            limpo.update(aceito)
+    return limpo
 
 
 @api.delete("/admin/biblioteca/produtos/{id_produto}")
@@ -475,6 +581,7 @@ async def ver_ativado(id_ativado: str, pedido: Request, ctx: Contexto = Depends(
     etapas: list[dict[str, Any]] = []
     variables: dict[str, Any] = {}
     comportamento: dict[str, Any] | None = None
+    honorarios_texto: str | None = None
     if produto.get("id_agente"):
         # O agente e as etapas em paralelo (uma espera pelo banco em vez de duas).
         agente, linhas_etapas = await asyncio.gather(
@@ -490,6 +597,7 @@ async def ver_ativado(id_ativado: str, pedido: Request, ctx: Contexto = Depends(
                              "id_canal": str(agente["id_canal"]) if agente["id_canal"] else None}
         catalogo = config.get("catalogo") or {}
         variables = config.get("variables") or {}
+        honorarios_texto = (config.get("conhecimento") or {}).get("honorarios")
         for e in linhas_etapas:
             papel = catalogo.get("papeis", {}).get(e["codigo"], {})
             etapas.append({"id": str(e["id"]), "id_agente": produto["id_agente"], "etapa": e["codigo"], "ordem": e["ordem"],
@@ -497,7 +605,7 @@ async def ver_ativado(id_ativado: str, pedido: Request, ctx: Contexto = Depends(
                            "mensagem_troca": papel.get("mensagem_troca"),
                            "config": {"welcome_message": papel.get("boas_vindas"), "boas_vindas": papel.get("boas_vindas"), "variables": variables,
                                       "model_config": {"temperature": float(e["temperatura"]), "model": e["modelo"]}}})
-    return {**produto, "etapas": etapas, "variables": variables, "agente": comportamento,
+    return {**produto, "etapas": etapas, "variables": variables, "agente": comportamento, "honorarios_texto": honorarios_texto,
             "id_canal": comportamento["id_canal"] if comportamento else None}
 
 
@@ -660,6 +768,8 @@ class Ativar(BaseModel):
     objecoes: list[dict[str, Any]] | None = None
     regras_markdown: str | None = None
     dados_escritorio: str | None = None
+    # Honorários (transcrição do áudio) com os {{campos}} da Edição rápida. None = o texto do produto da biblioteca.
+    honorarios_texto: str | None = None
     variables: dict[str, Any] = Field(default_factory=dict)
     reenviar: bool = False
     # Etapa "Follow-up" da ativação. None = o padrão: liga na ativação; na sincronização de um agente que ainda não
@@ -715,15 +825,32 @@ def _config_do_agente(dados: Ativar, catalogo: dict[str, Any], produto: dict[str
         "modelos": {"etapa": dados.modelo, "extrator": "gpt-4.1-mini"},
         # Portão de fatos desligado (decisão do dono, 26/11): a troca é decidida só pelo prompt de cada agente.
         "catalogo": {"portao_de_fatos": False, "id_produto_biblioteca": catalogo.get("id"), "slug": catalogo.get("slug"), "modo_midia": catalogo.get("modo_midia"),
-                     "papeis": papeis, "regras": dados.regras_markdown if dados.regras_markdown is not None else produto.get("regras_markdown")},
+                     "papeis": papeis, "regras": dados.regras_markdown if dados.regras_markdown is not None else produto.get("regras_markdown"),
+                     # Regras do sistema editadas pelo super admin no produto (aba "Regras do sistema"); vazio = o padrão.
+                     "regras_sistema": _regras_sistema_do_produto(catalogo)},
         "conhecimento": {
             "faq": [{"pergunta": f.get("pergunta") or f.get("q") or "", "resposta": f.get("resposta") or f.get("a") or ""} for f in faq],
             "objecoes": [{"objecao": o.get("titulo") or o.get("gatilho") or o.get("objecao") or "", "resposta": o.get("resposta") or ""} for o in objecoes],
             "dados_escritorio": dados.dados_escritorio if dados.dados_escritorio is not None else produto.get("dados_escritorio") or "",
+            **({"honorarios": honorarios} if (honorarios := _honorarios_texto(dados, catalogo)) else {}),
         },
         "funcoes": {"contrato_zapsign": tem_zapsign, "buscar_cep": True},
         "variables": dados.variables or {},
     }
+
+
+def _honorarios_texto(dados: Ativar, catalogo: dict[str, Any]) -> str:
+    """Honorários (transcrição do áudio): o que o cliente editou na ativação, senão config_modelo.honorarios_texto do
+    produto da biblioteca."""
+    if dados.honorarios_texto is not None:
+        return dados.honorarios_texto.strip()[:6000]
+    config_modelo = catalogo.get("config_modelo")
+    if isinstance(config_modelo, str):
+        try:
+            config_modelo = json.loads(config_modelo)
+        except json.JSONDecodeError:
+            config_modelo = {}
+    return str((config_modelo or {}).get("honorarios_texto") or "").strip()[:6000] if isinstance(config_modelo, dict) else ""
 
 
 def juntar_config(antigo: dict[str, Any], novo: dict[str, Any]) -> dict[str, Any]:

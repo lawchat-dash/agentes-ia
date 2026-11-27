@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import iconeLawChat from "@/assets/lawchat-icone.svg";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, ChevronDown, Rocket, Bot, Loader2, RefreshCw, Shield, FlaskConical, FileSignature, ExternalLink, Settings2, Braces, AlertTriangle, X, Sparkles, Building2, Headphones, BellRing, History, PencilLine } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, ChevronDown, Rocket, Bot, Loader2, RefreshCw, Shield, FlaskConical, FileSignature, ExternalLink, Settings2, Braces, AlertTriangle, X, Sparkles, Building2, Headphones, BellRing, History, PencilLine, Scale } from "lucide-react";
 import { useTemplate } from "@/hooks/useTemplates";
 import { ActivationSummary } from "@/components/agent/ActivationSummary";
 import { TerminalAtivacao } from "@/components/agent/TerminalAtivacao";
@@ -234,6 +234,8 @@ export interface ProductConfiguratorEditData {
   integrations: Record<string, any>;
   generalRules: string;
   dadosEscritorio?: string;
+  /** Honorários (transcrição do áudio) do agente: config.conhecimento.honorarios. undefined = nunca gravado. */
+  honorariosTexto?: string;
   selectedModel?: string;
   temperature?: number;
   responseDelay?: number;
@@ -352,7 +354,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [updateRevisado, setUpdateRevisado] = useState(false); // aplicou/revisou → grava versão no save
   const [savingAgent, setSavingAgent] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(false);
-  type Step3Tab = "campos" | "regras" | "agente" | "faq" | "objecoes" | "dados_escritorio" | "conhecimento" | "integracoes" | "audios";
+  type Step3Tab = "campos" | "regras" | "agente" | "faq" | "objecoes" | "dados_escritorio" | "honorarios" | "conhecimento" | "integracoes" | "audios";
   const [step3Tab, setStep3Tab] = useState<Step3Tab>("agente");
   const [generalRules, setGeneralRules] = useState<string>(editData?.generalRules ?? "");
   const [testOpen, setTestOpen] = useState(false);
@@ -367,6 +369,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [faqItems, setFaqItems] = useState<{ pergunta: string; resposta: string }[]>(editData?.faqItems ?? []);
   const [objectionItems, setObjectionItems] = useState<{ titulo: string; resposta: string }[]>(editData?.objectionItems ?? []);
   const [dadosEscritorio, setDadosEscritorio] = useState<string>(editData?.dadosEscritorio ?? ""); // prompt nível produto
+  // Honorários do produto (transcrição do áudio, com {{campos}}): entra no Closer, Contratos e Assinatura.
+  const [honorariosTexto, setHonorariosTexto] = useState<string>(editData?.honorariosTexto ?? "");
   const [knowledgeItems, setKnowledgeItems] = useState<{ id: string; name: string; url: string; size: number; type: string; created_at: string }[]>(editData?.knowledgeItems ?? []);
   const [integrations, setIntegrations] = useState<Record<string, any>>(editData?.integrations ?? {});
 
@@ -392,7 +396,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     const rascunho = {
       name, selectedWhatsapp, selectedModel, temperature, responseDelay, humanPause, schedule24,
       pipelineAgents: pipelineAgentsRef.current,
-      faqItems, objectionItems, knowledgeItems, integrations, generalRules, dadosEscritorio,
+      faqItems, objectionItems, knowledgeItems, integrations, generalRules, dadosEscritorio, honorariosTexto,
       catalogStamp: catalogStampRef.current, // carimbo do catálogo no momento do salvamento
       ...extra,
     };
@@ -585,7 +589,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     return {
       name, selectedWhatsapp, selectedModel, temperature, responseDelay, humanPause, schedule24,
       pipelineAgents: agentes, faqItems, objectionItems, knowledgeItems, integrations,
-      generalRules, dadosEscritorio, fieldValues, appliedValues,
+      generalRules, dadosEscritorio, honorariosTexto, fieldValues, appliedValues,
       // posição na tela (não conta como alteração)
       step, step3Tab, activeRoleIdx,
     };
@@ -632,6 +636,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     if (d.integrations) setIntegrations(d.integrations);
     if (typeof d.generalRules === "string") setGeneralRules(d.generalRules);
     if (typeof d.dadosEscritorio === "string") setDadosEscritorio(d.dadosEscritorio);
+    if (typeof d.honorariosTexto === "string") setHonorariosTexto(d.honorariosTexto);
     if (d.fieldValues) setFieldValues(d.fieldValues);
     if (Array.isArray(d.appliedValues)) setAppliedValues(d.appliedValues);
     if (typeof d.step === "number") setStep(Math.min(STEP_COUNT, Math.max(1, d.step)));
@@ -675,6 +680,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       const defObj = Array.isArray(catDefaults?.objecoes) ? catDefaults.objecoes : [];
       const defRegras = (catDefaults?.regras_markdown as string) ?? "";
       const defDados = (catDefaults?.dados_escritorio as string) ?? "";
+      const defHonorarios = typeof catDefaults?.config_modelo?.honorarios_texto === "string" ? catDefaults.config_modelo.honorarios_texto : "";
       // Carimbo do catálogo = a edição mais recente entre o produto e seus agentes.
       // Se o rascunho guardou um carimbo mais antigo, o modelo mudou → recarregar do catálogo.
       const catalogStamp = [catDefaults?.updated_at, ...bibAgents.map((b: any) => b.updated_at)]
@@ -717,6 +723,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         if (Array.isArray(r.faqItems)) setFaqItems(r.faqItems);
         if (Array.isArray(r.objectionItems)) setObjectionItems(r.objectionItems);
         if (typeof r.dadosEscritorio === "string") setDadosEscritorio(r.dadosEscritorio);
+        setHonorariosTexto(typeof r.honorariosTexto === "string" ? r.honorariosTexto : defHonorarios);
         if (Array.isArray(r.knowledgeItems)) setKnowledgeItems(r.knowledgeItems);
         if (r.integrations) setIntegrations(r.integrations);
         if (typeof r.generalRules === "string") setGeneralRules(r.generalRules);
@@ -735,6 +742,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         setFaqItems(defFaq.length ? defFaq : (Array.isArray(draft.faq) ? draft.faq : []));
         setObjectionItems(defObj.length ? defObj : (Array.isArray(draft.objecoes) ? draft.objecoes : []));
         setDadosEscritorio(defDados || (typeof draft.dados_escritorio === "string" ? draft.dados_escritorio : ""));
+        setHonorariosTexto(defHonorarios);
         setKnowledgeItems(Array.isArray(draft.conhecimento) ? draft.conhecimento : []);
         setIntegrations(draft.integracoes ?? {});
         // Preserva as ESCOLHAS do usuário (não-conteúdo). Cai pras COLUNAS do produto (nome/número)
@@ -843,6 +851,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       });
     add(generalRules, "Regras");
     add(dadosEscritorio, "Dados do Escritório");
+    add(honorariosTexto, "Honorários");
     pipelineAgents.forEach((a) => add(agentScanText(a), ROLE_META[a.role]?.label ?? a.role));
     faqItems.forEach((it) => add(`${it.pergunta ?? ""}\n${it.resposta ?? ""}`, "FAQ"));
     objectionItems.forEach((it) => add(`${it.titulo ?? ""}\n${it.resposta ?? ""}`, "Objeções"));
@@ -856,6 +865,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     const add = (txt: string) => extractAudios(txt).forEach((m) => set.add(m));
     add(generalRules);
     add(dadosEscritorio);
+    add(honorariosTexto);
     pipelineAgents.forEach((a) => add(agentScanText(a)));
     faqItems.forEach((it) => add(`${it.pergunta ?? ""}\n${it.resposta ?? ""}`));
     objectionItems.forEach((it) => add(`${it.titulo ?? ""}\n${it.resposta ?? ""}`));
@@ -925,6 +935,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         before: ePlural(String(editData.generalRules ?? "").trim().length, "caractere", "caracteres"), after: ePlural(String(generalRules).trim().length, "caractere", "caracteres") },
       { key: "dados_escritorio", label: "Dados do Escritório", changed: String(dadosEscritorio).trim() !== String(editData.dadosEscritorio ?? "").trim(),
         before: ePlural(String(editData.dadosEscritorio ?? "").trim().length, "caractere", "caracteres"), after: ePlural(String(dadosEscritorio).trim().length, "caractere", "caracteres") },
+      { key: "honorarios", label: "Honorários", changed: String(honorariosTexto).trim() !== String(editData.honorariosTexto ?? "").trim(),
+        before: ePlural(String(editData.honorariosTexto ?? "").trim().length, "caractere", "caracteres"), after: ePlural(String(honorariosTexto).trim().length, "caractere", "caracteres") },
       { key: "integracoes", label: "Integração ZapSign", changed: norm(integrations) !== norm(editData.integrations),
         before: (editData.integrations as any)?.zapsign?.enabled ? "conectado" : "não conectado", after: (integrations as any)?.zapsign?.enabled ? "conectado" : "não conectado" },
     ].filter((i) => i.changed);
@@ -1000,6 +1012,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     // então NÃO chamamos o flush aqui (evita reaplicar um estado antigo do editor).
     setGeneralRules((g) => fillField(g, field, v));
     setDadosEscritorio((d) => fillField(d, field, v));
+    setHonorariosTexto((d) => fillField(d, field, v));
     const next = pipelineAgentsRef.current.map((a) => fillAgentField(a, field, v));
     pipelineAgentsRef.current = next;
     setPipelineAgents(next);
@@ -1018,6 +1031,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     if (!url) return;
     setGeneralRules((g) => fillAudioInText(g, marker, url));
     setDadosEscritorio((d) => fillAudioInText(d, marker, url));
+    setHonorariosTexto((d) => fillAudioInText(d, marker, url));
     const next = pipelineAgentsRef.current.map((a) => fillAgentAudio(a, marker, url));
     pipelineAgentsRef.current = next;
     setPipelineAgents(next);
@@ -1032,6 +1046,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const excludeAudioMarker = (marker: string) => {
     setGeneralRules((g) => fillAudioInText(g, marker, ""));
     setDadosEscritorio((d) => fillAudioInText(d, marker, ""));
+    setHonorariosTexto((d) => fillAudioInText(d, marker, ""));
     const next = pipelineAgentsRef.current.map((a) => fillAgentAudio(a, marker, ""));
     pipelineAgentsRef.current = next;
     setPipelineAgents(next);
@@ -1046,6 +1061,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const excludeGlobalField = (field: string) => {
     setGeneralRules((g) => fillField(g, field, ""));
     setDadosEscritorio((d) => fillField(d, field, ""));
+    setHonorariosTexto((d) => fillField(d, field, ""));
     const next = pipelineAgentsRef.current.map((a) => fillAgentField(a, field, ""));
     pipelineAgentsRef.current = next;
     setPipelineAgents(next);
@@ -1123,6 +1139,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       objecoes: objectionItems,
       regras_markdown: generalRules || "",
       dados_escritorio: dadosEscritorio || "",
+      // Agente antigo sem honorários gravados e nada escrito: não manda (o servidor usa o texto do produto).
+      ...(honorariosTexto.trim() || !isEdit || editData?.honorariosTexto !== undefined ? { honorarios_texto: honorariosTexto } : {}),
       variables: { ...fieldValues },
     };
   };
@@ -2017,6 +2035,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                       { id: "faq", label: "FAQ", hint: "Perguntas frequentes", icon: <MessageSquare className="size-4" />, disabled: false },
                       { id: "objecoes", label: "Objeções", hint: "Como contorná-las", icon: <Shield className="size-4" />, disabled: false },
                       { id: "dados_escritorio", label: "Dados do Escritório", hint: "Informações da firma", icon: <Building2 className="size-4" />, disabled: false },
+                      { id: "honorarios", label: "Honorários", hint: "Transcrição do áudio", icon: <Scale className="size-4" />, disabled: false },
                       { id: "conhecimento", label: "Conhecimento", hint: "Documentos do agente", icon: <Bot className="size-4" />, disabled: false },
                     ] as const).map((t) => (
                       <NavRow
@@ -2305,6 +2324,19 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                     <DadosEscritorioPanel
                       value={dadosEscritorio}
                       onChange={setDadosEscritorio}
+                      accent={catC1}
+                      handoffOptions={pipelineAgents.map((a) => a.name).filter(Boolean)}
+                      highlights={appliedValues}
+                    />
+                  )}
+
+                  {step3Tab === "honorarios" && (
+                    <DadosEscritorioPanel
+                      titulo="Honorários (transcrição do áudio)"
+                      descricao="Como o escritório cobra, do jeito que está no áudio. A IA usa no Closer, no Contratos e na Assinatura quando o lead pergunta valor, porcentagem ou como paga. Os {{ }} entram na Edição rápida."
+                      Icone={Scale}
+                      value={honorariosTexto}
+                      onChange={setHonorariosTexto}
                       accent={catC1}
                       handoffOptions={pipelineAgents.map((a) => a.name).filter(Boolean)}
                       highlights={appliedValues}

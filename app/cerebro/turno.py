@@ -418,15 +418,21 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         conferencias.append(linha_cep)
     if produto.contrato and etapa == "contratos" and (faltam_contrato := _linha_dados_que_faltam(entrada, saida)):
         conferencias.append(faltam_contrato)
-    conhecimento_texto = agente.montar_conhecimento(entrada.conhecimento, catalogo.REGRA_OBJECOES)
+    # Regras do sistema editadas no painel do super admin (config.catalogo.regras_sistema); vazio = o padrão do código.
+    regras_sistema = catalogo.regras_sistema_do_config(produto.config)
+    conhecimento_texto = agente.montar_conhecimento(entrada.conhecimento, catalogo.texto_do_bloco("objecoes", regras_sistema))
     regras_escritorio = (produto.config.get("catalogo") or {}).get("regras")
+    # Honorários do produto (transcrição do áudio): só em Closer, Contratos e Assinatura (montar_sistema decide).
+    honorarios_texto = str((produto.config.get("conhecimento") or {}).get("honorarios") or "")
     sistema = catalogo.montar_sistema(
         prompt=prompt, nome_agente=entrada.agente, escritorio=entrada.escritorio,
         conhecimento_texto=conhecimento_texto, regras=regras_escritorio, destinos=destinos, acoes=acoes,
         fatos_sistema=fatos_sistema, notificacoes=notificacoes, papel=etapa, ferramentas=ferramentas, papeis=papeis,
-        honorarios=entrada.honorarios, variaveis=valores, familia=catalogo.familia_do_produto(produto.config))
+        honorarios=entrada.honorarios, variaveis=valores, familia=catalogo.familia_do_produto(produto.config),
+        regras_sistema=regras_sistema, honorarios_texto=honorarios_texto)
     _variaveis_sem_valor(entrada, saida, etapa, catalogo.variaveis_sem_valor(
         [prompt, regras_escritorio, conhecimento_texto, entrada.honorarios]
+        + ([honorarios_texto] if etapa in catalogo.PAPEIS_COM_HONORARIOS_TEXTO else [])
         + [str((c or {}).get(k) or "") for c in ((produto.config.get("catalogo") or {}).get("papeis") or {}).values()
            if isinstance(c, dict) for k in ("mensagem_troca", "boas_vindas")], valores))
     sistema = _com_comeco_da_conversa(sistema, entrada)
