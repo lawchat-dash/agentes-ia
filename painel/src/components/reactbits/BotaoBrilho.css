@@ -30,3 +30,15 @@
 @media (prefers-reduced-motion: reduce) {
   .lc-botao-brilho.specular-button { transition: none; }
 }
+
+/* Bolinhas dentro do botão verde (mesma grade de pontos do fundo do painel), bem sutis, deslizando devagar.
+   Camada própria entre o fundo e o texto; some à direita para não brigar com a leitura. Só transform. */
+.lc-botao-brilho.specular-button { overflow: hidden; }
+.lc-botao-brilho__pontos { position: absolute; inset: -14px 0 0 -14px; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.28) 1px, transparent 1.3px); background-size: 7px 7px;
+  -webkit-mask-image: linear-gradient(100deg, #000 0%, rgba(0, 0, 0, 0.55) 55%, transparent 95%);
+  mask-image: linear-gradient(100deg, #000 0%, rgba(0, 0, 0, 0.55) 55%, transparent 95%);
+  opacity: 0.55; animation: lc-pontos-desliza 6s linear infinite; transition: opacity 0.25s ease; }
+.lc-botao-brilho.specular-button:hover .lc-botao-brilho__pontos { opacity: 0.85; }
+@keyframes lc-pontos-desliza { to { transform: translate3d(7px, 7px, 0); } }
+@media (prefers-reduced-motion: reduce) { .lc-botao-brilho__pontos { animation: none; } }

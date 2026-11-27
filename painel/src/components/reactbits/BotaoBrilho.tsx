@@ -31,6 +31,7 @@ export default function BotaoBrilho({
     <button type={type} className={classes}
             style={{ "--sb-radius": `${radius}px`, "--sb-text-color": suave ? "#00701f" : "#ffffff", ...(style as CSSProperties) } as CSSProperties}
             {...resto}>
+      {!suave && <span className="lc-botao-brilho__pontos" aria-hidden="true" />}
       <span className="specular-button__label">{children}</span>
     </button>
   );

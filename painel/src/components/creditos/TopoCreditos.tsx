@@ -2,6 +2,7 @@ import { useMemo, type CSSProperties } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import { reais, type Recarga } from "@/telas/Carteira";
 import type { PainelConsumo } from "./tipos";
+import { useContagem } from "@/components/graficos/comum";
 
 /** Recarga com o saldo logo depois dela (o servidor manda quando a recarga já entrou). */
 type RecargaTopo = Recarga & { saldo_depois_brl?: number | null };
@@ -43,6 +44,8 @@ export default function TopoCreditos({ p, recargas, erroRecargas, valor, setValo
   const autonomia = media ? Math.max(0, c.disponivel_brl) / media : null;
   const ate = autonomia != null && autonomia < 3650 ? new Date(hoje.getTime() + autonomia * 86400000) : null;
   const negativo = c.disponivel_brl < 0;
+  const saldoAnimado = useContagem(Math.abs(c.disponivel_brl), 1100);
+  const valorAnimado = useContagem(valor, 380);
 
   // Simulador: custo real dos últimos 30 dias (ou do histórico, quando o servidor cai para ele).
   const cpl = p.custo_por_lead.valor_brl;
@@ -65,10 +68,17 @@ export default function TopoCreditos({ p, recargas, erroRecargas, valor, setValo
 
       {/* Faixa escura: saldo | simulador */}
       <section className="crt-faixa crt-entra" aria-label="Saldo e simulador de recarga">
+        {/* Fundo vivo: brilhos verdes que derivam devagar, grade de pontos e um feixe que passa. Só transform/opacity. */}
+        <div className="crt-vivo" aria-hidden="true">
+          <i className="crt-vivo__b1" /><i className="crt-vivo__b2" /><i className="crt-vivo__b3" />
+          <span className="crt-vivo__pontos" /><span className="crt-vivo__feixe" />
+        </div>
         <div className="crt-hero">
           <div className="flex flex-col gap-3.5">
-            <span className="crt-rot">Saldo disponível</span>
-            <div className={`crt-valor ${negativo ? "neg" : ""}`}>{negativo ? "−" : ""}{reais(Math.abs(c.disponivel_brl))}</div>
+            <span className="crt-rot crt-rot-vivo"><i className={`crt-pulso ${negativo || c.bloqueado ? "ruim" : ""}`} />Saldo disponível</span>
+            <div className={`crt-valor crt-valor-brilho ${negativo ? "neg" : ""}`} aria-label={`${negativo ? "menos " : ""}${reais(Math.abs(c.disponivel_brl))}`}>
+              {negativo ? "−" : ""}{reais(saldoAnimado)}
+            </div>
             <p className="crt-fraco text-[13.5px]">
               {c.bonus_do_mes_brl > 0 || c.bonus_brl > 0
                 ? <>Saldo <span className="crt-mono">{reais(c.saldo_brl)}</span> + bônus do mês <span className="crt-mono">{reais(c.bonus_brl)}</span></>
@@ -103,7 +113,7 @@ export default function TopoCreditos({ p, recargas, erroRecargas, valor, setValo
               <span className="crt-rot">Simulador de recarga</span>
               <span className="crt-fraco crt-mono text-[12px]">R$ 10 a R$ 2.000</span>
             </div>
-            <div className="crt-valor" style={{ fontSize: 34 }} aria-live="polite">{reais(valor)}</div>
+            <div className="crt-valor" style={{ fontSize: 34 }} aria-live="polite" aria-label={reais(valor)}>{reais(valorAnimado)}</div>
             <input type="range" className="crt-range mt-2" min={MIN} max={MAX} step={10} value={valor} aria-label="Valor da recarga"
               aria-valuetext={reais(valor)} onChange={(e) => setValor(Number(e.target.value))}
               style={{ "--p": `${fracao}%` } as CSSProperties} />

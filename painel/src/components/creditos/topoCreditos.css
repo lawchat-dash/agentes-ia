@@ -140,3 +140,47 @@
   .crt-medidor i, .crt-barras > div > i, .crt-barra-ag i, .crt-entra { animation: none; }
   .crt-range::-webkit-slider-thumb { transition: none; }
 }
+
+/* ── Fundo vivo da faixa escura ──────────────────────────────────────────────────────────────────────────────────
+   Três brilhos (gradiente radial, sem filter: blur) que derivam devagar, uma grade de pontos que respira e um feixe
+   que atravessa a cada ~7s. Tudo em transform/opacity, numa camada própria; pausa quando a pessoa pede menos movimento. */
+.crt-hero { position: relative; z-index: 1; }
+.crt-vivo { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; contain: strict; }
+.crt-vivo i { position: absolute; border-radius: 50%; will-change: transform; }
+.crt-vivo__b1 { width: 520px; height: 520px; left: -160px; top: -220px;
+  background: radial-gradient(closest-side, rgba(0, 188, 51, .22), transparent); animation: crt-deriva-1 18s ease-in-out infinite alternate; }
+.crt-vivo__b2 { width: 460px; height: 460px; left: 32%; bottom: -300px;
+  background: radial-gradient(closest-side, rgba(91, 227, 127, .16), transparent); animation: crt-deriva-2 22s ease-in-out infinite alternate; }
+.crt-vivo__b3 { width: 380px; height: 380px; right: -120px; top: -140px;
+  background: radial-gradient(closest-side, rgba(0, 133, 42, .3), transparent); animation: crt-deriva-3 26s ease-in-out infinite alternate; }
+@keyframes crt-deriva-1 { to { transform: translate3d(180px, 90px, 0) scale(1.15); } }
+@keyframes crt-deriva-2 { to { transform: translate3d(-160px, -70px, 0) scale(.9); } }
+@keyframes crt-deriva-3 { to { transform: translate3d(-140px, 120px, 0) scale(1.1); } }
+.crt-vivo__pontos { position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(234, 243, 237, .16) 1px, transparent 1.4px); background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(70% 90% at 25% 40%, #000, transparent 75%); mask-image: radial-gradient(70% 90% at 25% 40%, #000, transparent 75%);
+  animation: crt-respira 6s ease-in-out infinite; }
+@keyframes crt-respira { 0%, 100% { opacity: .35; } 50% { opacity: .8; } }
+.crt-vivo__feixe { position: absolute; top: -20%; bottom: -20%; left: 0; width: 140px;
+  background: linear-gradient(100deg, transparent, rgba(91, 227, 127, .09) 45%, rgba(234, 243, 237, .08) 50%, rgba(91, 227, 127, .09) 55%, transparent);
+  transform: translateX(-200px) skewX(-12deg); animation: crt-feixe 7s cubic-bezier(.45, 0, .2, 1) 1.2s infinite; }
+@keyframes crt-feixe { 0% { transform: translateX(-200px) skewX(-12deg); } 45%, 100% { transform: translateX(1400px) skewX(-12deg); } }
+
+/* Ponto "ao vivo" ao lado do rótulo do saldo */
+.crt-rot-vivo { display: inline-flex; align-items: center; gap: 8px; }
+.crt-pulso { position: relative; width: 7px; height: 7px; border-radius: 50%; background: #5BE37F; flex: none; }
+.crt-pulso::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; animation: crt-onda 2.2s ease-out infinite; }
+.crt-pulso.ruim { background: #ff9b85; }
+@keyframes crt-onda { from { transform: scale(1); opacity: .7; } to { transform: scale(3.2); opacity: 0; } }
+
+/* Valor do saldo com um reflexo que passa por cima do número */
+.crt-valor-brilho { background: linear-gradient(100deg, currentColor 40%, rgba(255, 255, 255, .95) 50%, currentColor 60%) 0 0 / 250% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: var(--crt-on);
+  animation: crt-reflexo 7s ease-in-out 1.2s infinite; }
+.crt-valor-brilho.neg { color: #ff9b85; }
+@keyframes crt-reflexo { 0% { background-position: 100% 0; } 45%, 100% { background-position: 0 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-vivo i, .crt-vivo__pontos, .crt-vivo__feixe, .crt-pulso::after, .crt-valor-brilho { animation: none; }
+  .crt-vivo__feixe { display: none; }
+}
