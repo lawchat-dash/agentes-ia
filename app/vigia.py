@@ -16,6 +16,11 @@ A cada AGENTESIA_VIGIA_INTERVALO_MIN (padrão 10) minutos, com uma trava no banc
    está há AGENTESIA_SEM_WEBHOOK_H horas (padrão 4; 0 desliga) sem nenhuma, contadas dentro do horário comercial de hoje
    (AGENTESIA_SEM_WEBHOOK_HORARIO, padrão "9-18", segunda a sexta, no fuso do escritório): evento 'escritorio_sem_webhook'
    para a equipe LawChat, no máximo 1 por escritório a cada 24 h.
+4. Webhook ligado: em cada escritório ativo com a LawChat conectada e o webhook já ligado uma vez, confere na
+   plataforma se a assinatura que traz as mensagens continua lá, ativa, com o endereço e os eventos certos. Sumiu ou
+   mudou: recria/corrige sozinho. Não deu (token recusado, plataforma fora): marca o webhook como desconectado — a tela
+   Integrações e o Início mostram "Reconectar webhook" — e avisa a equipe LawChat. Sem IA, só a API da plataforma.
+   AGENTESIA_VIGIA_WEBHOOK=0 desliga.
 """
 
 from __future__ import annotations
@@ -56,13 +61,14 @@ async def rodar_se_for_hora(pool: Any) -> dict[str, int] | None:
 
 
 async def rodar(pool: Any) -> dict[str, int] | None:
-    feito = {"followups_recuperados": 0, "avisos_followup_desligado": 0, "avisos_sem_webhook": 0}
+    feito = {"followups_recuperados": 0, "avisos_followup_desligado": 0, "avisos_sem_webhook": 0, "webhooks_conferidos": 0}
     async with pool.acquire() as trava, trava.transaction():
         if not await trava.fetchval("select pg_try_advisory_xact_lock(hashtext('agentesia_vigia'))"):
             return None
         for nome, varrer in (("followups_recuperados", followup_ausente),
                              ("avisos_followup_desligado", followup_desligado),
-                             ("avisos_sem_webhook", escritorio_sem_webhook)):
+                             ("avisos_sem_webhook", escritorio_sem_webhook),
+                             ("webhooks_conferidos", webhooks_ligados)):
             try:
                 feito[nome] = await varrer(pool)
             except Exception:                            # uma varredura nunca derruba as outras nem o follow-up
@@ -205,3 +211,70 @@ async def escritorio_sem_webhook(pool: Any, *, horas: float | None = None, momen
             "conta (Minha Conta › Integrações › Testar conexão) e se o número está conectado.",
             json.dumps({"ultima_recebida": linha["ultima"].isoformat(), "horas": horas}))
     return avisos
+
+
+# ---------------------------------------------------------------------------- 4. webhook ligado
+async def webhooks_ligados(pool: Any, *, helena_por_token: Any = None, url_helena: str | None = None,
+                           so_escritorio: str | None = None) -> int:
+    """Confere (e refaz) a assinatura do webhook de cada escritório que já ligou o recebimento. Devolve quantos conferiu.
+    Resultado no config da integração helena: webhook_situacao ok | corrigido | desconectado, webhook_conferido_em
+    e webhook_erro. webhook_conectado acompanha (false enquanto estiver desconectado)."""
+    if os.environ.get("AGENTESIA_VIGIA_WEBHOOK", "1").strip() == "0":
+        return 0
+    from app.banco.postgres import token_helena
+    from app.canal.helena_conta import ErroHelenaApi, HelenaConta
+    from app.canal.webhook import url_do_escritorio
+    criar = helena_por_token or HelenaConta
+    base = url_helena or os.environ.get("AGENTESIA_HELENA_URL", "https://api.helena.run")
+    linhas = await pool.fetch(
+        """select e.id::text as id, i.config
+           from agentesia_escritorios e join agentesia_integracoes i on i.id_escritorio = e.id and i.tipo = 'helena'
+           where e.situacao = 'ativo' and i.situacao = 'ok' and ($1::uuid is null or e.id = $1::uuid)
+             and (coalesce(i.config ->> 'webhook_conectado', 'false') = 'true' or i.config ->> 'webhook_situacao' = 'desconectado')""",
+        so_escritorio)
+    conferidos = 0
+    for linha in linhas:
+        id_escritorio = linha["id"]
+        config = linha["config"]
+        config = json.loads(config) if isinstance(config, str) else dict(config or {})
+        url = url_do_escritorio(id_escritorio)
+        token = await token_helena(pool, id_escritorio)
+        if not url or not token:
+            continue
+        helena = criar(token, base)
+        mudar: dict[str, Any] = {"webhook_conferido_em": agora().isoformat()}
+        try:
+            assinatura = await helena.garantir_assinatura(url, config.get("id_assinatura"))
+            mudar.update({"webhook_situacao": "ok" if assinatura.get("acao") == "ja_estava_certa" else "corrigido",
+                          "webhook_conectado": True, "webhook_erro": None})
+            if assinatura.get("id"):
+                mudar["id_assinatura"] = assinatura["id"]
+            if assinatura.get("acao") in ("criada", "corrigida"):
+                await pool.execute(
+                    """insert into agentesia_eventos (id_escritorio, tipo, gravidade, responsavel, descricao, detalhe)
+                       values ($1::uuid, 'webhook_refeito', 'aviso', 'lawchat', $2, $3::jsonb)""",
+                    id_escritorio, "O webhook da LawChat tinha caído e foi refeito sozinho pelo vigia.",
+                    json.dumps({"acao": assinatura.get("acao")}))
+        except (ErroHelenaApi, Exception) as erro:          # qualquer falha da plataforma: marca e segue para o próximo
+            motivo = getattr(erro, "motivo", None) or type(erro).__name__
+            mudar.update({"webhook_situacao": "desconectado", "webhook_conectado": False,
+                          "webhook_erro": "a LawChat recusou o token" if motivo == "token_recusado"
+                          else f"a LawChat não respondeu ({motivo})"})
+            if config.get("webhook_situacao") != "desconectado":     # avisa a equipe só na virada, não a cada volta
+                await pool.execute(
+                    """insert into agentesia_eventos (id_escritorio, tipo, gravidade, responsavel, descricao, detalhe)
+                       values ($1::uuid, 'webhook_desconectado', 'erro', 'lawchat', $2, $3::jsonb)""",
+                    id_escritorio, "O webhook da LawChat caiu e não deu para refazer sozinho: as mensagens não chegam à IA. "
+                    "Abra Integrações e use Reconectar webhook.", json.dumps({"motivo": motivo}))
+        finally:
+            fechar = getattr(getattr(helena, "_http", None), "aclose", None)
+            if fechar:
+                try:
+                    await fechar()
+                except Exception:
+                    pass
+        await pool.execute(
+            """update agentesia_integracoes set config = coalesce(config, '{}'::jsonb) || $2::jsonb
+               where id_escritorio = $1::uuid and tipo = 'helena'""", id_escritorio, json.dumps(mudar))
+        conferidos += 1
+    return conferidos

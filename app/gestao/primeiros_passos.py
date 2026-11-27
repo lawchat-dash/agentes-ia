@@ -1,17 +1,20 @@
 """Primeiros passos do escritório: a lista que se marca sozinha no Início do cliente e a coluna "Progresso" das Contas.
 
-Cada passo é lido do que já existe no banco (nada chama a Helena), na ordem em que o cliente faz:
+Cada passo é lido do que já existe no banco (nada chama a Helena), na ordem do processo da LawChat (o dono pediu para
+"forçar" esse caminho: número, CRM com as etapas certas, roteiro, dados da firma e só então ativar):
 
   conta       a equipe LawChat habilitou a função de agente da conta (Contas › Criar agente)
-  whatsapp    há pelo menos um número de WhatsApp conectado na conta
-  produto     há um produto (agente) ligado
-  zapsign     ZapSign conectada e com modelo, só se algum agente gera contrato (senão "não se aplica")
+  whatsapp    há pelo menos um número de WhatsApp conectado na conta (botão: /minha-conta/canais)
+  crm         painel do CRM escolhido e as 6 etapas da IA marcadas (config do CRM "etapas_por_tipo")
+  roteiro     só no plano com mídia (Ouro para cima; conta sem plano também): um produto com os materiais
+              principais gravados. No plano sem mídia (ou sem produto com roteiro) o passo nem aparece.
+  dados       Dados do escritório preenchidos (nome do escritório no mínimo): valem para todos os agentes
+  produto     há um agente ligado
   followup    o follow-up está ligado nos agentes ligados
-  conversa    chegou a primeira mensagem de um lead de verdade (o Laboratório não grava no banco)
-  saldo       a carteira tem saldo (pré-pago) ou o escritório não é cobrado por saldo
 
-Situações: feito | pendente | nao_se_aplica (conta como feito: "4/7" é sempre de 7). Cada passo leva `para`, a tela
-onde se resolve, e `acao`, o texto do botão.
+Saíram (pedido do dono): ZapSign (fica dentro da ativação do agente), conversa de teste e primeira recarga.
+Situações: feito | pendente | nao_se_aplica (conta como feito). Cada passo leva `para`, a tela onde se resolve, e
+`acao`, o texto do botão.
 """
 
 from __future__ import annotations
@@ -24,14 +27,17 @@ import asyncpg
 PASSOS: list[tuple[str, str]] = [
     ("conta", "Conta habilitada"),
     ("whatsapp", "WhatsApp conectado"),
-    ("produto", "Primeiro produto ativado"),
-    ("zapsign", "ZapSign conectada"),
+    ("crm", "CRM criado com as etapas"),
+    ("roteiro", "Roteiro gravado"),
+    ("dados", "Dados do escritório"),
+    ("produto", "Primeiro agente ativado"),
     ("followup", "Follow-up ligado"),
-    ("conversa", "Primeira conversa real"),
-    ("saldo", "Saldo de créditos"),
 ]
 FEITOS = ("feito", "nao_se_aplica")
 INTEGRACOES = "/minha-conta?aba=integracoes"
+CANAIS = "/minha-conta/canais"
+# As 6 colunas fixas do CRM da IA (app/gestao/painel_crm_padrao.TIPOS_NA_ORDEM).
+TIPOS_CRM = ("SDR", "COMERCIAL", "CONTRATO", "AGUARDANDO_ASSINATURA", "CONTRATO_ASSINADO", "DESQUALIFICADO")
 
 
 def _obj(valor: Any) -> dict[str, Any]:
@@ -51,19 +57,33 @@ def _followup_ligado(config: dict[str, Any]) -> bool:
         return bool(_obj(config.get("followup")).get("ativo"))
 
 
-async def _saldo(pool: Any, id_escritorio: str) -> tuple[str, str]:
+async def _roteiro(pool: Any, id_escritorio: str) -> dict[str, Any] | None:
+    """None = o passo não aparece (plano sem mídia, ou nenhum produto com roteiro). Senão {"concluido": nome do 1º
+    produto com os materiais principais gravados, ou None}. Mesma regra da tela do roteiro (rotas_roteiro_gravacao):
+    obrigatórias = partes ativas fora de "objecoes"; conta sem plano é liberada."""
     try:
-        from app import cobranca
-        atual = await cobranca.situacao(pool, id_escritorio)
+        plano = await pool.fetchrow(
+            """select p.midia from agentesia_carteiras c join agentesia_planos p on p.id = c.id_plano
+                where c.id_escritorio = $1::uuid""", id_escritorio)
+        if plano is not None and not plano["midia"]:
+            return None
+        linhas = await pool.fetch(
+            """select b.nome,
+                      count(*) filter (where r.secao <> 'objecoes') as obrigatorias,
+                      count(*) filter (where r.secao <> 'objecoes' and exists (
+                          select 1 from agentesia_roteiro_gravacoes g where g.id_escritorio = $1::uuid
+                             and g.chave = case when nullif(r.chave_geral, '') is not null then 'geral:' || r.chave_geral
+                                                else 'parte:' || r.id::text end)) as gravadas
+                 from agentesia_biblioteca_produtos b
+                 join agentesia_roteiro_partes r on r.id_produto_biblioteca = b.id and r.ativo
+                where b.modo_midia = 'audio' and b.status = 'publicado'
+                group by b.id, b.nome order by b.nome""", id_escritorio)
     except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
-        atual = None
-    if atual is None:
-        return "nao_se_aplica", "o escritório ainda não usa carteira de créditos"
-    if atual.modo != "pre_pago":
-        return "nao_se_aplica", "o consumo da IA é cobrado à parte, sem saldo pré-pago"
-    if atual.disponivel_brl > 0:
-        return "feito", f"R$ {atual.disponivel_brl:,.2f} disponível".replace(",", "X").replace(".", ",").replace("X", ".")
-    return "pendente", "sem saldo: a IA para de responder até entrar uma recarga"
+        return None
+    if not linhas:
+        return None
+    pronto = next((l["nome"] for l in linhas if l["obrigatorias"] and l["gravadas"] >= l["obrigatorias"]), None)
+    return {"concluido": pronto}
 
 
 _SQL_PASSOS = """
@@ -75,8 +95,7 @@ select exists(select 1 from agentesia_escritorios where id = $1::uuid) as existe
        (select coalesce(json_agg(json_build_object('id', a.id::text, 'nome', a.nome, 'situacao', a.situacao, 'config', a.config,
                                                    'tem_numero', a.id_canal is not null) order by a.criado_em), '[]'::json)
           from agentesia_agentes a where a.id_escritorio = $1::uuid) as agentes,
-       (select count(*) from agentesia_canais where id_escritorio = $1::uuid and ativo) as numeros,
-       (select min(m.enviada_em) from agentesia_mensagens m where m.id_escritorio = $1::uuid and m.autor = 'lead') as primeira
+       (select count(*) from agentesia_canais where id_escritorio = $1::uuid and ativo) as numeros
 """
 
 
@@ -87,19 +106,17 @@ def _lista(valor: Any) -> list[dict[str, Any]]:
 
 
 async def calcular(pool: Any, id_escritorio: str) -> dict[str, Any]:
-    """Os 7 passos do escritório, com o próximo a fazer e o total."""
+    """Os passos do escritório (6 ou 7: o roteiro só no plano com mídia), com o próximo a fazer e o total."""
     import asyncio
     # Uma consulta só (escritório, integrações, agentes, números e primeira mensagem) em paralelo com a do saldo: antes
     # eram 6 a 7 idas ao banco em sequência (~200 ms cada com o banco em us-west-2).
-    linha, (situacao_saldo, detalhe_saldo) = await asyncio.gather(pool.fetchrow(_SQL_PASSOS, id_escritorio),
-                                                                  _saldo(pool, id_escritorio))
+    linha, roteiro = await asyncio.gather(pool.fetchrow(_SQL_PASSOS, id_escritorio), _roteiro(pool, id_escritorio))
     escritorio = {"helena": linha["helena"]} if linha["existe"] else None
     config_escritorio = _obj(linha["config"]) if escritorio else {}
     integracoes = {r["tipo"]: {"situacao": r["situacao"], "config": _obj(r["config"])}
                    for r in _lista(linha["integracoes"])}
     agentes = [dict(r) | {"config": _obj(r["config"])} for r in _lista(linha["agentes"])]
     numeros = linha["numeros"] or 0
-    primeira = linha["primeira"]
 
     passos: dict[str, dict[str, Any]] = {}
 
@@ -118,51 +135,57 @@ async def calcular(pool: Any, id_escritorio: str) -> dict[str, Any]:
     # 2. WhatsApp conectado
     passo("whatsapp", "feito" if numeros else "pendente",
           f"{numeros} número(s) conectado(s)" if numeros
-          else "nenhum WhatsApp conectado na conta: conecte o número e peça à equipe LawChat para sincronizar",
-          INTEGRACOES, "Ver números")
+          else "conecte o WhatsApp do escritório na plataforma de atendimento",
+          CANAIS, "Ver números" if numeros else "Conectar o número")
 
-    # 3. Primeiro produto ativado
+    # 3. CRM com as etapas da IA marcadas
+    crm = (integracoes.get("crm") or {}).get("config") or {}
+    por_tipo = crm.get("etapas_por_tipo") if isinstance(crm.get("etapas_por_tipo"), dict) else {}
+    marcadas = [t for t in TIPOS_CRM if por_tipo.get(t)]
+    if crm.get("id_painel") and len(marcadas) == len(TIPOS_CRM):
+        passo("crm", "feito", f"painel {crm.get('titulo_painel') or 'escolhido'} com as {len(TIPOS_CRM)} etapas marcadas",
+              "/crm", "Ver o CRM")
+    elif crm.get("id_painel"):
+        passo("crm", "pendente", f"faltam {len(TIPOS_CRM) - len(marcadas)} etapa(s) para marcar no painel", "/crm", "Marcar etapas")
+    else:
+        passo("crm", "pendente", "crie o painel do CRM com as etapas sugeridas e marque cada uma aqui", "/crm", "Criar o CRM")
+
+    # 4. Roteiro (só no plano com mídia)
+    if roteiro is not None:
+        pronto = roteiro.get("concluido")
+        passo("roteiro", "feito" if pronto else "pendente",
+              f"roteiro de {pronto} gravado" if pronto
+              else "escolha um produto e grave o roteiro (vídeos e áudios principais)", "/roteiros",
+              "Ver roteiros" if pronto else "Gravar o roteiro")
+
+    # 5. Dados do escritório
+    dados = _obj(config_escritorio.get("dados_escritorio"))
+    if str(dados.get("nome") or "").strip():
+        passo("dados", "feito", f"{dados['nome']}: valem para todos os agentes", None, "Editar dados")
+    else:
+        passo("dados", "pendente", "preencha uma vez os dados da firma: entram em todos os agentes", None, "Preencher dados")
+
+    # 6. Primeiro agente ativado (agente sem número é sobra de produto excluído: não conta)
     ligados = [a for a in agentes if a["situacao"] == "ativo"]
+    com_numero = [a for a in agentes if a.get("tem_numero")]
     if ligados:
         passo("produto", "feito", f"{ligados[0]['nome']} ligado", "/meus-produtos", "Meus agentes")
-    elif agentes:
-        passo("produto", "pendente", f"{agentes[0]['nome']} criado, mas ainda desligado", "/meus-produtos", "Ativar")
+    elif com_numero:
+        passo("produto", "pendente", f"{com_numero[0]['nome']} criado, mas ainda desligado", "/meus-produtos", "Ativar")
     else:
         passo("produto", "pendente", "escolha um produto na Biblioteca e ative", "/biblioteca", "Abrir a Biblioteca")
 
-    # 4. ZapSign (só se algum agente gera contrato)
-    com_contrato = [a for a in agentes if _obj(a["config"].get("funcoes")).get("contrato_zapsign")]
-    zapsign = integracoes.get("zapsign") or {}
-    modelos = [m for m in (zapsign.get("config") or {}).get("modelos") or [] if isinstance(m, dict) and m.get("id_modelo")]
-    if not com_contrato:
-        passo("zapsign", "nao_se_aplica", "nenhum agente gera contrato pela IA", INTEGRACOES, "Ver ZapSign")
-    elif zapsign.get("situacao") == "ok" and modelos:
-        passo("zapsign", "feito", f"conectada, {len(modelos)} modelo(s) de contrato", INTEGRACOES, "Ver ZapSign")
-    elif zapsign.get("situacao") == "ok":
-        passo("zapsign", "pendente", "conectada; falta escolher o modelo de contrato", INTEGRACOES, "Escolher modelo")
-    else:
-        passo("zapsign", "pendente", f"{com_contrato[0]['nome']} gera contrato: conecte a ZapSign", INTEGRACOES, "Conectar ZapSign")
-
-    # 5. Follow-up ligado (nos agentes ligados)
+    # 7. Follow-up ligado (nos agentes ligados)
     sem_followup = [a for a in ligados if not _followup_ligado(a["config"])]
     if not ligados:
-        passo("followup", "pendente", "ligue um produto primeiro", "/meus-produtos", "Meus agentes")
+        passo("followup", "pendente", "ligue um agente primeiro", "/meus-produtos", "Meus agentes")
     elif sem_followup:
         passo("followup", "pendente", f"desligado em {', '.join(a['nome'] for a in sem_followup[:3])}",
               f"/agentes/{sem_followup[0]['id']}/followup", "Ligar follow-up")
     else:
         passo("followup", "feito", "ligado em todos os agentes ativos", f"/agentes/{ligados[0]['id']}/followup", "Ver follow-up")
 
-    # 6. Primeira conversa real
-    passo("conversa", "feito" if primeira else "pendente",
-          f"primeira mensagem em {primeira:%d/%m/%Y}" if primeira
-          else "ainda não chegou mensagem de lead; teste mandando uma mensagem para o número do agente",
-          "/atendimento", "Abrir a Central")
-
-    # 7. Saldo
-    passo("saldo", situacao_saldo, detalhe_saldo, "/consumo", "Ver créditos")
-
-    lista = [passos[c] for c, _ in PASSOS]
+    lista = [passos[c] for c, _ in PASSOS if c in passos]
     feitos = sum(1 for p in lista if p["situacao"] in FEITOS)
     proximo = next((p["codigo"] for p in lista if p["situacao"] not in FEITOS), None)
     return {"passos": lista, "feitos": feitos, "total": len(lista), "completo": proximo is None, "proximo": proximo}

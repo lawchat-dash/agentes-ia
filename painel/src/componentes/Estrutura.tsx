@@ -454,9 +454,10 @@ const GRUPOS_DO_MENU: Record<string, GrupoDoMenu> = {
   },
   "/crm/paineis": { prefixo: "/crm", filhos: PAGINAS_CRM.map((p) => ({ para: `/crm/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })) },
   "/minha-conta/usuarios": {
-    prefixo: ["/minha-conta", "/consumo"],
+    prefixo: ["/minha-conta", "/consumo", "/dados-escritorio"],
     filhos: [
       ...PAGINAS_CONTA.map((p) => ({ para: `/minha-conta/${p.codigo}`, rotulo: p.rotulo, icone: <p.icone size={15} /> })),
+      { para: "/dados-escritorio", rotulo: "Dados do escritório", icone: <Building2 size={15} /> },
       { para: "/consumo", rotulo: "Créditos da IA", icone: <Wallet size={15} /> },
     ],
   },

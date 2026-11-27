@@ -6,7 +6,8 @@ import SpringCheck from "@/components/reactbits/SpringCheck";
 import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { useCarregar } from "@/componentes/ui";
 import { useSessao } from "@/sessao";
-import { pedirRealce } from "@/componentes/GuiaRealce";
+import { ModalCrmPasso } from "./CrmPasso";
+import { ModalDadosEscritorio } from "./DadosEscritorio";
 import "./PrimeirosPassos.css";
 
 /** GET /api/inicio/primeiros-passos (app/gestao/primeiros_passos.py). */
@@ -24,41 +25,29 @@ const GUIA: Record<string, { porque: string; fazer: string }> = {
   },
   whatsapp: {
     porque: "O agente conversa com os leads pelo seu número de WhatsApp.",
-    fazer: "Conecte o seu número na LawChat, em Integrações. Depois, avise a equipe LawChat para trazer o número para o painel.",
+    fazer: "Abra Canais de atendimento e conecte o WhatsApp do escritório.",
+  },
+  crm: {
+    porque: "É por estas etapas que a IA move cada lead sozinha, do primeiro contato ao contrato assinado.",
+    fazer: "Crie o painel no CRM com as etapas sugeridas e depois marque qual coluna é cada etapa.",
+  },
+  roteiro: {
+    porque: "Os áudios e vídeos com a sua voz deixam o atendimento mais humano e convertem mais.",
+    fazer: "Escolha um produto e grave o roteiro (vídeos e áudios principais). As objeções podem ficar para depois.",
+  },
+  dados: {
+    porque: "Nome, endereço, CNPJ e redes entram em todos os agentes: você preenche uma vez só.",
+    fazer: "Preencha os dados da firma. Na ativação, o prompt já vem com eles.",
   },
   produto: {
     porque: "O agente é quem responde os leads por você, a qualquer hora.",
     fazer: "Escolha um produto na Biblioteca e siga a ativação até ligar o agente.",
   },
-  zapsign: {
-    porque: "Com a ZapSign, a IA manda o contrato para o cliente assinar pelo celular.",
-    fazer: "Conecte a sua conta da ZapSign e escolha o modelo de contrato.",
-  },
   followup: {
     porque: "O follow-up chama de novo quem parou de responder, na hora certa.",
     fazer: "Abra o follow-up do agente, ligue e confira as mensagens de retorno.",
   },
-  conversa: {
-    porque: "É a prova de que tudo funciona de ponta a ponta.",
-    fazer: "De outro celular, mande uma mensagem para o número do agente. Depois, veja a conversa na Central.",
-  },
-  saldo: {
-    porque: "Sem saldo, a IA para de responder os leads.",
-    fazer: "Faça uma recarga em Créditos. O valor da recarga não expira.",
-  },
 };
-
-/** Onde realçar ao chegar na tela (a dica some sozinha). Telas da LawChat (Integrações, Central) abrem por dentro e
- * não dá para apontar um botão lá. */
-function realceDo(codigo: string, para: string): { seletores: string[]; texto: string } | null {
-  if (para.startsWith("/biblioteca")) return { seletores: ['a[href^="/biblioteca/"]'], texto: "Escolha um produto aqui" };
-  if (/^\/agentes\/[^/]+\/ativacao/.test(para)) return { seletores: [".ativ-assistente .stepper", ".ativ-assistente", ".page .btn.pri"], texto: "Siga estes passos até ligar o agente" };
-  if (para.startsWith("/meus-produtos")) return { seletores: ['a[href^="/meus-produtos/"]', 'a[href^="/agentes/"]'], texto: "Abra o agente aqui" };
-  if (/\/followup/.test(para)) return { seletores: [".page .sw-t", '.page [role="switch"]'], texto: "Ligue o follow-up aqui" };
-  if (para.startsWith("/consumo")) return { seletores: [".cr-botao-verde"], texto: "Recarregue aqui" };
-  void codigo;
-  return null;
-}
 
 const CHAVE_OCULTO = "agentesia_tutorial_oculto";
 function lerOculto(usuario: string): boolean {
@@ -73,9 +62,9 @@ function gravarOculto(usuario: string, oculto: boolean): void {
 
 const pronto = (p: PassoInicial) => p.situacao !== "pendente";
 
-/** "Primeiros passos" do Início como tutorial guiado: um passo por vez em destaque, a trilha dos 7 ao lado.
+/** "Primeiros passos" do Início como tutorial guiado: um passo por vez em destaque, a trilha dos passos ao lado.
  * Cada passo se marca sozinho (mesmos dados de antes); o cartão some quando tudo está pronto. */
-export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
+export function PrimeirosPassos({ dados, aoMudar }: { dados: PrimeirosPassosDados; aoMudar?: () => void }) {
   const { eu, escritorio } = useSessao();
   const usuario = eu?.id ?? "anonimo";
   const navegar = useNavigate();
@@ -89,6 +78,7 @@ export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
   const [direcao, setDirecao] = useState(1);
   const [comemorando, setComemorando] = useState(false);
   const [recemFeito, setRecemFeito] = useState<string | null>(null);
+  const [popup, setPopup] = useState<"crm" | "dados" | null>(null);
 
   // Passo que acabou de ficar pronto (dados novos): mostra o "feito" e passa para o próximo sozinho.
   const anteriores = useRef<Record<string, PassoInicial["situacao"]>>({});
@@ -122,6 +112,7 @@ export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
       const ag = (agentes.dados ?? []).find((a) => a.nome === nome) ?? (agentes.dados ?? []).find((a) => a.situacao !== "ativo");
       if (ag) return `/agentes/${ag.id}/ativacao`;
     }
+    if (p.codigo === "crm" || p.codigo === "dados") return "#popup";
     return p.para;
   }, [agentes.dados, precisaAgente]);
 
@@ -148,7 +139,7 @@ export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
           <div className="pp-fim-icone"><PartyPopper className="size-6" /></div>
           <div>
             <h3 className="m-0 text-[18px] font-bold text-[#101828]">Tudo pronto!</h3>
-            <p className="m-0 text-[13.5px] text-[#475467]">Os 7 passos estão feitos. A sua IA já está atendendo.</p>
+            <p className="m-0 text-[13.5px] text-[#475467]">Todos os passos estão feitos. A sua IA já está atendendo.</p>
           </div>
         </div>
       </motion.section>
@@ -172,12 +163,13 @@ export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
   const proximoDepois = passos.slice(indice + 1).find((p) => !pronto(p)) ?? passos.find((p) => !pronto(p) && p.codigo !== atual.codigo);
   const fazerTexto = atual.codigo === "produto" && precisaAgente
     ? `O agente ${atual.detalhe.replace(/ criado, mas ainda desligado$/, "")} já existe, mas está desligado. Abra a ativação e siga os passos até ligar.`
-    : atual.codigo === "followup" && !feito && atual.detalhe.startsWith("ligue um produto")
-      ? "Primeiro, ligue um agente (passo 3). Depois, volte aqui para ligar o follow-up."
+    : atual.codigo === "followup" && !feito && atual.detalhe.startsWith("ligue um")
+      ? "Primeiro, ative um agente. Depois, volte aqui para ligar o follow-up."
       : guia.fazer;
   const acao = atual.codigo === "produto" && precisaAgente && destino?.includes("/ativacao") ? "Abrir a ativação" : atual.acao;
 
   const abrirDestino = () => {
+    if (atual.codigo === "crm" || atual.codigo === "dados") { setPopup(atual.codigo); return; }
     if (!destino) return;
     navegar(destino);
   };
@@ -274,6 +266,8 @@ export function PrimeirosPassos({ dados }: { dados: PrimeirosPassosDados }) {
           })}
         </ol>
       </div>
+      {popup === "crm" && <ModalCrmPasso aoFechar={() => setPopup(null)} aoSalvar={aoMudar} />}
+      {popup === "dados" && <ModalDadosEscritorio aoFechar={() => setPopup(null)} aoSalvar={aoMudar} />}
     </motion.section>
   );
 }

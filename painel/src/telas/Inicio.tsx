@@ -182,13 +182,21 @@ export function TelaInicio() {
   if (dadosInicio) {
     const helena = dadosInicio.integracoes.helena;
     const semHelena = !helena || helena.situacao !== "ok";
-    const semWebhook = !semHelena && !(helena.config as any)?.webhook_conectado;
+    // O vigia confere o webhook a cada ~10 min (app/vigia.webhooks_ligados): "desconectado" = caiu e não deu para refazer.
+    const caiuWebhook = !semHelena && (helena.config as any)?.webhook_situacao === "desconectado";
+    const semWebhook = !semHelena && !caiuWebhook && !(helena.config as any)?.webhook_conectado;
     // Quem conecta a conta e habilita a IA é a equipe LawChat (função de agente no superadmin), não o cliente.
     if (semHelena && podeGerir) alertas.push({
       chave: "helena", tom: "critico", icone: PlugZap, titulo: "A conta ainda não está habilitada para a IA",
       texto: "Sem a conta habilitada, a IA não lê os números do escritório nem recebe as mensagens dos leads. Fale com a equipe LawChat para habilitar.",
       acao: admin ? { rotulo: "Abrir Contas", para: "/admin/escritorios" } : null,
       nota: admin ? undefined : "Fale com a equipe LawChat para habilitar",
+    });
+    if (caiuWebhook && podeGerir) alertas.push({
+      chave: "webhook-caiu", tom: "critico", icone: Webhook, titulo: "O recebimento de mensagens caiu",
+      texto: <>O sistema confere o webhook o tempo todo e não conseguiu religar sozinho: as mensagens não estão chegando à IA. Em Integrações, use <b>“Reconectar webhook”</b>.</>,
+      acao: { rotulo: "Reconectar webhook", para: "/integracoes" },
+      nota: `Última conferência: ${quando((helena.config as any)?.webhook_conferido_em ?? null)}`,
     });
     if (semWebhook && podeGerir) alertas.push({
       chave: "webhook", tom: "atencao", icone: Webhook, titulo: "Falta ligar o recebimento de mensagens",
@@ -319,9 +327,9 @@ export function TelaInicio() {
         )}
       </section>
 
-      {emOnboarding && passos.dados ? <OnboardingInicial dados={passos.dados} /> : (<>
+      {emOnboarding && passos.dados ? <OnboardingInicial dados={passos.dados} aoMudar={passos.recarregar} /> : (<>
       {/* Primeiros passos: marcam-se sozinhos e o cartão some quando tudo está feito */}
-      {podeGerir && passos.dados && <PrimeirosPassos dados={passos.dados} />}
+      {podeGerir && passos.dados && <PrimeirosPassos dados={passos.dados} aoMudar={passos.recarregar} />}
 
       {/* Indicadores num bento (MagicBento + Counter, React Bits) */}
       <BentoIndicadores chave={escritorio} d={{

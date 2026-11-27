@@ -20,6 +20,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -1238,7 +1239,8 @@ async def conectar_webhook(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> 
     except ErroHelenaApi as erro:
         raise _erro_helena(erro) from erro
     await repo.salvar_integracao(ctx.escritorio(), "helena", situacao="ok",
-                                 config={"id_assinatura": assinatura["id"], "webhook_conectado": True})
+                                 config={"id_assinatura": assinatura["id"], "webhook_conectado": True, "webhook_situacao": "ok",
+                                         "webhook_erro": None, "webhook_conferido_em": datetime.now(timezone.utc).isoformat()})
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(),
                                    tabela="agentesia_integracoes", id_registro=integracao.get("id"), acao="conectou",
                                    resumo=f"Webhook da LawChat {assinatura['acao'].replace('_', ' ')}")

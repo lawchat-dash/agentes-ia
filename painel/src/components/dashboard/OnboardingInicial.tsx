@@ -1,74 +1,37 @@
 // Painel Inicial de quem ainda não tem IA no ar: faixa escura "Vamos colocar a sua IA para atender", lista dos
-// 7 primeiros passos (marcam-se sozinhos: GET /api/inicio/primeiros-passos, os mesmos dados do PrimeirosPassos),
-// linha do tempo "Do contrato à IA atendendo" e ajuda. Botões dos passos e "Tour do painel" usam o menu guiado.
+// primeiros passos (marcam-se sozinhos: GET /api/inicio/primeiros-passos, os mesmos dados do PrimeirosPassos),
+// linha do tempo "Do contrato à IA atendendo" e ajuda. Ordem do processo da LawChat: número, CRM com as etapas,
+// roteiro (plano com mídia), dados do escritório, ativar o agente e follow-up. CRM e Dados abrem um pop-up aqui mesmo.
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Check, Clock, LifeBuoy, PlayCircle } from "lucide-react";
+import { ArrowRight, Check, Clock, LifeBuoy } from "lucide-react";
 import { Modal, useCarregar } from "@/componentes/ui";
-import { iniciarGuia, type PassoGuia } from "@/componentes/GuiaRealce";
 import { useSessao } from "@/sessao";
 import type { PassoInicial, PrimeirosPassosDados } from "./PrimeirosPassos";
+import { ModalCrmPasso } from "./CrmPasso";
+import { ModalDadosEscritorio } from "./DadosEscritorio";
 import "./inicioNovo.css";
 
 /** Texto de cada passo na tela (o servidor diz só se está pronto e para onde ir). */
-const PASSOS: Record<string, { titulo: string; porque: string; fazer: string; min: number; acao?: string; opcional?: boolean }> = {
+export const PASSOS: Record<string, { titulo: string; porque: string; fazer: string; min: number; acao?: string; opcional?: boolean }> = {
   conta: { titulo: "Conta liberada para a IA", porque: "É o que libera os agentes de IA na sua conta.", fazer: "A equipe LawChat libera quando o contrato é assinado. Este passo se marca sozinho.", min: 0 },
-  whatsapp: { titulo: "Conectar o número de WhatsApp", porque: "O agente conversa com os leads pelo seu número.", fazer: "Leia o QR code com o celular do escritório. Leva 1 minuto.", min: 1, acao: "Conectar número" },
-  produto: { titulo: "Ativar o primeiro agente", porque: "O agente responde os leads por você, a qualquer hora.", fazer: "Escolha um produto na Biblioteca e siga os passos da ativação.", min: 10, acao: "Escolher produto" },
-  zapsign: { titulo: "Conectar a ZapSign", porque: "A IA manda o contrato para o cliente assinar pelo celular.", fazer: "Conecte a sua conta da ZapSign e escolha o modelo de contrato.", min: 3, acao: "Conectar ZapSign", opcional: true },
+  whatsapp: { titulo: "Conectar o número de WhatsApp", porque: "O agente conversa com os leads pelo seu número.", fazer: "Abra Canais de atendimento e conecte o WhatsApp do escritório (QR code). Leva 1 minuto.", min: 1, acao: "Conectar número" },
+  crm: { titulo: "Criar o CRM", porque: "É por estas etapas que a IA move cada lead sozinha, do primeiro contato ao contrato assinado.", fazer: "Crie o painel no CRM com as etapas sugeridas. Depois volte e clique em “Já criei o CRM” para marcar cada etapa.", min: 5, acao: "Criar o CRM" },
+  roteiro: { titulo: "Gravar o roteiro", porque: "Os áudios e vídeos com a sua voz deixam o atendimento mais humano e convertem mais.", fazer: "Escolha um produto e grave o roteiro: vídeos e áudios principais. As quebras de objeção podem ficar para depois.", min: 20, acao: "Gravar o roteiro" },
+  dados: { titulo: "Dados do escritório", porque: "Nome, endereço, CNPJ e redes entram em todos os agentes: você preenche uma vez só.", fazer: "Preencha os dados da firma. Na ativação, o prompt já vem com eles.", min: 2, acao: "Preencher dados" },
+  produto: { titulo: "Ativar o agente", porque: "O agente responde os leads por você, a qualquer hora.", fazer: "Escolha um produto na Biblioteca e siga os passos da ativação.", min: 10, acao: "Escolher produto" },
   followup: { titulo: "Ligar o follow-up", porque: "Chama de novo quem parou de responder, na hora certa.", fazer: "Abra o follow-up do agente, ligue e confira as mensagens.", min: 2, acao: "Abrir follow-up" },
-  conversa: { titulo: "Fazer uma conversa de teste", porque: "É a prova de que tudo funciona de ponta a ponta.", fazer: "De outro celular, mande “oi” para o número do agente e veja a conversa chegar no Atendimento.", min: 2, acao: "Ver Atendimento" },
-  saldo: { titulo: "Fazer a primeira recarga", porque: "Sem saldo, a IA para de responder os leads.", fazer: "Recarregue com Pix. O valor não expira.", min: 1, acao: "Recarregar" },
 };
-/** Nome do fluxo no balão do menu guiado ("ATIVAR AGENTE · 1 DE 2"). */
-const FLUXO: Record<string, string> = { whatsapp: "Conectar número", produto: "Ativar agente", zapsign: "Contrato", followup: "Follow-up", conversa: "Teste", saldo: "Recarga" };
-const ORDEM = ["conta", "whatsapp", "produto", "zapsign", "followup", "conversa", "saldo"];
+const ORDEM = ["conta", "whatsapp", "crm", "roteiro", "dados", "produto", "followup"];
 const pronto = (p: PassoInicial) => p.situacao !== "pendente";
+/** Passos que abrem um pop-up aqui mesmo (em vez de ir para outra tela). */
+export const NO_POPUP = new Set(["crm", "dados"]);
 
-/** Passos do menu guiado para resolver um passo (navega e realça o lugar certo, quando dá para apontar). */
-function guiaDoPasso(p: PassoInicial, destino: string): PassoGuia[] | null {
-  const rota = destino.split("?")[0];
-  if (p.codigo === "produto" && rota === "/biblioteca") {
-    return [
-      { rota: "/biblioteca", ir: destino, seletores: ['a[href^="/biblioteca/"]'], titulo: "Escolha um produto",
-        texto: "Cada produto já vem com o funil de agentes pronto. Abra o que o escritório mais atende.", acao: "Abrir este", clicar: true },
-      { rota: "/biblioteca/", seletores: ['[aria-label="Ativar produto"]'], titulo: "Ative o agente",
-        texto: "Clique em “Ativar produto” e siga os passos. Dá para testar antes de ligar para os leads.", acao: "Ativar este", clicar: true },
-    ];
-  }
-  if (rota.startsWith("/agentes/") && rota.includes("/ativacao")) {
-    return [{ rota, ir: destino, seletores: [".ativ-assistente .stepper", ".ativ-assistente", ".page .btn.pri"], titulo: "Siga estes passos", texto: "Vá até o fim da ativação para ligar o agente." }];
-  }
-  if (rota === "/meus-produtos") {
-    return [{ rota, ir: destino, seletores: ['a[href^="/agentes/"]', 'a[href^="/meus-produtos/"]'], titulo: "Abra o agente aqui", texto: "O agente já existe. Abra e ligue." }];
-  }
-  if (/\/followup/.test(rota)) {
-    return [{ rota, ir: destino, seletores: [".page .sw-t", '.page [role="switch"]'], titulo: "Ligue o follow-up aqui", texto: "A cadência padrão já vem escrita. Confira as mensagens e ligue." }];
-  }
-  if (rota === "/consumo") {
-    return [{ rota, ir: destino, seletores: [".cr-botao-verde"], titulo: "Recarregue aqui", texto: "Pix cai em segundos. O valor da recarga não expira." }];
-  }
-  return null;
-}
-
-/** Tour do painel (1 min): o menu lateral e a lista de passos. Itens que não estão na tela são pulados. */
-function tourDoPainel(podeGerir: boolean): PassoGuia[] {
-  const item = (para: string) => [`a.lc-item[href="${para}"]`, `a.lc-mt-item[href="${para}"]`];
-  const passos: PassoGuia[] = [
-    { seletores: item("/"), titulo: "Painel Inicial", texto: "Aqui você vê o dia: conversas, leads qualificados, contratos e saldo." },
-    { seletores: item("/atendimento"), titulo: "Atendimento", texto: "As conversas com os leads chegam aqui. Dá para assumir uma conversa quando quiser." },
-    { seletores: item("/crm/paineis"), titulo: "CRM", texto: "Os leads andam pelas etapas sozinhos, do primeiro contato ao contrato assinado." },
-    { seletores: item("/meus-produtos"), titulo: "Apps", texto: "Seus agentes de IA e a Biblioteca de produtos para ativar um novo." },
-  ];
-  if (podeGerir) passos.push({ seletores: item("/relatorios/dashboard"), titulo: "Relatórios", texto: "Leads, contratos, custo da IA e os horários em que os leads chegam." });
-  passos.push({ seletores: ["#lc-ob-passos"], titulo: "Seus primeiros passos", texto: "Siga um por vez. Cada passo se marca sozinho quando fica pronto.", acao: "Começar" });
-  return passos;
-}
-
-export function OnboardingInicial({ dados }: { dados: PrimeirosPassosDados }) {
+export function OnboardingInicial({ dados, aoMudar }: { dados: PrimeirosPassosDados; aoMudar?: () => void }) {
   const navegar = useNavigate();
   const { escritorio, podeGerir } = useSessao();
   const [ajuda, setAjuda] = useState(false);
+  const [popup, setPopup] = useState<"crm" | "dados" | null>(null);
   const porCodigo = Object.fromEntries(dados.passos.map((p) => [p.codigo, p]));
   const passos = ORDEM.map((c) => porCodigo[c]).filter(Boolean) as PassoInicial[];
   const total = passos.length;
@@ -87,10 +50,11 @@ export function OnboardingInicial({ dados }: { dados: PrimeirosPassosDados }) {
       const ag = (agentes.dados ?? []).find((a) => a.nome === nome) ?? (agentes.dados ?? []).find((a) => a.situacao !== "ativo");
       if (ag) return `/agentes/${ag.id}/ativacao`;
     }
-    if (p.codigo === "conversa") return "/atendimento";
+    if (NO_POPUP.has(p.codigo)) return "#popup";
     return p.para;
   };
   const resolver = (p: PassoInicial) => {
+    if (p.codigo === "crm" || p.codigo === "dados") { setPopup(p.codigo); return; }
     const destino = destinoDe(p);
     if (!destino) return;
     navegar(destino);                                  // sem tour guiado (pedido do dono): vai direto à tela
@@ -152,8 +116,8 @@ export function OnboardingInicial({ dados }: { dados: PrimeirosPassosDados }) {
               const comEquipe = p.codigo === "conta";
               const fazer = p.codigo === "produto" && precisaAgente
                 ? `O agente ${p.detalhe.replace(/ criado, mas ainda desligado$/, "")} já existe, mas está desligado. Abra a ativação e siga até ligar.`
-                : p.codigo === "followup" && !feito && p.detalhe.startsWith("ligue um produto")
-                  ? "Primeiro, ligue um agente (passo 3). Depois, volte aqui para ligar o follow-up."
+                : p.codigo === "followup" && !feito && p.detalhe.startsWith("ligue um")
+                  ? "Primeiro, ative um agente. Depois, volte aqui para ligar o follow-up."
                   : info.fazer;
               return (
                 <li key={p.codigo} className={`lc-ob-passo${feito ? " is-feito" : ""}${atual ? " is-atual" : ""}`} style={{ ["--n" as string]: i }}>
@@ -167,7 +131,9 @@ export function OnboardingInicial({ dados }: { dados: PrimeirosPassosDados }) {
                     {!feito && info.min > 0 && <span className="lc-ob-tempo"><Clock aria-hidden /> {info.min} min</span>}
                   </div>
                   <div className="lc-ob-passo__acao">
-                    {feito ? <span className="lc-ob-selo is-ok">{p.situacao === "nao_se_aplica" ? "Não se aplica" : "Pronto"}</span>
+                    {feito ? (p.codigo === "dados" || p.codigo === "crm"
+                      ? <button type="button" className="lc-ob-btn lc-ob-btn--pequeno" onClick={() => resolver(p)}>{p.codigo === "dados" ? "Editar" : "Rever etapas"}</button>
+                      : <span className="lc-ob-selo is-ok">{p.situacao === "nao_se_aplica" ? "Não se aplica" : "Pronto"}</span>)
                       : comEquipe ? <span className="lc-ob-selo">Com a equipe</span>
                         : destino ? (
                           <button type="button" className={`lc-ob-btn lc-ob-btn--pequeno${atual ? " lc-ob-btn--verde" : ""}`} onClick={() => resolver(p)}>
@@ -208,6 +174,8 @@ export function OnboardingInicial({ dados }: { dados: PrimeirosPassosDados }) {
         <dl>{["Conversas hoje", "Leads qualificados", "Contratos no mês", "Resposta média"].map((l) => <div key={l}><dt>{l}</dt><dd>—</dd></div>)}</dl>
       </section>
 
+      {popup === "crm" && <ModalCrmPasso aoFechar={() => setPopup(null)} aoSalvar={aoMudar} />}
+      {popup === "dados" && <ModalDadosEscritorio aoFechar={() => setPopup(null)} aoSalvar={aoMudar} />}
       {ajuda && (
         <Modal titulo="Falar com o suporte" aoFechar={() => setAjuda(false)}
           rodape={<><span className="sp" /><button type="button" className="btn pri" onClick={() => setAjuda(false)}>Entendi</button></>}>

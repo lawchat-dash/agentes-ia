@@ -171,12 +171,11 @@ def test_rotas_publicas_e_cartao_do_link():
     assert ("/controle-ia/ponte?segredo=" in cartao and "id_da_conta={{id_da_conta}}" in cartao
             and "telefone_do_contato={{telefone_do_contato}}" in cartao and "id_do_usuario={{id_do_usuario}}" in cartao)
     assert "Helena" not in cartao
-    assert "LinkControleIA" in (RAIZ / "painel" / "src" / "telas" / "Integracoes.tsx").read_text(encoding="utf-8")
+    # O cartão do link saiu da tela Integrações (pedido do dono, 3e35fca); o componente e as rotas continuam.
+    assert "LinkControleIA" not in (RAIZ / "painel" / "src" / "telas" / "Integracoes.tsx").read_text(encoding="utf-8")
     ponte = (RAIZ / "painel" / "src" / "componentes" / "PonteControleIA.tsx").read_text(encoding="utf-8")
     assert "/api/controle-ia/publico" in ponte and "Não achamos este contato na IA" in ponte
     assert 'segredo: v("segredo")' in ponte and "p.conta && p.segredo" in ponte
-    integracoes = (RAIZ / "painel" / "src" / "telas" / "Integracoes.tsx").read_text(encoding="utf-8")
-    assert "segredo={dados.segredo_controle_ia" in integracoes
 
 
 def test_segredo_do_link_por_escritorio(monkeypatch):

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { lerDadosDoEscritorio } from "@/components/dashboard/DadosEscritorio";
 import iconeLawChat from "@/assets/lawchat-icone.svg";
 import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -840,6 +841,20 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       }
 
       setGroupId(draft.id);
+      // Dados do escritório (Ajustes › Dados do escritório): preenchem sozinhos os {{...}} que pedem a mesma coisa,
+      // em todo o produto, para a pessoa não digitar de novo. Só os campos que aparecem no texto; falha = segue sem.
+      if (!isEdit) {
+        const dadosEsc = await lerDadosDoEscritorio();
+        if (dadosEsc) {
+          const textoTodo = JSON.stringify([pipelineAgentsRef.current, r, draft, defRegras, defDados, defHonorarios, defFaq, defObj]);
+          const pede = (nome: string) => new RegExp("\\{\\{\\s*" + nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\}\\}").test(textoTodo);
+          for (const campo of dadosEsc.campos) {
+            const valor = (dadosEsc.valores[campo.chave] ?? "").trim();
+            if (!valor) continue;
+            for (const nome of campo.preenche) if (pede(nome)) applyGlobalField(nome, valor);
+          }
+        }
+      }
       return true;
     } catch (e: any) {
       toast.error("Erro ao preparar pipeline", { id: "ativar-pipeline", description: e.message });

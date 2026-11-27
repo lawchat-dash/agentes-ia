@@ -35,7 +35,9 @@ function IntegracaoHelena({ integracao, canais, saude, webhookPossivel, aoMudar 
   const { ocupado, executar } = useAcao();
   const [token, setToken] = useState("");
   const conectada = integracao?.situacao === "ok";
-  const webhook = Boolean(integracao?.config?.webhook_conectado);
+  // O vigia (app/vigia.webhooks_ligados) confere a assinatura a cada ~10 min e refaz sozinho; "desconectado" = não deu.
+  const caiu = integracao?.config?.webhook_situacao === "desconectado";
+  const webhook = !caiu && Boolean(integracao?.config?.webhook_conectado);
 
   return (
     <Painel titulo={<h3 style={{ display: "flex", gap: 8, alignItems: "center" }}><PlugZap className="i" />LawChat <Situacao valor={integracao?.situacao ?? "pendente"} /></h3>}>
@@ -55,12 +57,15 @@ function IntegracaoHelena({ integracao, canais, saude, webhookPossivel, aoMudar 
           <div className="field">
             <span className="lbl">Recebimento de mensagens (webhook)</span>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              {webhook ? <span className="chip ok"><CheckCircle2 size={12} />conectado</span> : <span className="chip warn">não conectado</span>}
-              <button className="btn" disabled={ocupado || !conectada || !webhookPossivel}
+              {caiu ? <span className="chip bad">desconectado</span>
+                : webhook ? <span className="chip ok"><CheckCircle2 size={12} />conectado</span> : <span className="chip warn">não conectado</span>}
+              <button className="btn" style={caiu ? { background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" } : undefined} disabled={ocupado || !conectada || !webhookPossivel}
                 onClick={() => executar(async () => { const r = await api<{ assinatura: { acao: string } }>("/integracoes/helena/conectar", { metodo: "POST" }); aoMudar(); return r; },
-                  "Webhook da LawChat conferido.")}><Link2 />{webhook ? "Conferir webhook" : "Conectar webhook"}</button>
+                  "Webhook da LawChat conferido.")}><Link2 />{caiu ? "Reconectar webhook" : webhook ? "Conferir webhook" : "Conectar webhook"}</button>
             </div>
-            <span className="ajuda">O sistema cria a assinatura na LawChat sozinho, com eventos de mensagem recebida e enviada.</span>
+            <span className="ajuda">O sistema cria a assinatura na LawChat sozinho e confere a cada 10 minutos se ela continua ligada (se cair, religa sozinho).</span>
+            {caiu && <Alerta tipo="bad">O webhook caiu e não deu para religar sozinho{integracao?.config?.webhook_erro ? `: ${integracao.config.webhook_erro}` : ""}. As mensagens não chegam à IA até reconectar.</Alerta>}
+            {integracao?.config?.webhook_conferido_em && <span className="muted" style={{ fontSize: 12 }}>Conferido pelo sistema: {quando(integracao.config.webhook_conferido_em)}</span>}
             {!webhookPossivel && <Alerta tipo="warn">O servidor ainda não tem endereço público configurado. A equipe LawChat precisa definir AGENTESIA_URL_PUBLICA.</Alerta>}
           </div>
         </div>

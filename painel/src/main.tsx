@@ -60,6 +60,7 @@ const TelaModelo = lazy(() => import("./telas/Modelos").then((m) => ({ default: 
 const TelaEquipe = lazy(() => import("./telas/Equipe").then((m) => ({ default: m.TelaEquipe })));
 const TelaAvisos = lazy(() => import("./telas/Avisos").then((m) => ({ default: m.TelaAvisos })));
 const TelaCreditos = lazy(() => import("./telas/Creditos").then((m) => ({ default: m.TelaCreditos })));
+const TelaDadosEscritorio = lazy(() => import("./components/dashboard/DadosEscritorio").then((m) => ({ default: m.TelaDadosEscritorio })));
 const TelaAdminCobranca = lazy(() => import("./telas/AdminCobranca").then((m) => ({ default: m.TelaAdminCobranca })));
 const Biblioteca = lazy(() => import("@/pages/Biblioteca"));
 const BibliotecaDetalhes = lazy(() => import("@/pages/BibliotecaDetalhes"));
@@ -110,7 +111,7 @@ const TITULOS: [RegExp, string][] = [
   [/^\/$/, "Painel Inicial"], [/^\/agentes\/novo/, "Meus agentes › Criar"], [/^\/agentes\/./, "Meus agentes › Agente"], [/^\/agentes/, "Meus agentes"],
   [/^\/relatorios\/campanhas/, "Relatórios › Rastreamento de campanhas"], [/^\/relatorios/, "Relatórios › Dashboard"], [/^\/erros/, "Erros"], [/^\/atendimento/, "Central de Atendimento"],
   [/^\/biblioteca\/./, "Biblioteca › Produto"], [/^\/biblioteca/, "Biblioteca"], [/^\/meus-produtos/, "Meus agentes"],
-  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos no WhatsApp"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/ferramentas\/followup/, "Ferramentas › Follow-up"], [/^\/ferramentas\/midia/, "Ferramentas › Biblioteca de mídia"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
+  [/^\/integracoes/, "Integrações"], [/^\/avisos/, "Avisos no WhatsApp"], [/^\/configuracoes/, "Escritório"], [/^\/historico/, "Histórico"], [/^\/consumo/, "Créditos"], [/^\/dados-escritorio/, "Ajustes › Dados do escritório"], [/^\/ferramentas\/followup/, "Ferramentas › Follow-up"], [/^\/ferramentas\/midia/, "Ferramentas › Biblioteca de mídia"], [/^\/ferramentas/, "Ferramentas"], [/^\/minha-conta/, "Minha Conta"], [/^\/crm/, "CRM"], [/^\/chatbots/, "Chatbots"], [/^\/admin\/cobranca/, "LawChat › Cobrança da IA"],
   [/^\/admin\/escritorios/, "LawChat › Escritórios"], [/^\/admin\/equipe/, "LawChat › Equipe"], [/^\/admin\/modelos/, "LawChat › Modelos de agente"],
   [/^\/admin\/produtos\/./, "LawChat › Produtos › Editar"], [/^\/admin\/produtos/, "LawChat › Produtos (catálogo)"], [/^\/admin\/erros/, "LawChat › Erros"], [/^\/admin\/execucoes/, "LawChat › Execuções"], [/^\/admin\/followup/, "LawChat › Follow-up"],
 ];
@@ -187,6 +188,7 @@ function ComEstrutura() {
           <Route path="/configuracoes" element={precisaEscritorio(<TelaConfiguracoes />)} />
           <Route path="/historico" element={precisaEscritorio(<TelaHistorico />)} />
           <Route path="/consumo" element={precisaEscritorio(<TelaCreditos />)} />
+          <Route path="/dados-escritorio" element={precisaEscritorio(<TelaDadosEscritorio />)} />
           <Route path="/ferramentas" element={precisaEscritorio(<TelaFerramentas />)} />
           <Route path="/roteiros" element={precisaEscritorio(<TelaRoteirosGravacao />)} />
           <Route path="/roteiros/:produto" element={precisaEscritorio(<TelaRoteiroGravacao />)} />

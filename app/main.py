@@ -254,6 +254,7 @@ from app.gestao.rotas_log_plataforma import api as api_log_plataforma; app.inclu
 from app.gestao.rotas_relatorios import api as api_relatorios; app.include_router(api_relatorios)  # noqa: E402,E702  Relatórios: Dashboard e Rastreamento de campanhas
 from app.gestao.rotas_controle_ia import api as api_controle_ia; app.include_router(api_controle_ia)  # noqa: E402,E702  bolinha da IA na Central
 from app.gestao.rotas_avisos import api as api_avisos; app.include_router(api_avisos)  # noqa: E402,E702  Avisos no WhatsApp (conta e catálogo)
+from app.gestao.rotas_dados_escritorio import api as api_dados_escritorio; app.include_router(api_dados_escritorio)  # noqa: E402,E702  Dados do escritório e etapas do CRM (Primeiros passos)
 from app.gestao.rotas_resumo_contrato import api as api_resumo_contrato; app.include_router(api_resumo_contrato)  # noqa: E402,E702  Ferramentas > Resumo de contrato
 from app.gestao.rotas_reprocessar import api as api_reprocessar; app.include_router(api_reprocessar)  # noqa: E402,E702  Conversas > Responder agora
 from app.gestao.login_codigo import api as api_login_codigo; app.include_router(api_login_codigo)  # noqa: E402,E702  entrar com o código da plataforma

@@ -79,12 +79,15 @@ async def test_primeiros_passos_se_marcam_sozinhos(ambiente):  # noqa: F811
 
     r = (await cliente.get("/api/inicio/primeiros-passos", headers=h)).json()
     passos = {p["codigo"]: p for p in r["passos"]}
-    assert [p["codigo"] for p in r["passos"]] == ["conta", "whatsapp", "produto", "zapsign", "followup", "conversa", "saldo"]
-    assert r["total"] == 7 and all(p["para"] or p["situacao"] == "feito" for p in r["passos"])
-    assert passos["whatsapp"]["situacao"] == "feito"
+    # Ordem do processo da LawChat; o roteiro só aparece no plano com mídia e com produto que tenha roteiro.
+    codigos = [p["codigo"] for p in r["passos"]]
+    assert [c for c in codigos if c != "roteiro"] == ["conta", "whatsapp", "crm", "dados", "produto", "followup"]
+    assert not {"zapsign", "conversa", "saldo"} & set(codigos)
+    assert r["total"] == len(codigos)
+    assert passos["whatsapp"]["situacao"] == "feito" and passos["whatsapp"]["para"] == "/minha-conta/canais"
+    assert passos["crm"]["situacao"] == "pendente" and passos["crm"]["para"] == "/crm"
+    assert passos["dados"]["situacao"] == "pendente"
     assert passos["produto"]["situacao"] == "pendente" and passos["produto"]["para"] == "/biblioteca"
-    assert passos["zapsign"]["situacao"] == "nao_se_aplica"            # nenhum agente gera contrato
-    assert passos["conversa"]["situacao"] == "pendente" and passos["conversa"]["para"] == "/atendimento"
     assert r["completo"] is False and r["proximo"] in passos
     antes = r["feitos"]
 
@@ -107,15 +110,13 @@ async def test_primeiros_passos_se_marcam_sozinhos(ambiente):  # noqa: F811
     passos = {p["codigo"]: p for p in r["passos"]}
     assert passos["conta"]["situacao"] == "feito"
     assert passos["produto"]["situacao"] == "feito" and "Júlia" in passos["produto"]["detalhe"]
-    assert passos["zapsign"]["situacao"] == "pendente" and passos["zapsign"]["para"] == "/minha-conta?aba=integracoes"
     assert passos["followup"]["situacao"] == "pendente" and passos["followup"]["para"] == f"/agentes/{agente['id']}/followup"
-    assert passos["conversa"]["situacao"] == "feito"
     assert r["feitos"] >= antes + 1
 
     # Contas do superadmin: a mesma conta, com o "X/7" e os que faltam.
     todos = (await cliente.get("/api/admin/escritorios/primeiros-passos")).json()
-    assert todos[id_escritorio]["feitos"] == r["feitos"] and todos[id_escritorio]["total"] == 7
-    assert any(f.startswith("ZapSign conectada") for f in todos[id_escritorio]["faltam"])
+    assert todos[id_escritorio]["feitos"] == r["feitos"] and todos[id_escritorio]["total"] == r["total"]
+    assert any(f.startswith("CRM criado com as etapas") for f in todos[id_escritorio]["faltam"])
 
     # Só a equipe LawChat vê o progresso de todas; o gestor vê o próprio Início.
     email = f"gestor-{uuid.uuid4().hex[:6]}@passos.com"
