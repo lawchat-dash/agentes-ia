@@ -74,3 +74,6 @@
   .rl-modal-fundo[data-state], .rl-modal-fundo[data-state] .rl-modal { animation-duration: 1ms !important; }
 }
 @media print { .rl-modal-fundo { display: none !important; } }
+/* Desempenho: cartão fora da tela não é desenhado até chegar perto (a tela de Relatórios montava todos os gráficos
+   de uma vez e travava ~0,7 s ao abrir). */
+.rl-cartao { content-visibility: auto; contain-intrinsic-size: auto 320px; }

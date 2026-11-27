@@ -1,13 +1,12 @@
+import { useContagem } from "@/components/graficos/comum";
 // Indicadores do Painel Inicial num bento (mesmo visual do MagicBento, tema claro), em grade CSS leve: sem ouvir o
 // mouse na janela inteira e sem laço de quadros. Realce verde só no :hover (CSS); entrada em cascata uma vez só.
-// Os números rolam com o Counter (React Bits) ao abrir. Mesmos dados que os KPIs e mini-cartões tinham antes.
+// Os números sobem com um contador leve ao abrir. Mesmos dados que os KPIs e mini-cartões tinham antes.
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ResponsiveContainer, AreaChart, Area } from "recharts";
 import { ArrowDown, ArrowUp, Box, ChevronRight, FileSignature, Mail, MessageSquare, Package, Reply, Users, type LucideIcon } from "lucide-react";
 /** Cartão do bento (o mesmo formato que o MagicBento recebia). */
 interface MagicBentoItem { id: string; title?: string; content: ReactNode; onClick?: () => void; colSpan?: number }
-import Counter from "@/components/reactbits/Counter";
 import "./BentoIndicadores.css";
 
 export interface DadosBento {
@@ -50,8 +49,10 @@ function Topo({ icone: Icone, rotulo, cor, fundo, acao, mexida = "pulo", vivo }:
   );
 }
 
-function Numero({ valor, chave }: { valor: number; chave: string }) {
-  return <Counter key={chave} value={Math.round(valor) || 0} locale="pt-BR" fontSize="inherit" fontWeight="inherit" textColor="inherit" />;
+function Numero({ valor }: { valor: number; chave?: string }) {
+  // Contador leve (só este número re-renderiza, ~1 s). O Counter do React Bits animava dígito por dígito com mola.
+  const n = useContagem(Math.round(valor) || 0, 900);
+  return <>{n.toLocaleString("pt-BR")}</>;
 }
 
 function Faixa({ pct, cor }: { pct: number; cor: string }) {
@@ -60,15 +61,20 @@ function Faixa({ pct, cor }: { pct: number; cor: string }) {
   );
 }
 
-function Linha({ serie, chave, cor, id }: { serie: DadosBento["serie"]; chave: "conv" | "msgs" | "tokens"; cor: string; id: string }) {
+function Linha({ serie, chave, cor }: { serie: DadosBento["serie"]; chave: "conv" | "msgs" | "tokens"; cor: string; id?: string }) {
+  // Minicurva em SVG puro, desenhada uma vez por CSS. Antes era um AreaChart do recharts animado (pesado no Painel Inicial).
+  const vals = serie.map((x) => Number(x[chave]) || 0);
+  if (vals.length < 2) return <div className="lc-bento__linha" aria-hidden />;
+  const max = Math.max(1, ...vals);
+  const W = 100, H = 40;
+  const pts = vals.map((v, k) => [(k / (vals.length - 1)) * W, H - 2 - (v / max) * (H - 8)] as const);
+  const linha = pts.map(([x, y], k) => `${k ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
   return (
     <div className="lc-bento__linha" aria-hidden>
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={serie} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
-          <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={cor} stopOpacity={0.22} /><stop offset="100%" stopColor={cor} stopOpacity={0} /></linearGradient></defs>
-          <Area type="monotone" dataKey={chave} stroke={cor} strokeWidth={1.75} fill={`url(#${id})`} dot={false} isAnimationActive animationDuration={900} animationEasing="ease-out" />
-        </AreaChart>
-      </ResponsiveContainer>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" width="100%" height="100%">
+        <path d={`${linha} L${W},${H} L0,${H} Z`} fill={cor} opacity={0.12} />
+        <path d={linha} fill="none" stroke={cor} strokeWidth={1.75} vectorEffect="non-scaling-stroke" pathLength={1} className="lc-bento__traco" />
+      </svg>
     </div>
   );
 }
