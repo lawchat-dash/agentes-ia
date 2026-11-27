@@ -104,9 +104,16 @@ async def test_roteiro_do_admin_a_gravacao(ambiente):
     midia = await pool.fetchrow("select nome, pasta from agentesia_biblioteca_midia where id = $1::uuid", grav["id_midia"])
     assert midia["pasta"] == "Roteiros gravados/Auxílio Teste" and midia["nome"].endswith("Honorários")
 
-    # Regravar substitui (uma gravação por parte) e apaga o arquivo antigo.
-    g2 = (await cliente.post(f"/api/roteiro-gravacao/partes/{honorarios['id']}", headers=h,
-                             json={"conteudo_base64": _b64(OGG), "mime": "audio/ogg"})).json()["gravacao"]
+    # Regravar substitui (uma gravação por parte) e apaga o arquivo antigo. As medidas do navegador fora da faixa
+    # (MP3/M4A decodificado passa de 1,0 no pico) são ajustadas, nunca barram o envio ("Algum campo está inválido: pico").
+    r2 = await cliente.post(f"/api/roteiro-gravacao/partes/{honorarios['id']}", headers=h,
+                            json={"conteudo_base64": _b64(OGG), "mime": "audio/ogg", "pico": 1.0234, "silencio_pct": 100.4,
+                                  "duracao_s": -0.1})
+    assert r2.status_code == 200, r2.text
+    g2 = r2.json()["gravacao"]
+    medidas = await pool.fetchrow("select pico, silencio_pct, duracao_s from agentesia_roteiro_gravacoes where id_midia = $1::uuid",
+                                  g2["id_midia"])
+    assert float(medidas["pico"]) == 1 and float(medidas["silencio_pct"]) == 100 and float(medidas["duracao_s"]) == 0
     assert g2["id_midia"] != grav["id_midia"]
     assert not await pool.fetchval("select 1 from agentesia_biblioteca_midia where id = $1::uuid", grav["id_midia"])
     assert await pool.fetchval("select count(*) from agentesia_roteiro_gravacoes where id_escritorio = $1::uuid", escritorio["id"]) == 1

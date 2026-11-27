@@ -48,7 +48,7 @@ async function medirQualidade(blob: Blob, segundosGravados: number): Promise<Med
     const duracao = audio.duration || segundosGravados;
     const silencio = janelas ? (silenciosas / janelas) * 100 : 100;
     const qualidade: Qualidade = duracao < 3 ? "curta" : silencio > 85 ? "silenciosa" : pico < 0.08 ? "baixa" : "boa";
-    return { duracao_s: Math.round(duracao * 10) / 10, pico: Math.round(pico * 1000) / 1000, silencio_pct: Math.round(silencio * 10) / 10, qualidade };
+    return { duracao_s: Math.round(duracao * 10) / 10, pico: Math.min(1, Math.round(pico * 1000) / 1000), silencio_pct: Math.round(silencio * 10) / 10, qualidade };
   } catch {
     return null;                                                          // formato que o navegador não decodifica: segue sem medida
   }

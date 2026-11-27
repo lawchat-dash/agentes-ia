@@ -25,7 +25,7 @@ from urllib.parse import unquote
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app import armazenamento
 from app.gestao.produtos import (COTA_MIDIA, LIMITES_POR_TIPO, MidiaNova, _linha, _pool, _quem_usa_a_midia, _uso_midia,
@@ -536,11 +536,21 @@ async def roteiro_para_gravar(id_produto: str, pedido: Request, ctx: Contexto = 
 
 
 class Gravacao(Arquivo):
-    duracao_s: float | None = Field(default=None, ge=0, le=36000)
-    pico: float | None = Field(default=None, ge=0, le=1)
-    silencio_pct: float | None = Field(default=None, ge=0, le=100)
+    # Medidas feitas no navegador: só informam. Valor fora da faixa é ajustado, nunca recusa a gravação
+    # (o áudio decodificado de MP3/M4A passa de 1,0 no pico, e "pico 1.02" barrava o envio).
+    duracao_s: float | None = None
+    pico: float | None = None
+    silencio_pct: float | None = None
     qualidade: str | None = Field(default=None, pattern="^(boa|curta|baixa|silenciosa)$")
     como_audio: bool = False          # parte de vídeo: "não quero inserir um vídeo, vou trocar por áudio"
+
+    @field_validator("duracao_s", "pico", "silencio_pct")
+    @classmethod
+    def _na_faixa(cls, valor: float | None, info: Any) -> float | None:
+        if valor is None or valor != valor:                # None ou NaN
+            return None
+        teto = {"duracao_s": 36000, "pico": 1, "silencio_pct": 100}[info.field_name]
+        return min(max(float(valor), 0.0), float(teto))
 
 
 @api.post("/roteiro-gravacao/partes/{id_parte}")
