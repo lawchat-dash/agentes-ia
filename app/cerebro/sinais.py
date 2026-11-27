@@ -41,9 +41,26 @@ ORIENTACAO_SEM_PAUSA = {
                                "rápido, sem fila nem deslocamento, e a gente conduz tudo por mensagem, do começo ao fim), "
                                "mande o que houver nos DADOS DO ESCRITÓRIO (endereço, OAB) para ele ver que somos reais e "
                                "siga a etapa. Não prometa visita nem chamar a equipe."),
+    # Pediu áudio e o produto tem o áudio gravado da objeção "Pede áudio": a IA manda esse áudio e segue (sem pausar).
+    "quer_audio": ("O lead pediu áudio: mande, sem texto antes, o link de áudio da objeção sobre pedido de áudio (se ainda "
+                   "não estiver no histórico) e, na mesma resposta, siga a etapa. Nesta conversa, sempre que a etapa tiver "
+                   "um áudio para o momento, prefira mandá-lo. Não prometa que a equipe vai mandar áudio."),
     "muitas_objecoes": ("O lead está resistente: responda a dúvida com calma, em 1 ou 2 frases, sem pressionar e sem "
                         "prometer retorno da equipe, e siga o roteiro da etapa."),
 }
+_URL = re.compile(r"https?://\S+", re.I)
+
+
+def tem_audio_de_pedido(conhecimento: dict[str, Any] | None) -> bool:
+    """O produto tem o áudio gravado da objeção "pede áudio / quer ouvir a voz" (marcador já trocado pelo link na
+    ativação)? Então "manda um áudio" não precisa pausar: a IA responde com a voz do escritório."""
+    for o in (conhecimento or {}).get("objecoes") or []:
+        titulo = f"{o.get('objecao') or ''} {o.get('titulo') or ''}".lower()
+        if re.search(r"[áa]udio|\bvoz\b", titulo) and _URL.search(o.get("resposta") or ""):
+            return True
+    return False
+
+
 # Marcados pelo agente do papel (dependem do roteiro).
 DO_AGENTE = ("analise_humana",)
 SINAIS = DO_EXTRATOR + DO_AGENTE

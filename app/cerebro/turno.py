@@ -270,6 +270,10 @@ async def _processar(modelo: Modelo, entrada: Entrada, saida: Saida) -> Saida:
         from app.cerebro.sinais import SEM_PAUSA
         # "Quero ir pessoalmente": na 1ª vez a IA quebra a objeção (por aqui é mais rápido); se insistir, a equipe assume.
         sem_pausa = tuple(s for s in SEM_PAUSA if not (s == "atendimento_presencial" and entrada.fatos.get(MARCA_PRESENCIAL)))
+        # "Manda um áudio": com o áudio gravado da objeção no produto, a IA responde com ele em vez de pausar.
+        from app.cerebro.sinais import tem_audio_de_pedido
+        if catalogo and tem_audio_de_pedido(entrada.conhecimento):
+            sem_pausa += ("quer_audio",)
         if validos and all(s in sem_pausa for s in validos):
             if "atendimento_presencial" in validos:
                 _gravar_controle(saida, MARCA_PRESENCIAL, True)

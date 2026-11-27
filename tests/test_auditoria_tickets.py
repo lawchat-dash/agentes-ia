@@ -272,3 +272,33 @@ def test_qualificacao_minuscula_onde_o_modelo_pede():
         {"variavel": "NOME", "campo": "nome", "formato": "maiusculas"}], agora))
     assert proprio == {"estado civil": "solteira", "Profissão": "costureira", "Nacionalidade": "brasileira",
                        "NOME": "PATRÍCIA SOUZA LIMA"}
+
+
+# ----------------------------------------------------------------------------- pedido de áudio com áudio gravado
+OBJ_AUDIO = {"objecao": "OBJ 11 — Pede áudio / quer ouvir a voz",
+             "resposta": "https://x.com/midia/22222222-2222-2222-2222-222222222222/audio/pede_audio.ogg\n\nPor aqui eu costumo escrever..."}
+
+
+def test_tem_audio_de_pedido_so_com_o_link_gravado():
+    assert sinais.tem_audio_de_pedido({"objecoes": [OBJ_AUDIO]})
+    assert not sinais.tem_audio_de_pedido({"objecoes": [{**OBJ_AUDIO, "resposta": "Por aqui eu costumo escrever..."}]})
+    assert not sinais.tem_audio_de_pedido({"objecoes": [{"objecao": "Está caro", "resposta": "https://x.com/a.ogg"}]})
+    assert not sinais.tem_audio_de_pedido(None)
+
+
+async def test_quer_audio_com_audio_gravado_segue_sem_pausar():
+    modelo = ModeloFalso({"extrator": extrai(sinais_=["quer_audio"]), "auditor": AUDITOR_OK, "etapa": resposta()})
+    dados = entrada(["manda um áudio, quero ver se você é de verdade"], modelo_auditor="falso", historico=list(CONVERSA))
+    dados.conhecimento = {**(dados.conhecimento or {}), "objecoes": [OBJ_AUDIO]}
+    saida = await turno.processar(modelo, dados)
+    assert saida.estado_lead != "pausado"
+    evento = next(e for e in saida.eventos if e["tipo"] == "sinal_quer_audio")
+    assert evento["detalhe"]["pausa"] is False                                              # a equipe fica sabendo
+    assert "etapa" in [p["papel"] for p in modelo.pedidos]                                 # e a IA respondeu
+    assert "pediu áudio" in modelo.pedidos[-1]["conteudo"]
+
+
+async def test_quer_audio_sem_audio_gravado_continua_pausando():
+    modelo = ModeloFalso({"extrator": extrai(sinais_=["quer_audio"]), "auditor": AUDITOR_OK, "etapa": resposta()})
+    saida = await turno.processar(modelo, entrada(["manda um áudio"], modelo_auditor="falso", historico=list(CONVERSA)))
+    assert (saida.estado_lead, saida.motivo_estado) == ("pausado", "sinal:quer_audio")
