@@ -40,14 +40,24 @@ function Conta({ v }: { v: number | null }) {
   return <>{v == null ? "—" : fmt(n)}</>;
 }
 
-function Frase({ pessoas, contratos }: { pessoas: number; contratos: number | null }) {
-  if (pessoas === 0) {
-    return <>Hoje a IA ainda não atendeu ninguém. Assim que um lead chamar, ela responde na hora.</>;
+/** A frase do topo é sempre uma pequena comemoração do que a IA já fez hoje: nunca "ainda não". Mostra a melhor
+ *  conquista primeiro (contrato > lead qualificado > pessoas atendidas); sem conversa ainda, fala que ela está pronta. */
+function Frase({ pessoas, contratos, qualificados, noAr }: { pessoas: number; contratos: number | null; qualificados: number | null; noAr: boolean }) {
+  const hl = (n: number, um: string, varios: string) => <span className="lc-hero__hl">{fmt(n)} {n === 1 ? um : varios}</span>;
+  const c = contratos ?? 0;
+  const q = qualificados ?? 0;
+  if (c > 0) {
+    return <>Hoje a IA já fechou {hl(c, "contrato", "contratos")}{pessoas > 0 && <> e atendeu {hl(pessoas, "pessoa", "pessoas")}</>}. Que dia! 🎉</>;
   }
-  const quem = <span className="lc-hero__hl">{fmt(pessoas)} {pessoas === 1 ? "pessoa" : "pessoas"}</span>;
-  if (contratos == null) return <>Hoje a IA já atendeu {quem}.</>;
-  if (contratos === 0) return <>Hoje a IA já atendeu {quem} e ainda não fechou contrato.</>;
-  return <>Hoje a IA já atendeu {quem} e fechou {fmt(contratos)} {contratos === 1 ? "contrato" : "contratos"}.</>;
+  if (q > 0) {
+    return <>Hoje a IA já qualificou {hl(q, "lead", "leads")}{pessoas > 0 && <> e atendeu {hl(pessoas, "pessoa", "pessoas")}</>}. Contrato a caminho! 🚀</>;
+  }
+  if (pessoas > 0) {
+    return <>Hoje a IA já atendeu {hl(pessoas, "pessoa", "pessoas")}. {pessoas === 1 ? "Cada conversa é um cliente a caminho." : "Seu escritório não parou um minuto."} 👏</>;
+  }
+  return noAr
+    ? <>A IA está no ar e pronta para atender cada lead que chegar hoje. ✨</>
+    : <>Sua IA está pronta para entrar no ar e começar a atender. ✨</>;
 }
 
 export function SaudacaoHero({ d }: { d: DadosHero }) {
@@ -69,7 +79,7 @@ export function SaudacaoHero({ d }: { d: DadosHero }) {
         </span>
         {d.acao && <span className="lc-hero__acao">{d.acao}</span>}
       </div>
-      <h1 className="lc-hero__titulo">{saudacaoDaHora()}, {d.nome}. <Frase pessoas={d.pessoasHoje} contratos={d.contratosHoje} /></h1>
+      <h1 className="lc-hero__titulo">{saudacaoDaHora()}, {d.nome}. <Frase pessoas={d.pessoasHoje} contratos={d.contratosHoje} qualificados={d.qualificadosHoje} noAr={noAr} /></h1>
       <dl className="lc-hero__stats">
         {stats.map((s) => (
           <div key={s.rotulo}><dt>{s.rotulo}</dt><dd>{s.valor}</dd></div>
