@@ -519,13 +519,13 @@ async def meus_roteiros(pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dic
     """Produtos com roteiro de gravação (de mídia e publicados), com o progresso do escritório. Os já ativados vêm antes."""
     liberado, motivo = await _liberacao(pedido, ctx)
     produtos = await _consultar(pedido, "fetch",
-                                """select b.id, b.slug, b.nome, b.categoria, b.icone,
+                                """select b.id, b.slug, b.nome, b.categoria, b.icone, b.capa_gradiente,
                                           exists (select 1 from agentesia_produtos_ativados a where a.id_escritorio = $1::uuid
                                                      and a.id_produto_biblioteca = b.id and a.excluido_em is null) as ativado
                                      from agentesia_biblioteca_produtos b
                                     where b.modo_midia = 'audio' and b.status = 'publicado'
                                       and exists (select 1 from agentesia_roteiro_partes r where r.id_produto_biblioteca = b.id and r.ativo)
-                                    order by 6 desc, b.nome""", ctx.escritorio())
+                                    order by ativado desc, b.nome""", ctx.escritorio())
     gravacoes = await _gravacoes_do_escritorio(pedido, ctx)
     saida = []
     for p in produtos:

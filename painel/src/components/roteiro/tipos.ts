@@ -30,7 +30,7 @@ export interface RoteiroDoProduto extends ResumoRoteiro {
 }
 
 export interface ProdutoComRoteiro extends ResumoRoteiro {
-  id: string; slug: string; nome: string; categoria: string | null; icone: string | null; ativado: boolean;
+  id: string; slug: string; nome: string; categoria: string | null; icone: string | null; capa_gradiente?: string | null; ativado: boolean;
 }
 
 export const NOME_SECAO: Record<Secao, string> = { videos: "Vídeos", principais: "Áudios principais", objecoes: "Quebra de objeção" };

@@ -156,3 +156,6 @@
 @media (prefers-reduced-motion: reduce) { .rg-relogio i { animation: none; } }
 
 .rg-progresso-extra { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--rg-ink-3, #69786F); }
+.rg-dica-opcional { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; padding: 12px 14px; border-radius: 12px;
+  background: #F4FBF6; border: 1px solid #CDEBD6; font-size: 13px; line-height: 1.5; color: #3D4B43; }
+.rg-dica-opcional b { color: var(--brand-800, #0B5E27); font-weight: 600; }

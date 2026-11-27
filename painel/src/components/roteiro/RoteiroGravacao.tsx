@@ -130,8 +130,8 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
       </div>
       {gravadas === total && total > 0
         ? <div className="rg-fim">🎉 Tudo enviado! As gravações já estão na Biblioteca, prontas para a ativação.</div>
-        : concluido && <div className="rg-fim">✅ Materiais obrigatórios completos: você já pode ativar o agente. As objeções ficam em aberto para
-            gravar quando quiser; até lá, o agente responde essas objeções em texto.</div>}
+        : concluido && <div className="rg-fim">✅ Materiais obrigatórios completos: você já pode ativar o agente. Os áudios de objeção não são
+            obrigatórios, mas deixam a IA mais convincente: grave quando puder (até lá, ela responde essas objeções em texto).</div>}
 
       {compacto && passos.length > 1 && (
         <div className="rg-abas">
@@ -168,8 +168,14 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
               <span>{feitas(lista)} de {lista.length}</span>
             </div>
           )}
-          {passo === "objecoes" && <p className="rg-secao-txt">Áudios para quando o lead tiver uma dúvida, insegurança ou objeção durante o atendimento.
-            São opcionais: dá para ativar o agente sem eles e gravar depois. Enquanto não houver áudio, o agente responde a objeção em texto.</p>}
+          {passo === "objecoes" && (
+            <div className="rg-dica-opcional">
+              <b>Estes áudios não são obrigatórios, mas fazem diferença.</b>
+              <span>Quando o lead hesita ("está caro", "tenho medo de golpe", "preciso pensar"), ouvir a sua voz passa muito mais
+                confiança do que um texto. Para a IA ter um desempenho melhor e fechar mais contratos, vale gravar.</span>
+              <span>Dá para ativar o agente sem eles e gravar depois: enquanto não houver áudio, o agente responde a objeção em texto.</span>
+            </div>
+          )}
           <div className="rg-cartoes">
             {lista.map((p) => (
               <CartaoParte key={p.id} parte={p} numero={partes.indexOf(p) + 1} aberto={aberta === p.id} liberado={dados.liberado}

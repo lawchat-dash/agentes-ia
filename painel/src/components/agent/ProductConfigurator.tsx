@@ -360,6 +360,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // Pergunta "Áudio de objeções não encontrado" antes de ativar/salvar (ver pedirAtivar).
   const [perguntaObjecoes, setPerguntaObjecoes] = useState(false);
   const objecoesEmTextoOk = useRef(false);
+  const depoisDaPergunta = useRef<() => void>(() => {});
   type Step3Tab = "campos" | "regras" | "agente" | "faq" | "objecoes" | "dados_escritorio" | "honorarios" | "conhecimento" | "integracoes" | "audios";
   const [step3Tab, setStep3Tab] = useState<Step3Tab>("agente");
   const [generalRules, setGeneralRules] = useState<string>(editData?.generalRules ?? "");
@@ -957,9 +958,19 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // "Áudio de objeções não encontrado": antes de ativar (ou salvar), pergunta se as objeções sem áudio vão em texto.
   // Sim → segue; o marcador fica guardado e, quando a pessoa gravar, a Edição rápida de mídias oferece confirmar
   // e o áudio volta a valer. "Gravar agora" → salva onde parou e abre o roteiro.
-  const pedirAtivar = () => {
-    if (isAudio && objecoesSemAudio.length > 0 && !objecoesEmTextoOk.current) { setPerguntaObjecoes(true); return; }
-    void activate();
+  const perguntarObjecoes = (seguir: () => void) => {
+    if (isAudio && objecoesSemAudio.length > 0 && !objecoesEmTextoOk.current) {
+      depoisDaPergunta.current = seguir;
+      setPerguntaObjecoes(true);
+      return;
+    }
+    seguir();
+  };
+  const pedirAtivar = () => perguntarObjecoes(() => { void activate(); });
+  // Saindo do Conteúdo (onde ficam as mídias): pergunta já aqui, uma vez; ao ativar não pergunta de novo.
+  const sairDoConteudo = async () => {
+    const ok = await saveAllAgents();
+    if (ok) perguntarObjecoes(() => setStep(4));
   };
 
   const gravarRoteiro = async () => {
@@ -2822,12 +2833,13 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
               {objecoesSemAudio.map((o) => <li key={o.titulo} className="flex gap-2"><span className="text-[#0891b2]">•</span>{o.titulo}</li>)}
             </ul>
             <p className="text-[12.5px] text-muted-foreground">
-              O agente responde essas objeções com o texto curto do roteiro, sem ocupar o prompt. Quando você gravar, é só
-              confirmar na Edição rápida de mídias e o áudio volta a valer.
+              Esses áudios não são obrigatórios: o agente responde essas objeções com o texto curto do roteiro, sem ocupar o
+              prompt. Mas, para um desempenho melhor da IA, vale gravar: a sua voz passa mais confiança na hora da dúvida.
+              Quando gravar, é só confirmar na Edição rápida de mídias e o áudio volta a valer.
             </p>
             <div className="flex flex-wrap justify-end gap-2 pt-1">
               {roteiro?.total ? <Button variant="outline" onClick={() => { setPerguntaObjecoes(false); void gravarRoteiro(); }}>Gravar agora</Button> : null}
-              <Button className="lc-continuar" onClick={() => { objecoesEmTextoOk.current = true; setPerguntaObjecoes(false); void activate(); }}>
+              <Button className="lc-continuar" onClick={() => { objecoesEmTextoOk.current = true; setPerguntaObjecoes(false); depoisDaPergunta.current(); }}>
                 Sim, usar em texto
               </Button>
             </div>
@@ -2863,8 +2875,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           {step === 3 ? (
             <Button
               onClick={async () => {
-                const ok = await saveAllAgents();
-                if (ok) setStep(4);
+                await sairDoConteudo();
               }}
               disabled={savingAgent || bootstrapping}
               className="lc-continuar"
