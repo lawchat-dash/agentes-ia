@@ -566,6 +566,7 @@ async def gravar_parte(id_parte: str, dados: Gravacao, pedido: Request, ctx: Con
     chave = chave_da_parte(parte)
     anterior = await pool.fetchval("select id_midia from agentesia_roteiro_gravacoes where id_escritorio = $1::uuid and chave = $2",
                                    ctx.escritorio(), chave)
+    url_anterior = await pool.fetchval("select url from agentesia_biblioteca_midia where id = $1::uuid", anterior) if anterior else None
     if anterior and await _abrir_espaco(pedido, ctx, str(anterior), len(bruto)):
         anterior = None                                   # já saiu (e o vínculo com ele, em cascata)
     criada = await enviar_midia(MidiaNova(nome=f"{nome}.{extensao}", conteudo_base64=base64.b64encode(bruto).decode()),
@@ -584,13 +585,16 @@ async def gravar_parte(id_parte: str, dados: Gravacao, pedido: Request, ctx: Con
                qualidade = excluded.qualidade, id_usuario = excluded.id_usuario, atualizado_em = now()""",
         ctx.escritorio(), chave, parte["id"], criada["id"], dados.duracao_s, dados.pico, dados.silencio_pct, dados.qualidade,
         ctx.id_usuario)
+    pos_assinatura = False
+    if parte.get("chave_geral") == CHAVE_POS_ASSINATURA:   # antes de apagar o antigo: a ZapSign passa a mandar o novo
+        pos_assinatura = await _pos_assinatura(pool, ctx.escritorio(), url_anterior, criada["url"])
     if anterior and str(anterior) != str(criada["id"]):
         try:                                     # o arquivo antigo sai, salvo se um prompt ainda usa o link dele
             await apagar_midia(str(anterior), pedido, ctx)
         except HTTPException:
             pass
     gravacoes = await _gravacoes_do_escritorio(pedido, ctx)
-    return _com_gravacao(parte, gravacoes)
+    return {**_com_gravacao(parte, gravacoes), "pos_assinatura": pos_assinatura}
 
 
 async def _abrir_espaco(pedido: Request, ctx: Contexto, id_anterior: str, tamanho_novo: int) -> bool:
@@ -615,6 +619,46 @@ async def _abrir_espaco(pedido: Request, ctx: Contexto, id_anterior: str, tamanh
     return True
 
 
+# A parte geral "contrato_assinado" (áudio de parabéns depois da assinatura) não preenche marcador de prompt: ela vira a
+# mídia que a ZapSign manda ao lead quando o contrato é assinado (agentesia_integracoes.config.midia_pos_assinatura,
+# app/acoes.py), antes da mensagem de confirmação.
+CHAVE_POS_ASSINATURA = "contrato_assinado"
+
+
+async def _pos_assinatura(pool: Any, id_escritorio: str, url_antiga: str | None, url_nova: str | None) -> bool:
+    """Liga a gravação como mídia pós-assinatura do escritório. Nova gravação: só entra se o escritório ainda não escolheu
+    outra mídia (ou se a escolhida era a gravação antiga desta parte). Gravação apagada: tira o link só se era ela.
+    Nunca troca uma mídia que o escritório escolheu à mão. True = a configuração mudou."""
+    try:
+        if url_nova:
+            r = await pool.execute(
+                """update agentesia_integracoes
+                      set config = jsonb_set(coalesce(config, '{}'::jsonb), '{midia_pos_assinatura}',
+                                             jsonb_build_object('url', $3::text), true)
+                    where id_escritorio = $1::uuid and tipo = 'zapsign'
+                      and (coalesce(config->'midia_pos_assinatura'->>'url', '') = ''
+                           or config->'midia_pos_assinatura'->>'url' = $2)""",
+                id_escritorio, url_antiga or "", url_nova)
+        elif url_antiga:
+            r = await pool.execute(
+                """update agentesia_integracoes
+                      set config = jsonb_set(config, '{midia_pos_assinatura}', jsonb_build_object('url', null), true)
+                    where id_escritorio = $1::uuid and tipo = 'zapsign' and config->'midia_pos_assinatura'->>'url' = $2""",
+                id_escritorio, url_antiga)
+        else:
+            return False
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
+        return False
+    return r.split()[-1] != "0"
+
+
+@api.get("/roteiro-gravacao/geral/{chave}")
+async def gravacao_geral(chave: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
+    """A gravação do escritório para uma parte geral (ex.: contrato_assinado), para a tela da ZapSign sugerir."""
+    gravacoes = await _gravacoes_do_escritorio(pedido, ctx)
+    return {"gravacao": gravacoes.get(f"geral:{_chave_geral(chave) or chave}")}
+
+
 @api.delete("/roteiro-gravacao/partes/{id_parte}")
 async def apagar_gravacao(id_parte: str, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Apaga a gravação da parte. Se o link ainda está num prompt, o arquivo fica na biblioteca e só o vínculo sai."""
@@ -626,6 +670,9 @@ async def apagar_gravacao(id_parte: str, pedido: Request, ctx: Contexto = Depend
     pool = _pool(pedido)
     id_midia = await pool.fetchval("delete from agentesia_roteiro_gravacoes where id_escritorio = $1::uuid and chave = $2 "
                                    "returning id_midia", ctx.escritorio(), chave_da_parte(parte))
+    if id_midia and parte.get("chave_geral") == CHAVE_POS_ASSINATURA:
+        url = await pool.fetchval("select url from agentesia_biblioteca_midia where id = $1::uuid", id_midia)
+        await _pos_assinatura(pool, ctx.escritorio(), url, None)   # a ZapSign não manda um link que vai sumir
     arquivo_ficou = False
     if id_midia:
         try:

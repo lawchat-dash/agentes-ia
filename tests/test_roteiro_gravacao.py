@@ -256,3 +256,36 @@ async def test_ogg_vorbis_vira_opus_e_opus_passa_direto():
     opus = gerar("libopus")
     mesma, _ = await preparar_arquivo(opus, "audio", "audio/ogg", "x.ogg")
     assert mesma == opus
+
+
+@precisa_pg
+async def test_contrato_assinado_vira_midia_pos_assinatura_sem_passar_por_cima(ambiente):
+    """A parte geral "contrato_assinado" liga a mídia pós-assinatura da ZapSign quando ela está vazia (ou era a gravação
+    antiga), nunca troca a que o escritório escolheu, e sai junto quando a gravação é apagada."""
+    cliente, _simulada, email_admin, banco = ambiente
+    from app.gestao.rotas_roteiro_gravacao import api
+    cliente._transport.app.include_router(api)
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    pool = banco._pool
+    produto = await _produto(pool, "Pós-assinatura")
+    parte = (await cliente.post(f"/api/admin/biblioteca/produtos/{produto}/roteiro/partes", json={
+        "titulo": "Contrato assinado", "tipo": "audio", "chave_geral": "contrato_assinado"})).json()
+    esc = (await cliente.post("/api/admin/escritorios", json={
+        "nome": "Pos Adv", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
+    h = {"x-escritorio": esc["id"]}
+    await pool.execute("insert into agentesia_integracoes (id_escritorio, tipo, config, situacao) values ($1::uuid, 'zapsign', '{}'::jsonb, 'ok')", esc["id"])
+    url_da_config = lambda: pool.fetchval("select config->'midia_pos_assinatura'->>'url' from agentesia_integracoes "  # noqa: E731
+                                          "where id_escritorio = $1::uuid and tipo = 'zapsign'", esc["id"])
+
+    um = (await cliente.post(f"/api/roteiro-gravacao/partes/{parte['id']}", headers=h, json={"conteudo_base64": _b64(OGG)})).json()
+    assert um["pos_assinatura"] is True and await url_da_config() == um["gravacao"]["url"]
+    assert (await cliente.get("/api/roteiro-gravacao/geral/contrato_assinado", headers=h)).json()["gravacao"]["url"] == um["gravacao"]["url"]
+    dois = (await cliente.post(f"/api/roteiro-gravacao/partes/{parte['id']}", headers=h, json={"conteudo_base64": _b64(OGG)})).json()
+    assert await url_da_config() == dois["gravacao"]["url"]                    # regravar troca o link antigo pelo novo
+    await cliente.delete(f"/api/roteiro-gravacao/partes/{parte['id']}", headers=h)
+    assert await url_da_config() is None                                       # apagou: a ZapSign não manda link morto
+
+    await pool.execute("update agentesia_integracoes set config = '{\"midia_pos_assinatura\": {\"url\": \"https://x.com/meu.mp4\"}}'::jsonb "
+                       "where id_escritorio = $1::uuid and tipo = 'zapsign'", esc["id"])
+    tres = (await cliente.post(f"/api/roteiro-gravacao/partes/{parte['id']}", headers=h, json={"conteudo_base64": _b64(OGG)})).json()
+    assert tres["pos_assinatura"] is False and await url_da_config() == "https://x.com/meu.mp4"

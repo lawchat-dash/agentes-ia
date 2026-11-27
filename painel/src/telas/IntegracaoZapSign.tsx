@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Copy, FileSignature, KeyRound, RefreshCw, Save } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Clapperboard, Copy, FileSignature, KeyRound, Library, RefreshCw, Save } from "lucide-react";
+import { MediaLibrary } from "@/components/agent/MediaLibrary";
 import { api, enviar } from "../api";
 import { Alerta, Painel, Situacao, useAcao } from "../componentes/ui";
 
@@ -36,6 +37,13 @@ export function IntegracaoZapSign({ integracao, urlWebhook, aoMudar }: { integra
   const [video, setVideo] = useState<string>(config.midia_pos_assinatura?.url ?? "");
   const [mensagens, setMensagens] = useState<Record<string, string>>(config.mensagens ?? {});
   const conectada = integracao?.situacao === "ok";
+  // Mídia depois da assinatura: escolher da Biblioteca ou usar a gravação "Contrato assinado" do roteiro de gravação.
+  const [escolhendo, setEscolhendo] = useState(false);
+  const [doRoteiro, setDoRoteiro] = useState<{ url: string; nome: string } | null>(null);
+  useEffect(() => {
+    api<{ gravacao: { url: string; nome: string } | null }>("/roteiro-gravacao/geral/contrato_assinado")
+      .then((r) => setDoRoteiro(r.gravacao)).catch(() => setDoRoteiro(null));
+  }, []);
 
   const ler = (id?: string) => executar(async () => {
     const r = await api<Leitura>(`/integracoes/zapsign/modelos${id ? `?id_modelo=${encodeURIComponent(id)}` : ""}`);
@@ -128,8 +136,22 @@ export function IntegracaoZapSign({ integracao, urlWebhook, aoMudar }: { integra
               <input value={lembretes} onChange={(e) => setLembretes(e.target.value)} placeholder="2, 24, 72" disabled={!lembretesAtivos} />
               <span className="ajuda"><label className="check"><input type="checkbox" checked={lembretesAtivos} onChange={(e) => setLembretesAtivos(e.target.checked)} />Lembrar quem não assinou</label></span></label>
           </div>
-          <label className="field"><span className="lbl">Vídeo depois da assinatura (opcional, link https)</span>
-            <input value={video} onChange={(e) => setVideo(e.target.value)} placeholder="https://…/boas-vindas.mp4" /></label>
+          <label className="field"><span className="lbl">Áudio ou vídeo depois da assinatura (opcional)</span>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <input style={{ flex: "1 1 320px" }} value={video} onChange={(e) => setVideo(e.target.value)} placeholder="https://…/boas-vindas.mp4" />
+              <button type="button" className="btn" onClick={() => setEscolhendo(true)}><Library />Escolher da Biblioteca</button>
+            </div>
+            {doRoteiro && video.trim() !== doRoteiro.url && (
+              <button type="button" className="btn sm ghost" style={{ alignSelf: "flex-start", marginTop: 6 }} onClick={() => setVideo(doRoteiro.url)}>
+                <Clapperboard />Usar a gravação do roteiro: {doRoteiro.nome}</button>
+            )}
+            <span className="ajuda">Vai para o lead logo que ele assina, antes da mensagem de confirmação. A gravação "Contrato assinado" do
+              roteiro de gravação entra aqui sozinha quando este campo está vazio.</span></label>
+          <MediaLibrary open={escolhendo} onOpenChange={setEscolhendo} onInsert={(token) => {
+            const url = token.match(/\]\(([^)]+)\)/)?.[1] ?? (/^https?:\/\//.test(token.trim()) ? token.trim() : "");
+            if (url) setVideo(url);
+            setEscolhendo(false);
+          }} />
           <details>
             <summary className="lbl" style={{ cursor: "pointer" }}>Mensagens ao lead (vazio = texto padrão)</summary>
             <div className="form" style={{ marginTop: 8 }}>

@@ -66,7 +66,11 @@ const tipoUiDaUrl = (t: string): "audio" | "video" | "image" => (t === "imagem" 
 const nomeDaUrl = (file: string): string => {
   let f = file;
   try { f = decodeURIComponent(file); } catch { /* mantém */ }
-  return f.replace(/^\d+-/, "");
+  // Arquivo da biblioteca: "<32 hex>-03-como-funciona-o-auxilio-acidente.m4a" (o código único da conta vem na frente).
+  // O chip mostra só "03 - como funciona o auxilio acidente": o nome da parte do roteiro, para achar rápido no prompt.
+  const semCodigo = f.replace(/^[0-9a-f]{32}-/i, "").replace(/^\d{10,}-/, "");
+  const roteiro = /^(\d{2})-(.+)\.[a-z0-9]{2,4}$/i.exec(semCodigo);
+  return roteiro ? `${roteiro[1]} - ${roteiro[2].replace(/-/g, " ")}` : semCodigo;
 };
 
 /** Acha a URL de mídia COLADA no cursor (antes/depois) p/ apagar o chip inteiro de uma vez —
