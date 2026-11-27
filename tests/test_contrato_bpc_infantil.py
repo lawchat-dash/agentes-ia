@@ -63,3 +63,57 @@ def test_resposta_ao_pedido_de_correcao_vai_para_o_campo_pedido():
     extracao = Extracao(fatos=[])
     turno._dados_da_crianca_pela_pergunta(entrada, _Produto(), extracao, turno.Saida())
     assert {f.chave: f.valor for f in extracao.fatos} == {"naturalidade": "Montes Claros/MG"}
+
+
+# Reteste com leads reais (26/11): os pedidos da coleta não têm "?" e o motor lia uma pergunta antiga ("nome completo
+# do seu filho"). O nome da mãe ia para nome_menor e o contrato pedia o nome de quem assina sem parar.
+def _rodar_historico(historico, fatos, conhecidos=None, novas=("x",)):
+    entrada = turno.Entrada(escritorio="e", agente="a", etapa="contratos", novas=list(novas),
+                            historico=historico, fatos=conhecidos or {})
+    extracao = Extracao(fatos=[FatoExtraido(c, v, v) for c, v in fatos])
+    turno._dados_da_crianca_pela_pergunta(entrada, _Produto(), extracao, turno.Saida())
+    return {f.chave: f.valor for f in extracao.fatos}
+
+
+_ANTIGA = {"autor": "você", "texto": "Excelente! Pra começar, me passa o nome completo do(a) seu(sua) filho(a), do jeito que está no documento?"}
+
+
+def test_pedido_sem_interrogacao_do_responsavel_e_o_que_vale():
+    historico = [_ANTIGA, {"autor": "lead", "texto": "Pedro Teste Ribeiro"},
+                 {"autor": "você", "texto": "Agora, por favor, me passa o nome completo do responsável que vai assinar o contrato."}]
+    assert _rodar_historico(historico, [("nome_menor", "Joana Teste Ribeiro")], {"nome_menor": "Pedro Teste Ribeiro"}) \
+        == {"nome_completo": "Joana Teste Ribeiro"}
+
+
+def test_nome_da_mae_nao_vira_nome_da_crianca_por_pergunta_antiga():
+    historico = [_ANTIGA, {"autor": "lead", "texto": "Pedro Teste Ribeiro"},
+                 {"autor": "você", "texto": "Certo, a Joana é brasileira. Agora, por favor, me fala o estado civil dela."}]
+    assert _rodar_historico(historico, [("nome_completo", "Joana Teste Ribeiro")],
+                            {"nome_menor": "Pedro Teste Ribeiro"}) == {"nome_completo": "Joana Teste Ribeiro"}
+
+
+def test_pais_de_quem_assina_sao_os_avos():
+    historico = [{"autor": "você", "texto": "Agora, por favor, me fala o nome completo da mãe e do pai da Joana, que são os avós do Pedro."}]
+    assert _rodar_historico(historico, [("filiacao_menor", "Rita Prates e Antonio Brandao")],
+                            {"nome_menor": "Pedro Teste Ribeiro", "nome_completo": "Joana Teste Ribeiro"}) \
+        == {"filiacao": "Rita Prates e Antonio Brandao"}
+
+
+def test_pelo_nome_o_cpf_e_da_crianca():
+    historico = [{"autor": "você", "texto": "Anotado. Agora, me fala o CPF do Pedro, por favor."}]
+    assert _rodar_historico(historico, [("cpf", "935.113.502-04")], {"nome_menor": "Pedro Teste Ribeiro"}) \
+        == {"cpf_menor": "935.113.502-04"}
+
+
+def test_pelo_nome_a_naturalidade_e_de_quem_assina():
+    historico = [{"autor": "você", "texto": "Agora me fala a nacionalidade e a naturalidade da Joana, por favor."}]
+    assert _rodar_historico(historico, [("naturalidade_menor", "Montes Claros/MG")],
+                            {"nome_menor": "Pedro Teste Ribeiro", "nome_completo": "Joana Teste Ribeiro"}) \
+        == {"naturalidade": "Montes Claros/MG"}
+
+
+def test_correcao_do_nome_com_nome_menor_errado_nao_e_descartada():
+    pergunta = "Para finalizar seu contrato, preciso confirmar uma informação: seu nome completo. Pode me enviar novamente, por favor?"
+    historico = [{"autor": "você", "texto": pergunta}]
+    assert _rodar_historico(historico, [("nome_completo", "Joana Teste Ribeiro")], {"nome_menor": "Joana Teste Ribeiro"},
+                            novas=["Joana Teste Ribeiro"]) == {"nome_completo": "Joana Teste Ribeiro"}

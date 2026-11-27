@@ -538,6 +538,8 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                                    "Deixe notificacao vazia e siga o roteiro de quem está coberto (passe para o Closer)."))
         if esquecida := _desqualificacao_esquecida(entrada, produto, saida, etapa, destino, destinos):
             guardas.append(_Guarda("desqualificacao_esquecida", esquecida))
+        if destino == "desqualificado" and _fechamento_futuro_bpc(produto, saida.fatos_depois):
+            guardas.append(_Guarda("fechamento_futuro_desqualificado", ORIENTACAO_FECHAMENTO_FUTURO))
         novas_marcas += [g.marca for g in guardas if g.marca and g.marca not in novas_marcas]
         saida.reprovacoes.append([{"codigo": "catalogo", "orientacao": e} for e in erros]
                                  + [{"codigo": g.codigo, "orientacao": g.orientacao} for g in guardas])
@@ -598,6 +600,15 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                                      f"A IA pediu para passar o lead de {etapa} para {pedido}, destino não permitido; "
                                      "a troca não foi feita.", destino=pedido, etapa=etapa))
     destino = _troca_precoce(entrada, saida, destino, papeis, etapa)
+    if destino == "desqualificado" and _fechamento_futuro_bpc(produto, saida.fatos_depois):
+        # BPC com 63 ou 64 anos nunca é desqualificado (fechamento futuro ou caso de pessoa com deficiência): fica com
+        # a equipe. Reteste com leads reais de 26/11: a frase do fechamento futuro saía certa, mas o lead ia para
+        # Desqualificado.
+        destino = ""
+        resposta = {**resposta, "transferir_para": "", "notificacao": "analise_humana"}
+        saida.eventos.append(_evento("fechamento_futuro", "info", "lawchat",
+                                     "BPC com 63 ou 64 anos: a desqualificação virou análise da equipe (fechamento "
+                                     "futuro).", etapa=etapa))
     pedido_ao_portao = destino
     destino, mensagens = _portao_de_fatos(entrada, produto, saida, destino, mensagens, papeis, etapa, regras,
                                           ferramentas["calculadora"])
@@ -1789,6 +1800,30 @@ def _desqualificacao_insistida(produto: Any, saida: Saida, etapa: str) -> None:
 # IA do Closer seguia vendendo para quem disse "sou aposentado" ou "já tenho advogado nesse caso"). Dois turnos:
 #   1. o extrator gravou neste turno um fato que desqualifica: a IA confirma uma vez, com uma pergunta curta;
 #   2. no turno seguinte, com o fato ainda valendo: se o lead confirmou, desqualifica; se corrigiu, segue o roteiro.
+ORIENTACAO_FECHAMENTO_FUTURO = (
+    "Pelos fatos, o beneficiário tem 63 ou 64 anos: no BPC isso nunca desqualifica. Sem doença ou limitação, é "
+    "fechamento futuro: deixe transferir_para vazio, marque notificacao = \"analise_humana\" e diga que o caso fica "
+    "separado com a equipe para dar entrada quando completar 65 anos. Com doença ou limitação, siga o roteiro de pessoa "
+    "com deficiência.")
+_JA_DESQUALIFICA_NO_BPC = {"recebe_beneficio": ("bpc", "aposentadoria", "pensao_morte"), "tem_advogado_no_caso": ("sim",)}
+
+
+def _fechamento_futuro_bpc(produto: Any, fatos: dict[str, Any]) -> bool:
+    """BPC, beneficiário com 63 ou 64 anos e nenhum outro motivo de desqualificar (já recebe benefício, advogado)."""
+    from app.cerebro import catalogo
+
+    if not catalogo.familia_do_produto(getattr(produto, "config", {}) or {}).startswith("bpc"):
+        return False
+    try:
+        idade = int(str(fatos.get("beneficiario_idade") or "").strip())
+    except ValueError:
+        return False
+    if idade not in (63, 64):
+        return False
+    return not any(str(fatos.get(chave) or "").strip().lower() in valores
+                   for chave, valores in _JA_DESQUALIFICA_NO_BPC.items())
+
+
 MARCA_DESQ_A_CONFIRMAR = "_desqualificacao_a_confirmar"   # fato que desqualifica dito no Closer, à espera da confirmação
 ROTULO_DO_MOTIVO = {"aposentado": "que já é aposentado(a)", "tem_advogado_no_caso": "que já tem advogado cuidando deste caso",
                     "sequela": "que não ficou com sequela", "vinculo_na_data": "a situação de trabalho na data do acidente",
@@ -1942,10 +1977,40 @@ _TROCA_PARA_QUEM_ASSINA = {v: k for k, v in _TROCA_PARA_O_MENOR.items() if k != 
 
 
 def _ultima_pergunta_da_ia(entrada: Entrada) -> str:
+    """O último balão de texto da resposta mais recente da IA (o pedido a que o lead está respondendo), com ou sem "?".
+
+    Antes buscava a última mensagem com "?" no histórico todo: os pedidos da coleta ("me fala o CPF do Pedro, por
+    favor.") não têm "?", e o motor lia uma pergunta antiga ("nome completo do seu filho"). O nome da mãe ia para o
+    campo da criança e o contrato pedia o nome de quem assina sem parar (reteste com leads reais de 26/11)."""
     for mensagem in reversed(entrada.historico or []):
-        if mensagem.get("autor") != "lead" and "?" in str(mensagem.get("texto") or ""):
-            return str(mensagem.get("texto") or "")
+        if mensagem.get("autor") == "lead":
+            break
+        texto = _sem_marca_de_midia(mensagem.get("texto")).strip()
+        if texto and not texto.lower().startswith(("http://", "https://")):
+            return texto
     return ""
+
+
+def _trecho_do_pedido(pergunta: str) -> str:
+    """A frase do pedido: a última pergunta ("...?") ou, sem "?", a última frase do balão."""
+    if "?" in pergunta:
+        return re.split(r"(?<=[.!?])\s+", pergunta.rsplit("?", 1)[0] + "?")[-1]
+    frases = [f for f in re.split(r"(?<=[.!])\s+", pergunta.strip()) if f.strip()]
+    return frases[-1] if frases else pergunta
+
+
+def _dono_pelo_nome(trecho: str, fatos: dict[str, Any]) -> str:
+    """'crianca' ou 'assina' pelo primeiro nome (já gravado) que aparece antes no pedido; '' se nenhum aparece."""
+    achados = []
+    for chave, dono in (("nome_menor", "crianca"), ("nome_completo", "assina")):
+        primeiro = (str(fatos.get(chave) or "").split() or [""])[0]
+        if len(primeiro) >= 3:
+            achado = re.search(rf"\b{re.escape(primeiro)}\b", trecho, re.I)
+            if achado:
+                achados.append((achado.start(), dono))
+    if not achados or (len(achados) == 2 and achados[0][0] == achados[1][0]):
+        return ""  # nenhum nome, ou a mãe e a criança com o mesmo primeiro nome: não dá para saber
+    return min(achados)[1]
 
 
 def _dados_da_crianca_pela_pergunta(entrada: Entrada, produto: Any, extracao: Any, saida: Saida) -> None:
@@ -1954,23 +2019,43 @@ def _dados_da_crianca_pela_pergunta(entrada: Entrada, produto: Any, extracao: An
     if catalogo.familia_do_produto(getattr(produto, "config", {})) != "bpc_infantil":
         return
     pergunta = _ultima_pergunta_da_ia(entrada)
-    trecho_da_pergunta = pergunta.split("?")[-2] if pergunta.count("?") >= 1 else pergunta
+    trecho_da_pergunta = _trecho_do_pedido(pergunta)
+    pedido_de_correcao = "preciso confirmar uma informação" in pergunta.lower()
     _resposta_do_pedido_de_correcao(entrada, extracao, pergunta)
     # "do responsável que vai assinar" ganha de "do Pedro"/"dele" na mesma pergunta: é sobre quem assina.
-    sobre_quem_assina = bool(re.search(r"respons[aá]vel|quem (?:vai )?assina", trecho_da_pergunta, re.I))
+    # "avós do Pedro" = os pais de quem assina (a filiação dele, não a da criança).
+    sobre_quem_assina = bool(re.search(r"respons[aá]vel|quem (?:vai )?assina|\bav[óo]s\b", trecho_da_pergunta, re.I))
     sobre_crianca = bool(_SOBRE_A_CRIANCA.search(trecho_da_pergunta)) and not sobre_quem_assina
+    if not sobre_quem_assina and not sobre_crianca:
+        # Sem "seu"/"dele" na frase, vale o primeiro nome citado: "o CPF do Pedro" é da criança; "a profissão da
+        # Joana" é de quem assina.
+        dono = _dono_pelo_nome(trecho_da_pergunta, entrada.fatos)
+        sobre_crianca, sobre_quem_assina = dono == "crianca", dono == "assina"
     if sobre_quem_assina:
         sobre_crianca = False
     # "seus pais" com "do seu filho" na mesma pergunta é sobre a criança: a criança ganha.
-    sobre_quem_fala = bool(_SOBRE_QUEM_FALA.search(trecho_da_pergunta)) and not sobre_crianca
+    sobre_quem_fala = (bool(_SOBRE_QUEM_FALA.search(trecho_da_pergunta)) or sobre_quem_assina) and not sobre_crianca
     nome_menor = str(entrada.fatos.get("nome_menor") or "").strip().lower()
+    pede_nome = bool(re.search(r"\bnome\b", trecho_da_pergunta, re.I))
     for fato in extracao.fatos:
         destino = None
-        if sobre_crianca and fato.chave in _TROCA_PARA_O_MENOR:
+        e_nome = fato.chave in ("nome_completo", "nome_menor")
+        if e_nome and not pede_nome and not pedido_de_correcao:
+            # O pedido não é de nome ("o estado civil dela"): o nome que o extrator repetiu não troca de dono.
+            valor = str(fato.valor or "").strip().lower()
+            if nome_menor and ((fato.chave == "nome_menor" and valor != nome_menor)
+                               or (fato.chave == "nome_completo" and valor == nome_menor)):
+                destino = "descartar"
+        elif sobre_crianca and fato.chave in _TROCA_PARA_O_MENOR:
             destino = _TROCA_PARA_O_MENOR[fato.chave]
         elif sobre_quem_fala and fato.chave in _TROCA_PARA_QUEM_ASSINA:
             destino = _TROCA_PARA_QUEM_ASSINA[fato.chave]
-        elif fato.chave == "nome_completo" and nome_menor and str(fato.valor or "").strip().lower() == nome_menor:
+        elif (sobre_quem_assina and fato.chave == "nome_menor"
+              and str(fato.valor or "").strip().lower() != nome_menor):
+            # "o nome completo do responsável que vai assinar": é o nome de quem assina, nunca o da criança.
+            destino = "nome_completo"
+        elif (fato.chave == "nome_completo" and nome_menor and not pedido_de_correcao
+              and str(fato.valor or "").strip().lower() == nome_menor):
             # O nome da criança (já gravado) não pode virar o nome de quem assina.
             destino = "descartar"
         if not destino:
