@@ -56,7 +56,7 @@ ACOES = ("zapsign", "buscar_cep")
 GUIA_DO_CAMPO = {
     "email": " (só com @; \"não tenho\", \"não uso\" = deixe vazio, não registre)",
     "cep": ": 8 dígitos (00000-000), mesmo sem a palavra CEP quando é a resposta ao pedido do CEP; não confunda com telefone",
-    "uf": " (se o lead escrever o nome, como \"Minas Gerais\", grave a sigla MG; nome de estado não vai para cidade)",
+    "uf": " (do endereço de hoje, nunca da cidade onde nasceu; se o lead escrever o nome, como \"Minas Gerais\", grave a sigla MG; nome de estado não vai para cidade)",
     "telefone_contrato": " (DDD e número; \"pode ser este do zap\" = deixe vazio, o sistema usa o número da conversa)",
     # BPC infantil (rodada real): o nome do avô (da filiação da mãe) virou o nome de quem assina e a cidade de nascimento
     # virou a cidade do endereço. Cada dado no seu campo.

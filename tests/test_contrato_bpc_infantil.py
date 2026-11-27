@@ -117,3 +117,22 @@ def test_correcao_do_nome_com_nome_menor_errado_nao_e_descartada():
     historico = [{"autor": "você", "texto": pergunta}]
     assert _rodar_historico(historico, [("nome_completo", "Joana Teste Ribeiro")], {"nome_menor": "Joana Teste Ribeiro"},
                             novas=["Joana Teste Ribeiro"]) == {"nome_completo": "Joana Teste Ribeiro"}
+
+
+# Reteste 2 (26/11): pergunta que cita a criança mas pede o nome de um parente.
+def test_nome_da_mae_do_pedro_nao_vira_nome_da_crianca():
+    historico = [{"autor": "você", "texto": "Perfeito. Qual é o nome completo da mãe do Pedro?"}]
+    assert _rodar_historico(historico, [("nome_completo", "Carla Exemplo Moura")], {"nome_menor": "Pedro Teste Ribeiro"}) \
+        == {"nome_completo": "Carla Exemplo Moura"}
+
+
+def test_avo_e_filiacao_de_quem_assina():
+    historico = [{"autor": "você", "texto": "Agora me passa o nome completo do seu pai, que é o avô do Pedro."}]
+    assert _rodar_historico(historico, [("filiacao_menor", "Antonio Ficticio Brandao")],
+                            {"nome_menor": "Pedro Teste Ribeiro"}) == {"filiacao": "Antonio Ficticio Brandao"}
+
+
+def test_responsavel_pai_ou_mae_continua_sendo_quem_assina():
+    historico = [{"autor": "você", "texto": "Qual o nome completo do responsável (pai ou mãe) que vai assinar?"}]
+    assert _rodar_historico(historico, [("nome_menor", "Carla Exemplo Moura")], {"nome_menor": "Pedro Teste Ribeiro"}) \
+        == {"nome_completo": "Carla Exemplo Moura"}

@@ -527,3 +527,29 @@ async def test_travas_de_repeticao_nao_pausam_por_padrao(monkeypatch):
                                                   fatos={"cpf": "057.830.862-23"}))
     assert saida.estado_lead is None and saida.motivo_estado != "pedido_repetido"
     assert len(conteudos(modelo)) == 2          # a CORRIJA continua: houve a 2ª tentativa
+
+
+async def test_uf_da_naturalidade_da_lugar_a_do_cep(monkeypatch):
+    """Reteste BPC 26/11: "nasceu em Montes Claros/MG" gravou uf=MG e o contrato saiu "São Paulo/MG"."""
+    from app.ferramentas import cep as ferramenta_cep
+    from app.pipeline import Atendimento
+
+    async def consultar(cep, **_):
+        return ferramenta_cep.Endereco(cep="01310100", valido=True, mensagem="ok", tipo="rua", logradouro="Avenida Paulista",
+                                       bairro="Bela Vista", cidade="São Paulo", uf="SP", origem="teste")
+    monkeypatch.setattr(ferramenta_cep, "consultar", consultar)
+    fatos = {f["chave"]: f["valor"] for f in await Atendimento._enriquecer_por_cep({"cep": "01310-100", "uf": "MG"})}
+    assert fatos["cidade"] == "São Paulo" and fatos["uf"] == "SP"
+
+
+async def test_uf_com_cidade_do_lead_nao_e_trocada(monkeypatch):
+    from app.ferramentas import cep as ferramenta_cep
+    from app.pipeline import Atendimento
+
+    async def consultar(cep, **_):
+        return ferramenta_cep.Endereco(cep="01310100", valido=True, mensagem="ok", tipo="rua", logradouro="Avenida Paulista",
+                                       bairro="Bela Vista", cidade="São Paulo", uf="SP", origem="teste")
+    monkeypatch.setattr(ferramenta_cep, "consultar", consultar)
+    fatos = {f["chave"]: f["valor"] for f in await Atendimento._enriquecer_por_cep(
+        {"cep": "01310-100", "cidade": "Osasco", "uf": "SP"})}
+    assert "uf" not in fatos

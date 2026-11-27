@@ -1701,7 +1701,11 @@ class Atendimento:
             return [situacao]
         trecho = f"(pelo CEP {endereco.cep}, fonte {endereco.origem})"
         novos = {"endereco": endereco.logradouro, "bairro": endereco.bairro, "cidade": endereco.cidade, "uf": endereco.uf}
-        return [{"chave": k, "valor": v, "trecho": trecho, "fonte": "sistema"} for k, v in novos.items() if v and vazio(k)] + [situacao]
+        # A cidade vem do CEP agora: a UF que já estava gravada não é do endereço (veio da naturalidade, "nasceu em
+        # Montes Claros/MG"); vale a do CEP. Reteste BPC de 26/11: contrato com "São Paulo/MG".
+        troca_uf = bool(vazio("cidade") and endereco.uf and normalizar_uf(fatos.get("uf")) not in (None, endereco.uf))
+        return [{"chave": k, "valor": v, "trecho": trecho, "fonte": "sistema"} for k, v in novos.items()
+                if v and (vazio(k) or (k == "uf" and troca_uf))] + [situacao]
 
     async def _gravar_origem(self, escritorio: Escritorio, lead: Lead, origem: dict[str, Any]) -> None:
         """Primeiro toque: guarda a origem uma vez e deixa a nota do anúncio no atendimento."""

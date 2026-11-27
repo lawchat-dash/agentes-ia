@@ -2024,7 +2024,7 @@ def _dados_da_crianca_pela_pergunta(entrada: Entrada, produto: Any, extracao: An
     _resposta_do_pedido_de_correcao(entrada, extracao, pergunta)
     # "do responsável que vai assinar" ganha de "do Pedro"/"dele" na mesma pergunta: é sobre quem assina.
     # "avós do Pedro" = os pais de quem assina (a filiação dele, não a da criança).
-    sobre_quem_assina = bool(re.search(r"respons[aá]vel|quem (?:vai )?assina|\bav[óo]s\b", trecho_da_pergunta, re.I))
+    sobre_quem_assina = bool(re.search(r"respons[aá]vel|quem (?:vai )?assina|\bav[ôóo]s?\b", trecho_da_pergunta, re.I))
     sobre_crianca = bool(_SOBRE_A_CRIANCA.search(trecho_da_pergunta)) and not sobre_quem_assina
     if not sobre_quem_assina and not sobre_crianca:
         # Sem "seu"/"dele" na frase, vale o primeiro nome citado: "o CPF do Pedro" é da criança; "a profissão da
@@ -2036,7 +2036,11 @@ def _dados_da_crianca_pela_pergunta(entrada: Entrada, produto: Any, extracao: An
     # "seus pais" com "do seu filho" na mesma pergunta é sobre a criança: a criança ganha.
     sobre_quem_fala = (bool(_SOBRE_QUEM_FALA.search(trecho_da_pergunta)) or sobre_quem_assina) and not sobre_crianca
     nome_menor = str(entrada.fatos.get("nome_menor") or "").strip().lower()
-    pede_nome = bool(re.search(r"\bnome\b", trecho_da_pergunta, re.I))
+    # "o nome completo da mãe do Pedro", "do seu pai, que é o avô do Pedro": o nome pedido é de um parente (filiação),
+    # não o da criança citada na frase. Reteste 2 de 26/11: o nome da mãe ia para nome_menor e o contrato travava.
+    de_parente = bool(re.search(r"\bnome\b[^.?!]*\b(?:m[ãa]e|pai|pais|av[ôóo]s?)\b", trecho_da_pergunta, re.I)) \
+        and not re.search(r"respons[aá]vel|quem (?:vai )?assina", trecho_da_pergunta, re.I)
+    pede_nome = bool(re.search(r"\bnome\b", trecho_da_pergunta, re.I)) and not de_parente
     for fato in extracao.fatos:
         destino = None
         e_nome = fato.chave in ("nome_completo", "nome_menor")
