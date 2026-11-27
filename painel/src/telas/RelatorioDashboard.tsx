@@ -7,6 +7,7 @@
 import Counter from "@/components/reactbits/Counter";
 import BorderGlow from "@/components/reactbits/BorderGlow";
 import GooeyNav from "@/components/reactbits/GooeyNav";
+import { AoAparecer } from "../componentes/AoAparecer";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
@@ -1254,22 +1255,26 @@ function Conteudo({ d, anuncios, abrirAnuncio, pedirImportacao, pedindo, filtran
       </div>
       <div>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-[0.08em] text-slate-500"><Bot className="h-4 w-4 text-emerald-600" />Atendimento da IA</h2>
-        <FaixaIA d={d} />
+        <AoAparecer altura={180}><FaixaIA d={d} /></AoAparecer>
       </div>
-      <TaxasDoPeriodo d={d} />
-      <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
-        <TempoAteAssinar d={d} />
-        <AtendimentoIA d={d} />
-      </div>
-      <Evolucao d={d} />
-      <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
-        <OrigemLeads d={d} />
-        <MapaEstados leads={d.uf.leads} contratos={d.uf.contratos} />
-      </div>
-      <CartaoMapaCalor d={d} />
-      <Agentes d={d} />
-      <LeadsPorEtapa d={d} />
-      <CardsDoCrm d={d} pedirImportacao={pedirImportacao} pedindo={pedindo} />
+      <AoAparecer altura={220}><TaxasDoPeriodo d={d} /></AoAparecer>
+      <AoAparecer altura={380}>
+        <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
+          <TempoAteAssinar d={d} />
+          <AtendimentoIA d={d} />
+        </div>
+      </AoAparecer>
+      <AoAparecer altura={460}><Evolucao d={d} /></AoAparecer>
+      <AoAparecer altura={420}>
+        <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
+          <OrigemLeads d={d} />
+          <MapaEstados leads={d.uf.leads} contratos={d.uf.contratos} />
+        </div>
+      </AoAparecer>
+      <AoAparecer altura={340}><CartaoMapaCalor d={d} /></AoAparecer>
+      <AoAparecer altura={320}><Agentes d={d} /></AoAparecer>
+      <AoAparecer altura={320}><LeadsPorEtapa d={d} /></AoAparecer>
+      <AoAparecer altura={320}><CardsDoCrm d={d} pedirImportacao={pedirImportacao} pedindo={pedindo} /></AoAparecer>
       <p className="flex flex-wrap items-center justify-center gap-1.5 text-center text-[11px] text-muted-foreground/80">
         <Bot className="h-3.5 w-3.5" />
         {c ? "Indicadores principais pelos cards do painel do CRM; quadros da IA pelos leads, mensagens e chamadas da IA."
