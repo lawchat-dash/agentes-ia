@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock, Eye, Plus, Power, RotateCcw, Save, Settings2, Trash2, Undo2 } from "lucide-react";
+import { BellRing, CalendarClock, Eye, Hand, MessageCircleOff, Plus, Power, RotateCcw, Save, Settings2, Trash2, Undo2 } from "lucide-react";
 import { api, enviar, quando, type Agente } from "../api";
 import { Alerta, Carregando, Interruptor, Painel, Vazio, useAcao, useAvisar, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
@@ -113,6 +113,20 @@ function resumoDaConfig(c: Config, etapas: Dados["etapas"]): string[] {
   return linhas;
 }
 
+/** Grupo de pílulas (no lugar do <select> nativo): uma escolha, a marcada em verde. */
+function Pilulas<T extends string | number>({ rotulo, valor, opcoes, aoMudar }: {
+  rotulo: string; valor: T; opcoes: { v: T; t: string }[]; aoMudar: (v: T) => void;
+}) {
+  return (
+    <div className="fu-pilulas" role="radiogroup" aria-label={rotulo}>
+      {opcoes.map((o) => (
+        <button key={String(o.v)} type="button" role="radio" aria-checked={o.v === valor} className={o.v === valor ? "on" : ""}
+          onClick={() => aoMudar(o.v)}>{o.t}</button>
+      ))}
+    </div>
+  );
+}
+
 // =========================================================================== página Follow-up do agente
 /** Follow-up do agente num lugar só: ligar/desligar, cadência, horário, etapas, mensagem, agendados e histórico. */
 export function AbaFollowup({ agente }: { agente: Agente }) {
@@ -212,15 +226,15 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
                 <div className="passo-fu-marca"><b>{i + 1}</b></div>
                 <div className="passo-fu-corpo">
                   <div className="fu-passo-linha">
-                    <span className="lbl">Depois de</span>
-                    <input className="inp" type="number" min={1} step={1} style={{ width: 78 }} aria-label={`Tempo da tentativa ${i + 1}`} value={n || ""}
+                    <span className="fu-passo-rot">Depois de</span>
+                    <input className="inp fu-passo-num" type="number" min={1} step={1} aria-label={`Tempo da tentativa ${i + 1}`} value={n || ""}
                       onChange={(e) => mudarPasso(i, { apos_horas: Number(e.target.value) * FATOR[u] })} />
-                    <select className="inp" style={{ width: 104 }} aria-label={`Unidade da tentativa ${i + 1}`} value={u}
-                      onChange={(e) => mudarPasso(i, { apos_horas: n * FATOR[e.target.value as Unidade] })}>
-                      <option value="minutos">minutos</option><option value="horas">horas</option><option value="dias">dias</option>
-                    </select>
-                    <span className="muted fu-passo-ajuda">sem resposta, desde a última mensagem da IA</span>
-                    <button className="btn sm ghost" aria-label={`Tirar a tentativa ${i + 1}`} disabled={c.passos.length <= 1} onClick={() => setC({ ...c, passos: c.passos.filter((_, j) => j !== i) })}><Trash2 /></button>
+                    <Pilulas rotulo={`Unidade da tentativa ${i + 1}`} valor={u}
+                      opcoes={[{ v: "minutos", t: "min" }, { v: "horas", t: "horas" }, { v: "dias", t: "dias" }]}
+                      aoMudar={(nova) => mudarPasso(i, { apos_horas: n * FATOR[nova as Unidade] })} />
+                    <span className="fu-passo-ajuda">sem resposta, desde a última mensagem da IA</span>
+                    <button className="fu-passo-tirar" type="button" aria-label={`Tirar a tentativa ${i + 1}`} title="Tirar esta tentativa"
+                      disabled={c.passos.length <= 1} onClick={() => setC({ ...c, passos: c.passos.filter((_, j) => j !== i) })}><Trash2 size={15} /></button>
                   </div>
                   {limites.oferecer_parar && totalPassos >= 2 && i === totalPassos - 2 && <small className="muted">Esta tentativa oferece parar: “Se preferir que eu não mande mais mensagens, é só me avisar.”</small>}
                 </div>
@@ -230,20 +244,36 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
           {c.desistir.ativo && <div className="passo-fu fim"><div className="passo-fu-marca">✕</div>
             <div className="passo-fu-corpo"><span className="sec">Depois de mais {tempoLegivel(c.desistir.apos_horas)} sem resposta: a IA encerra a conversa com este lead.</span></div></div>}
         </div>
-        <div className="form fu-limites">
-          <label className="field"><span className="lbl">Quem nunca respondeu à IA recebe no máximo</span>
-            <select value={limites.max_toques_sem_resposta} onChange={(e) => mudarLimites({ max_toques_sem_resposta: Number(e.target.value) })}>
-              <option value={0}>todas as tentativas</option>
-              {Array.from({ length: Math.max(totalPassos, 1) }, (_, k) => k + 1).map((k) => <option key={k} value={k}>{k} {k === 1 ? "tentativa" : "tentativas"}</option>)}
-            </select></label>
-          <label className="field"><span className="lbl">Avisar a equipe (lead parado) depois de</span>
-            <select value={limites.lead_parado_apos} onChange={(e) => mudarLimites({ lead_parado_apos: Number(e.target.value) })}>
-              <option value={0}>não avisar</option>
-              {Array.from({ length: Math.max(totalPassos, limites.lead_parado_apos, 1) }, (_, k) => k + 1).map((k) => <option key={k} value={k}>{k} {k === 1 ? "tentativa" : "tentativas"} sem resposta</option>)}
-            </select>
-            <span className="ajuda">24 h depois dessa tentativa sem resposta, vira tarefa da equipe.</span></label>
-          <label className="check fu-check"><input type="checkbox" checked={limites.oferecer_parar} onChange={(e) => mudarLimites({ oferecer_parar: e.target.checked })} />
-            Na penúltima tentativa, oferecer parar (recomendado pela OAB e pela Meta)</label>
+        <div className="fu-regras">
+          <div className="fu-regra">
+            <span className="fu-regra-ico"><MessageCircleOff size={16} /></span>
+            <div className="fu-regra-corpo">
+              <b>Quem nunca respondeu à IA recebe no máximo</b>
+              <span className="fu-regra-ajuda">Para não insistir com quem nunca falou nada.</span>
+              <Pilulas rotulo="Máximo de tentativas para quem nunca respondeu" valor={limites.max_toques_sem_resposta}
+                opcoes={[{ v: 0, t: "Todas" }, ...Array.from({ length: Math.max(totalPassos, 1) }, (_, k) => ({ v: k + 1, t: `${k + 1}` }))]}
+                aoMudar={(v) => mudarLimites({ max_toques_sem_resposta: v })} />
+            </div>
+          </div>
+          <div className="fu-regra">
+            <span className="fu-regra-ico"><BellRing size={16} /></span>
+            <div className="fu-regra-corpo">
+              <b>Avisar a equipe quando o lead parar</b>
+              <span className="fu-regra-ajuda">Depois de quantas tentativas sem resposta. 24 h depois, vira tarefa da equipe.</span>
+              <Pilulas rotulo="Avisar a equipe depois de quantas tentativas" valor={limites.lead_parado_apos}
+                opcoes={[{ v: 0, t: "Não avisar" }, ...Array.from({ length: Math.max(totalPassos, limites.lead_parado_apos, 1) }, (_, k) => ({ v: k + 1, t: `${k + 1}` }))]}
+                aoMudar={(v) => mudarLimites({ lead_parado_apos: v })} />
+            </div>
+          </div>
+          <div className="fu-regra fu-regra-larga">
+            <span className="fu-regra-ico"><Hand size={16} /></span>
+            <div className="fu-regra-corpo">
+              <b>Oferecer parar na penúltima tentativa</b>
+              <span className="fu-regra-ajuda">“Se preferir que eu não mande mais mensagens, é só me avisar.” Recomendado pela OAB e pela Meta.</span>
+            </div>
+            <Interruptor rotulo={limites.oferecer_parar ? "Não oferecer parar" : "Oferecer parar"} ligado={limites.oferecer_parar}
+              aoMudar={(v) => mudarLimites({ oferecer_parar: v })} />
+          </div>
         </div>
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Cada tempo conta a partir da última mensagem da IA (não soma com o anterior). As tentativas são postas em ordem ao salvar.
           Se o lead responder, o fluxo para e recomeça depois da próxima resposta da IA.</p>

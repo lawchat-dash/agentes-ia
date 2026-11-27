@@ -166,3 +166,47 @@
   .fu-limites { grid-template-columns: minmax(0, 1fr); }
   .fu-passo-ajuda { flex-basis: 100%; order: 5; }
 }
+
+/* ── Fluxo de cadência: tentativas e regras (redesenho) ─────────────────────────────────────────────────────────── */
+.fu-pilulas { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 11px; background: var(--surface-2, #F3F6F4);
+  border: 1px solid var(--line, #E2E9E4); }
+.fu-pilulas button { min-width: 36px; height: 30px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  color: var(--ink-2, #3D4B43); background: transparent; border: 0; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+.fu-pilulas button:hover:not(.on) { background: rgba(0, 133, 42, .07); color: var(--ink, #0C1811); }
+.fu-pilulas button.on { background: #fff; color: var(--brand-800, #0B5E27);
+  box-shadow: 0 1px 2px rgba(6, 19, 12, .1), inset 0 0 0 1.5px var(--brand, #00BC33); }
+.fu-pilulas button:focus-visible { outline: 2px solid rgba(0, 188, 51, .5); outline-offset: 1px; }
+
+/* Cada tentativa vira um cartão na linha do tempo */
+.passo-fu-corpo { padding: 10px 12px; border: 1px solid var(--line, #E2E9E4); border-radius: 14px; background: #fff;
+  transition: border-color .15s, box-shadow .15s; }
+.passo-fu-corpo:hover { border-color: rgba(0, 188, 51, .35); box-shadow: 0 6px 18px -14px rgba(6, 40, 22, .45); }
+.passo-fu.fim .passo-fu-corpo { background: var(--surface-2, #F3F6F4); border-style: dashed; }
+.passo-fu-marca { background: linear-gradient(135deg, #12c94a, #00852A); color: #fff; font-weight: 600;
+  box-shadow: 0 0 0 4px var(--mint, #E6F5EB); margin-top: 6px; }
+.passo-fu:not(:last-child)::before { top: 44px; background: linear-gradient(var(--sage, #A7D7A4), var(--line, #E2E9E4)); }
+.fu-passo-linha { gap: 10px; }
+.fu-passo-rot { font-size: 13px; font-weight: 600; color: var(--ink-2, #3D4B43); }
+.fu-passo-num { width: 70px !important; height: 36px; text-align: center; font-family: var(--mono); font-weight: 600; font-size: 14px; }
+.fu-passo-ajuda { font-size: 12.5px; color: var(--ink-3, #69786F); }
+.fu-passo-tirar { margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; border: 0;
+  background: transparent; color: var(--ink-3, #69786F); cursor: pointer; transition: background .15s, color .15s; }
+.fu-passo-tirar:hover:not(:disabled) { background: #fdecea; color: var(--danger, #BF3520); }
+.fu-passo-tirar:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Regras do fluxo: cartões com ícone, explicação e escolha em pílulas */
+.fu-regras { margin-top: 8px; padding-top: 14px; border-top: 1px dashed var(--line, #E2E9E4);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.fu-regra { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 14px; border: 1px solid var(--line, #E2E9E4);
+  background: linear-gradient(180deg, #fff, #FAFCFB); min-width: 0; }
+.fu-regra-larga { grid-column: 1 / -1; align-items: center; }
+.fu-regra-ico { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--mint, #E6F5EB); color: var(--brand-700, #00852A); }
+.fu-regra-corpo { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.fu-regra-corpo b { font-size: 13.5px; font-weight: 600; color: var(--ink, #0C1811); }
+.fu-regra-ajuda { font-size: 12.5px; color: var(--ink-3, #69786F); line-height: 1.45; }
+.fu-regra-corpo .fu-pilulas { margin-top: 6px; align-self: flex-start; }
+@media (max-width: 760px) {
+  .fu-regras { grid-template-columns: minmax(0, 1fr); }
+  .fu-passo-ajuda { flex-basis: 100%; order: 5; }
+}
