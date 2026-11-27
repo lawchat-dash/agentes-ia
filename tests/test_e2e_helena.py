@@ -408,7 +408,7 @@ async def _cadastrar(pool, agente: dict[str, Any]) -> dict[str, Any]:
     numero_canal = "5531" + str(uuid.uuid4().int)[:9]
     id_canal_helena = "canal-" + uuid.uuid4().hex[:8]
     token_h = await pool.fetchval("select vault.create_secret($1, 'teste e2e')", "token-helena-falso-" + uuid.uuid4().hex[:6])
-    token_z = await pool.fetchval("select vault.create_secret($1, 'teste e2e')", "token-zapsign-falso")
+    token_z = await pool.fetchval("select vault.create_secret($1, 'teste e2e')", "token-zapsign-falso-" + uuid.uuid4().hex[:8])
     esc = await pool.fetchval(
         "insert into agentesia_escritorios (nome, id_conta_helena, config) values ($1, $2::uuid, $3::jsonb) returning id",
         "Sousa e Costa Advogados", conta, json.dumps({"filtro": {"rajada": {"mensagens": 1000, "segundos": 1}}}))

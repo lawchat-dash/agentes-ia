@@ -248,6 +248,13 @@ class Executor:
         config = linha["config"] if isinstance(linha["config"], dict) else json.loads(linha["config"] or "{}")
         if not linha["token"]:
             return None, config
+        # Isolamento: token que também está noutro escritório (colado errado antes da trava do cadastro) não gera,
+        # não cancela e não relê nada — o contrato de um escritório nunca sai na conta da ZapSign de outro.
+        if await self._pool.fetchval(
+                """select true from agentesia_integracoes i join vault.decrypted_secrets s on s.id = i.id_segredo_vault
+                   where i.tipo = 'zapsign' and i.id_escritorio <> $1::uuid and s.decrypted_secret = $2 limit 1""",
+                id_escritorio, linha["token"]):
+            raise ErroDeCadastro("o token da ZapSign deste escritório também está noutro escritório; corrija em Integrações")
         url = URL_SANDBOX if config.get("ambiente") == "sandbox" else URL_PRODUCAO
         return self._zapsign_por_token(linha["token"], url), config
 

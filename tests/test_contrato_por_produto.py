@@ -86,7 +86,7 @@ async def test_dois_produtos_com_modelos_diferentes_pela_api(ambiente):
     escritorio = (await cliente.post("/api/admin/escritorios", json={
         "nome": "Dois Produtos", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
     h = {"x-escritorio": escritorio["id"]}
-    segredo = await pool.fetchval("select vault.create_secret('token-zapsign', 'teste')")
+    segredo = await pool.fetchval("select vault.create_secret($1, 'teste')", "token-zapsign-" + uuid.uuid4().hex[:8])
     await pool.execute(
         "insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao, config) values ($1::uuid, 'zapsign', $2, 'ok', $3::jsonb)",
         escritorio["id"], segredo, json.dumps({"ambiente": "producao", "limite_versoes": 3}))
@@ -167,7 +167,7 @@ async def test_motor_gera_cada_contrato_com_o_modelo_do_seu_produto():
     try:
         await pool.execute("update agentesia_acoes set situacao = 'cancelada' where situacao in ('pendente', 'executando')")
         token_h = await pool.fetchval("select vault.create_secret('token-helena', 'teste')")
-        token_z = await pool.fetchval("select vault.create_secret('token-zapsign', 'teste')")
+        token_z = await pool.fetchval("select vault.create_secret($1, 'teste')", "token-zapsign-" + uuid.uuid4().hex[:8])
         esc = await pool.fetchval("insert into agentesia_escritorios (nome) values ('Dois produtos') returning id")
         await pool.execute("insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao) values ($1, 'helena', $2, 'ok')", esc, token_h)
         agentes, leads = {}, {}
@@ -249,7 +249,7 @@ async def test_excluir_corrida_da_ativacao_e_outro_escritorio_pela_api(ambiente,
     for nome in ("Três Produtos", "Outro Escritório"):
         esc = (await cliente.post("/api/admin/escritorios", json={
             "nome": nome, "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
-        segredo = await pool.fetchval("select vault.create_secret('token-zapsign', 'teste')")
+        segredo = await pool.fetchval("select vault.create_secret($1, 'teste')", "token-zapsign-" + uuid.uuid4().hex[:8])
         await pool.execute(
             "insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao, config) values ($1::uuid, 'zapsign', $2, 'ok', $3::jsonb)",
             esc["id"], segredo, json.dumps({"ambiente": "producao"}))

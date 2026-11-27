@@ -1317,6 +1317,10 @@ class ConfigZapSign(BaseModel):
     midia_pos_assinatura: dict[str, Any] | None = None
 
 
+ZAPSIGN_DE_OUTRO_ESCRITORIO = ("Este token da ZapSign já está ligado a outro escritório. Cada escritório usa o token da "
+                               "própria conta da ZapSign, para nenhum contrato sair na conta de outro.")
+
+
 async def _zapsign_do_escritorio(repo: RepositorioGestao, id_escritorio: str):
     from app.canal.zapsign import URL_PRODUCAO, URL_SANDBOX, ZapSign
     integracao = await repo.integracao(id_escritorio, "zapsign") or {}
@@ -1334,6 +1338,12 @@ async def salvar_zapsign(dados: TokenZapSign, pedido: Request, ctx: Contexto = D
     """Guarda o token no cofre e testa lendo os modelos da conta."""
     from app.canal.zapsign import ErroZapSign
     repo = _repo(pedido)
+    # Isolamento: o mesmo token da ZapSign em dois escritórios faria o contrato de um sair na conta do outro.
+    if await repo.pool.fetchval(
+            """select true from agentesia_integracoes i join vault.decrypted_secrets s on s.id = i.id_segredo_vault
+               where i.tipo = 'zapsign' and i.id_escritorio <> $1::uuid and s.decrypted_secret = $2 limit 1""",
+            ctx.escritorio(), dados.token.strip()):
+        raise HTTPException(409, ZAPSIGN_DE_OUTRO_ESCRITORIO)
     atual = await repo.integracao(ctx.escritorio(), "zapsign")
     id_segredo = await repo.guardar_segredo(f"agentesia_zapsign_{ctx.escritorio()}", dados.token.strip(),
                                             (atual or {}).get("id_segredo_vault"))

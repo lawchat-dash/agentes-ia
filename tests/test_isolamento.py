@@ -45,6 +45,30 @@ async def _escritorio(pool, nome, conta=None):
 
 
 # ------------------------------------------------------------------ 2. ZapSign
+async def test_mesmo_token_zapsign_em_dois_escritorios_nao_gera_contrato():
+    """Token da ZapSign de um escritório colado noutro: o executor recusa usar (nada sai na conta errada)."""
+    from app.acoes import ErroDeCadastro
+    repo = await _conectar()
+    pool = repo._pool
+    try:
+        esc1, _, _, _ = await _escritorio(pool, "Zap Igual 1")
+        esc2, _, _, _ = await _escritorio(pool, "Zap Igual 2")
+        esc3, _, _, _ = await _escritorio(pool, "Zap Proprio")
+        igual = "zap-" + uuid.uuid4().hex
+        for esc, valor in ((esc1, igual), (esc2, igual), (esc3, "zap-" + uuid.uuid4().hex)):
+            segredo = await pool.fetchval("select vault.create_secret($1, $2)", valor, "zap-" + uuid.uuid4().hex[:8])
+            await pool.execute("insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao, config) "
+                               "values ($1::uuid, 'zapsign', $2, 'ok', '{}'::jsonb)", esc, segredo)
+        executor = Executor(pool, "https://api.helena.run", zapsign_por_token=lambda token, url: ("zap", token))
+        for esc in (esc1, esc2):
+            with pytest.raises(ErroDeCadastro, match="outro escritório"):
+                await executor._zapsign(esc)
+        zapsign, _ = await executor._zapsign(esc3)
+        assert zapsign[0] == "zap"
+    finally:
+        await repo.fechar()
+
+
 async def test_zapsign_nao_atravessa_escritorio():
     repo = await _conectar()
     pool = repo._pool

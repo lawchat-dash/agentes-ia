@@ -22,7 +22,7 @@ pytestmark = pytest.mark.skipif(not URL, reason="sem AGENTESIA_TESTE_PG_URL")
 async def _escritorio(cliente, pool, nome, token):
     escritorio = (await cliente.post("/api/admin/escritorios", json={
         "nome": nome, "id_conta_helena": str(uuid.uuid4()), "token_helena": token})).json()["escritorio"]
-    segredo = await pool.fetchval("select vault.create_secret('token-zapsign', 'teste')")
+    segredo = await pool.fetchval("select vault.create_secret($1, 'teste')", "token-zapsign-" + uuid.uuid4().hex[:8])
     await pool.execute(
         "insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao, config) values ($1::uuid, 'zapsign', $2, 'ok', $3::jsonb)",
         escritorio["id"], segredo, json.dumps({"ambiente": "producao"}))

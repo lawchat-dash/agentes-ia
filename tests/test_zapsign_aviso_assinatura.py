@@ -57,7 +57,7 @@ async def test_conectar_uma_vez_reaproveitar_e_falha_nao_grava(ambiente, monkeyp
     # Sem ZapSign conectada: 409.
     assert (await cliente.post(rota, headers=h, json={})).status_code == 409
 
-    segredo = await pool.fetchval("select vault.create_secret('token-zapsign', 'teste')")
+    segredo = await pool.fetchval("select vault.create_secret($1, 'teste')", "token-zapsign-" + uuid.uuid4().hex[:8])
     await pool.execute(
         "insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao, config) values ($1::uuid, 'zapsign', $2, 'ok', $3::jsonb)",
         escritorio["id"], segredo, json.dumps({"ambiente": "producao"}))

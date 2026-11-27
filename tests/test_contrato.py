@@ -95,7 +95,7 @@ async def test_gera_manda_link_e_confere_assinatura():
         # A fila é do banco inteiro: ações pendentes de outros testes não podem atravessar este.
         await pool.execute("update agentesia_acoes set situacao = 'cancelada' where situacao in ('pendente', 'executando')")
         token_h = await pool.fetchval("select vault.create_secret('token-helena', 'teste')")
-        token_z = await pool.fetchval("select vault.create_secret('token-zapsign', 'teste')")
+        token_z = await pool.fetchval("select vault.create_secret($1, 'teste')", "token-zapsign-" + uuid.uuid4().hex[:8])
         esc = await pool.fetchval("insert into agentesia_escritorios (nome) values ('Contratos') returning id")
         await pool.execute("insert into agentesia_integracoes (id_escritorio, tipo, id_segredo_vault, situacao) values ($1, 'helena', $2, 'ok')", esc, token_h)
         await pool.execute(
