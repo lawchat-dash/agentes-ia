@@ -540,7 +540,7 @@ export default function AdminProdutoEditor() {
     <FrasesProdutoProvider idProduto={form.id ?? null}>
     <div className="space-y-6">
       {/* HEADER */}
-      <div className="sticky top-0 z-20 -mx-4 px-4 py-3 sm:-mx-6 sm:px-6 bg-background/85 backdrop-blur-xl border-b">
+      <div className="sticky top-0 z-20 -mx-4 px-4 py-3 sm:-mx-6 sm:px-6 border-b" style={{ background: "var(--bg, #F3F6F4)" }}>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
             <Button variant="ghost" size="icon" onClick={() => navigate("/admin/produtos")} className="shrink-0">
