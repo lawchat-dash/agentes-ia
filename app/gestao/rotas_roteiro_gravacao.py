@@ -499,8 +499,16 @@ def _com_gravacao(parte: dict[str, Any], gravacoes: dict[str, dict[str, Any]]) -
     return saida
 
 
-def _resumo(partes: list[dict[str, Any]]) -> dict[str, int]:
+def _resumo(partes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Obrigatórias = vídeos e áudios principais (concluem o roteiro e liberam a ativação). Quebra de objeção é
+    opcional: fica "em aberto" para gravar depois, e o agente responde essas objeções em texto enquanto isso."""
+    obrigatorias = [p for p in partes if p["secao"] != "objecoes"]
+    objecoes = [p for p in partes if p["secao"] == "objecoes"]
+    feitas_obrig = sum(1 for p in obrigatorias if p["gravacao"])
     return {"total": len(partes), "gravadas": sum(1 for p in partes if p["gravacao"]),
+            "obrigatorias": len(obrigatorias), "obrigatorias_gravadas": feitas_obrig,
+            "objecoes": len(objecoes), "objecoes_gravadas": sum(1 for p in objecoes if p["gravacao"]),
+            "concluido": bool(obrigatorias) and feitas_obrig == len(obrigatorias),
             "videos": sum(1 for p in partes if p["tipo"] == "video"), "audios": sum(1 for p in partes if p["tipo"] == "audio"),
             "faltam_videos": sum(1 for p in partes if p["tipo"] == "video" and not p["gravacao"]),
             "faltam_audios": sum(1 for p in partes if p["tipo"] == "audio" and not p["gravacao"])}

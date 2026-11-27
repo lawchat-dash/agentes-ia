@@ -296,3 +296,27 @@ async def test_contrato_assinado_vira_midia_pos_assinatura_sem_passar_por_cima(a
                        "where id_escritorio = $1::uuid and tipo = 'zapsign'", esc["id"])
     tres = (await cliente.post(f"/api/roteiro-gravacao/partes/{parte['id']}", headers=h, json={"conteudo_base64": _b64(OGG)})).json()
     assert tres["pos_assinatura"] is False and await url_da_config() == "https://x.com/meu.mp4"
+
+
+@precisa_pg
+async def test_roteiro_conclui_so_com_os_obrigatorios(ambiente):
+    """Vídeos e áudios principais concluem o roteiro; a quebra de objeção é opcional (fica em aberto para depois)."""
+    cliente, _simulada, email_admin, banco = ambiente
+    from app.gestao.rotas_roteiro_gravacao import api
+    cliente._transport.app.include_router(api)
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    produto = await _produto(banco._pool, "Obrigatórios")
+    partes = (await cliente.post(f"/api/admin/biblioteca/produtos/{produto}/roteiro/puxar")).json()["partes"]
+    esc = (await cliente.post("/api/admin/escritorios", json={
+        "nome": "Obrig Adv", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
+    h = {"x-escritorio": esc["id"]}
+    inicio = (await cliente.get(f"/api/roteiro-gravacao/{produto}", headers=h)).json()
+    assert (inicio["obrigatorias"], inicio["objecoes"], inicio["concluido"]) == (3, 1, False)
+    for p in partes:
+        if p["secao"] != "objecoes":
+            await cliente.post(f"/api/roteiro-gravacao/partes/{p['id']}", headers=h,
+                               json={"conteudo_base64": _b64(OGG), "como_audio": p["tipo"] == "video"})
+    depois = (await cliente.get(f"/api/roteiro-gravacao/{produto}", headers=h)).json()
+    assert depois["concluido"] is True and depois["obrigatorias_gravadas"] == 3 and depois["objecoes_gravadas"] == 0
+    lista = (await cliente.get("/api/roteiro-gravacao", headers=h)).json()["produtos"]
+    assert next(x for x in lista if x["id"] == produto)["concluido"] is True

@@ -357,6 +357,9 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const [bootstrapping, setBootstrapping] = useState(false);
   // Onde a pessoa parou no rascunho do servidor (passo): usado ao retomar com ?continuar=1.
   const passoSalvo = useRef<number | null>(null);
+  // Pergunta "Áudio de objeções não encontrado" antes de ativar/salvar (ver pedirAtivar).
+  const [perguntaObjecoes, setPerguntaObjecoes] = useState(false);
+  const objecoesEmTextoOk = useRef(false);
   type Step3Tab = "campos" | "regras" | "agente" | "faq" | "objecoes" | "dados_escritorio" | "honorarios" | "conhecimento" | "integracoes" | "audios";
   const [step3Tab, setStep3Tab] = useState<Step3Tab>("agente");
   const [generalRules, setGeneralRules] = useState<string>(editData?.generalRules ?? "");
@@ -467,7 +470,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // mostra em breve). SÓ no modo CRIAR. Aqui não há planos: nenhum produto fica bloqueado por plano.
   const comingSoon = !isEdit && template?.status === "em_breve";
   // Roteiro de gravação do produto (produtos de mídia): card da lateral e gravações que combinam com os marcadores.
-  const roteiro = useRoteiroDoProduto(template?.id, isAudio && step === 3);
+  const roteiro = useRoteiroDoProduto(template?.id, isAudio && step >= 3);
 
   // Retomar o rascunho: se o escritório já tem um rascunho deste produto com conteúdo (Meus agentes › Rascunho, a volta do
   // Roteiro de gravação, ou abrir o produto de novo pela Biblioteca), carrega na hora e abre no passo onde a pessoa parou
@@ -499,6 +502,13 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template?.id, isEdit, groupId]);
+  // Trocou de passo depois do Conteúdo (Integrações, Follow-up, Revisão): guarda a posição no rascunho, para quem sair e
+  // voltar cair no mesmo passo (só mexer no conteúdo é que salvava antes).
+  useEffect(() => {
+    if (isEdit || !groupId || bootstrapping || step < 3) return;
+    void salvarRascunho();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
   useEffect(() => {
     if (!template?.id) return;
     let vivo = true;
@@ -944,6 +954,14 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   // Roteiro de gravação do produto (produtos de mídia): o card da lateral e as gravações que combinam com os marcadores.
   const sugestoesRoteiro = sugestoesDeMidia(audioMarkers, roteiro);
   /** Salva o rascunho onde parou e abre o roteiro (tela única de gravação); a volta retoma daqui. */
+  // "Áudio de objeções não encontrado": antes de ativar (ou salvar), pergunta se as objeções sem áudio vão em texto.
+  // Sim → segue; o marcador fica guardado e, quando a pessoa gravar, a Edição rápida de mídias oferece confirmar
+  // e o áudio volta a valer. "Gravar agora" → salva onde parou e abre o roteiro.
+  const pedirAtivar = () => {
+    if (isAudio && objecoesSemAudio.length > 0 && !objecoesEmTextoOk.current) { setPerguntaObjecoes(true); return; }
+    void activate();
+  };
+
   const gravarRoteiro = async () => {
     if (!template?.id) return;
     // Captura o texto que está sendo digitado no agente em foco (só com o editor montado, aba "agente").
@@ -974,6 +992,16 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const zapCfg: any = (integrations as any)?.zapsign;
   const zapStatus: "ok" | "pending" | "none" = zapCfg?.enabled ? (zapCfg.template_id ? "ok" : "pending") : "none";
   const zapModelo = (zapCfg?.templates ?? []).find((m: any) => m.id === zapCfg?.template_id)?.name;
+  // Áudio de objeção sem gravação: o motor tira o marcador vazio e o agente responde a objeção com o texto curto que já
+  // vem logo abaixo dele no roteiro. Marcadores do resto do prompt são os materiais obrigatórios do roteiro.
+  const marcadoresDeObjecao = new Set<string>();
+  objectionItems.forEach((it) => extractAudios(`${it.titulo ?? ""}\n${it.resposta ?? ""}`).forEach((m) => marcadoresDeObjecao.add(m)));
+  const objecoesSemAudio = objectionItems
+    .map((it) => ({ titulo: String(it.titulo ?? "").replace(/^OBJ\s*\d+\s*[—-]\s*/i, ""), marcadores: extractAudios(it.resposta ?? "") }))
+    .filter((it) => it.marcadores.length > 0);
+  const principaisSemAudio = audioMarkers.filter((m) => !marcadoresDeObjecao.has(m));
+  const nomeDoMarcador = (m: string) => (m.includes(":") ? m.slice(m.indexOf(":") + 1) : m);
+
   const revisao = [
     { key: "identidade", obrig: true, opcional: false, vazio: false, ok: !!name.trim(), label: "Identidade", det: !name.trim() ? "Defina o nome do agente" : !selectedWhatsapp ? `${name} · sem número ainda (conecte depois)` : `${name} · ${selectedWhatsapp}`, ir: () => setStep(1) },
     { key: "comportamento", obrig: false, opcional: false, vazio: false, ok: true, label: "Comportamento", det: llmModels.find((m) => m.id === selectedModel)?.name ?? "Modelo padrão", ir: () => setStep(2) },
@@ -983,6 +1011,12 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
     { key: "integracao", obrig: false, opcional: true, vazio: zapStatus !== "ok", ok: zapStatus === "ok", label: "Integração ZapSign", det: zapStatus === "ok" ? `Contrato: ${zapModelo ?? "modelo selecionado"}` : zapStatus === "pending" ? "Conectada, mas falta selecionar o modelo do contrato (pode ser depois)" : "Sem ZapSign por enquanto: a IA não gera o contrato sozinha (pode conectar depois)", ir: () => setStep(4) },
     { key: "faq", obrig: false, opcional: true, vazio: faqItems.length === 0, ok: true, label: "FAQ", det: faqItems.length ? `${faqItems.length} pergunta${faqItems.length > 1 ? "s" : ""}` : "Nenhuma (opcional)", ir: () => { setStep(3); setStep3Tab("faq"); } },
     { key: "followup", obrig: false, opcional: true, vazio: isEdit ? !followupEdicao?.ligado : !followupLigado, ok: true, label: "Follow-up", det: (isEdit ? followupEdicao?.ligado : followupLigado) ? `Ligado · ${(isEdit ? followupEdicao?.resumo ?? [] : fuHoras ? fuHoras.map(rotuloHoras) : fuPrevia?.resumo ?? []).join(", ") || "cadência padrão"}` : "Desligado — leads que param de responder não recebem lembrete", ir: () => setStep(5) },
+    ...(isAudio ? [{ key: "midias", obrig: false, opcional: true, vazio: principaisSemAudio.length > 0, ok: principaisSemAudio.length === 0,
+      label: "Mídias do roteiro",
+      det: principaisSemAudio.length === 0
+        ? (objecoesSemAudio.length ? `Materiais obrigatórios no lugar · ${objecoesSemAudio.length} objeç${objecoesSemAudio.length > 1 ? "ões" : "ão"} em texto até gravar` : "Todas as mídias no lugar")
+        : `Falta${principaisSemAudio.length > 1 ? "m" : ""} ${principaisSemAudio.length} material${principaisSemAudio.length > 1 ? "is" : ""} obrigatório${principaisSemAudio.length > 1 ? "s" : ""}: ${principaisSemAudio.map(nomeDoMarcador).join(", ")} (nesses pontos o agente segue só com texto)`,
+      ir: () => { setStep(3); setStep3Tab("audios"); } }] : []),
     { key: "objecoes", obrig: false, opcional: true, vazio: objectionItems.length === 0, ok: true, label: "Objeções", det: objectionItems.length ? `${objectionItems.length} cadastrada${objectionItems.length > 1 ? "s" : ""}` : "Nenhuma (opcional)", ir: () => { setStep(3); setStep3Tab("objecoes"); } },
   ];
   const pendencias = revisao.filter((i) => i.obrig && !i.ok);
@@ -2775,6 +2809,30 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
           )}
           </AnimatePresence>
 
+        <Dialog open={perguntaObjecoes} onOpenChange={setPerguntaObjecoes}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader className="text-left">
+              <DialogTitle className="flex items-center gap-2"><Headphones className="size-5 text-[#0891b2]" />Áudio de objeções não encontrado</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              {objecoesSemAudio.length === 1 ? "Uma objeção ainda não tem" : `${objecoesSemAudio.length} objeções ainda não têm`} áudio gravado.
+              Deseja substituir por objeções quebradas em texto?
+            </p>
+            <ul className="max-h-48 overflow-y-auto rounded-xl border border-border/60 bg-muted/20 p-3 space-y-1 text-[13px]">
+              {objecoesSemAudio.map((o) => <li key={o.titulo} className="flex gap-2"><span className="text-[#0891b2]">•</span>{o.titulo}</li>)}
+            </ul>
+            <p className="text-[12.5px] text-muted-foreground">
+              O agente responde essas objeções com o texto curto do roteiro, sem ocupar o prompt. Quando você gravar, é só
+              confirmar na Edição rápida de mídias e o áudio volta a valer.
+            </p>
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
+              {roteiro?.total ? <Button variant="outline" onClick={() => { setPerguntaObjecoes(false); void gravarRoteiro(); }}>Gravar agora</Button> : null}
+              <Button className="lc-continuar" onClick={() => { objecoesEmTextoOk.current = true; setPerguntaObjecoes(false); void activate(); }}>
+                Sim, usar em texto
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
         <Dialog open={followupPopup} onOpenChange={(v) => { if (!v) void fecharFollowupPopup(); }}>
           <DialogContent className="max-w-5xl w-[calc(100vw-24px)] max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
             <DialogHeader className="p-5 pb-3 text-left">
@@ -2828,7 +2886,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
             </Button>
 
           ) : (
-            <Button onClick={activate} disabled={submitting || (isEdit ? (editChanges?.total ?? 0) === 0 : !podeAtivar)} size="lg" className="lc-continuar" title={isEdit ? ((editChanges?.total ?? 0) === 0 ? "Nenhuma alteração para salvar" : "Salvar e sincronizar no agente") : (!podeAtivar ? "Resolva as pendências obrigatórias do checklist antes de continuar" : undefined)}>
+            <Button onClick={pedirAtivar} disabled={submitting || (isEdit ? (editChanges?.total ?? 0) === 0 : !podeAtivar)} size="lg" className="lc-continuar" title={isEdit ? ((editChanges?.total ?? 0) === 0 ? "Nenhuma alteração para salvar" : "Salvar e sincronizar no agente") : (!podeAtivar ? "Resolva as pendências obrigatórias do checklist antes de continuar" : undefined)}>
               {submitting ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <Rocket className="size-4 mr-1.5" />}
               {submitting ? (isEdit && !reativando ? "Salvando..." : "Ativando...") : reativando ? (selectedWhatsapp ? "Ativar produto" : "Escolha o número") : isEdit ? `Confirmar e salvar${(editChanges?.total ?? 0) > 0 ? ` (${editChanges?.total})` : ""}` : !podeAtivar ? `${pendencias.length} pendência${pendencias.length > 1 ? "s" : ""}` : "Ativar produto"}
             </Button>

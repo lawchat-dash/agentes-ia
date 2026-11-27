@@ -77,10 +77,16 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
 
   const gravadas = partes.filter((p) => p.gravacao).length;
   const total = partes.length;
+  // Obrigatórios = vídeos + áudios principais: concluem o roteiro e liberam a ativação. Quebra de objeção é opcional e
+  // fica "em aberto" para gravar depois (até lá o agente responde essas objeções em texto).
+  const obrigatorias = principais.length;
+  const obrigGravadas = principais.filter((p) => p.gravacao).length;
+  const concluido = obrigatorias > 0 && obrigGravadas === obrigatorias;
+  const objGravadas = objecoes.filter((p) => p.gravacao).length;
   const passos: { id: Passo; rotulo: string }[] = [
     ...(compacto ? [] : [{ id: "orientacoes" as Passo, rotulo: "Orientações" }]),
     { id: "principais", rotulo: "Materiais principais" },
-    ...(objecoes.length ? [{ id: "objecoes" as Passo, rotulo: "Quebra de objeção" }] : []),
+    ...(objecoes.length ? [{ id: "objecoes" as Passo, rotulo: "Quebra de objeção (opcional)" }] : []),
   ];
   const indice = passos.findIndex((p) => p.id === passo);
   const mudar = (nova: ParteRoteiro) => {
@@ -118,10 +124,14 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
       )}
 
       <div className="rg-progresso">
-        <div><span>Seu progresso</span><b className={gravadas === total ? "ok" : ""}>{gravadas} de {total} enviados</b></div>
-        <div className="rg-barra"><i style={{ width: `${total ? (gravadas / total) * 100 : 0}%` }} /></div>
+        <div><span>Materiais obrigatórios</span><b className={concluido ? "ok" : ""}>{obrigGravadas} de {obrigatorias} enviados</b></div>
+        <div className="rg-barra"><i style={{ width: `${obrigatorias ? (obrigGravadas / obrigatorias) * 100 : 0}%` }} /></div>
+        {objecoes.length > 0 && <div className="rg-progresso-extra"><span>Quebra de objeção (opcional)</span><span>{objGravadas} de {objecoes.length}</span></div>}
       </div>
-      {gravadas === total && total > 0 && <div className="rg-fim">🎉 Tudo enviado! As gravações já estão na Biblioteca, prontas para a ativação.</div>}
+      {gravadas === total && total > 0
+        ? <div className="rg-fim">🎉 Tudo enviado! As gravações já estão na Biblioteca, prontas para a ativação.</div>
+        : concluido && <div className="rg-fim">✅ Materiais obrigatórios completos: você já pode ativar o agente. As objeções ficam em aberto para
+            gravar quando quiser; até lá, o agente responde essas objeções em texto.</div>}
 
       {compacto && passos.length > 1 && (
         <div className="rg-abas">
@@ -158,7 +168,8 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
               <span>{feitas(lista)} de {lista.length}</span>
             </div>
           )}
-          {passo === "objecoes" && <p className="rg-secao-txt">Áudios para quando o lead tiver uma dúvida, insegurança ou objeção durante o atendimento.</p>}
+          {passo === "objecoes" && <p className="rg-secao-txt">Áudios para quando o lead tiver uma dúvida, insegurança ou objeção durante o atendimento.
+            São opcionais: dá para ativar o agente sem eles e gravar depois. Enquanto não houver áudio, o agente responde a objeção em texto.</p>}
           <div className="rg-cartoes">
             {lista.map((p) => (
               <CartaoParte key={p.id} parte={p} numero={partes.indexOf(p) + 1} aberto={aberta === p.id} liberado={dados.liberado}
@@ -172,10 +183,15 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
       {!compacto && (
         <div className="rg-rodape">
           {indice > 0 ? <button type="button" className="rg-btn" onClick={() => irPasso(passos[indice - 1].id)}><ArrowLeft size={15} />Voltar</button> : <span />}
-          {indice < passos.length - 1
-            ? <button type="button" className="rg-btn rg-btn--pri" onClick={() => irPasso(passos[indice + 1].id)}>
-                {passo === "orientacoes" ? "Começar a gravar" : "Próximo"}<ArrowRight size={15} /></button>
-            : voltar && <button type="button" className="rg-btn rg-btn--pri" onClick={voltar}><Check size={15} />{gravadas === total ? "Concluído" : "Salvar e sair"}</button>}
+          <div className="rg-botoes">
+            {/* Obrigatórios prontos: já dá para concluir; as objeções ficam em aberto para depois. */}
+            {voltar && concluido && passo === "principais" && objecoes.length > 0 && objGravadas < objecoes.length &&
+              <button type="button" className="rg-btn" onClick={voltar}><Check size={15} />Concluir (objeções depois)</button>}
+            {indice < passos.length - 1
+              ? <button type="button" className="rg-btn rg-btn--pri" onClick={() => irPasso(passos[indice + 1].id)}>
+                  {passo === "orientacoes" ? "Começar a gravar" : passo === "principais" && concluido ? "Gravar as objeções" : "Próximo"}<ArrowRight size={15} /></button>
+              : voltar && <button type="button" className="rg-btn rg-btn--pri" onClick={voltar}><Check size={15} />{concluido ? "Concluído" : "Salvar e sair"}</button>}
+          </div>
         </div>
       )}
       {modalConfirmar}

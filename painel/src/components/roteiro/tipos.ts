@@ -18,6 +18,10 @@ export interface ParteRoteiro {
 
 export interface ResumoRoteiro {
   total: number; gravadas: number; videos: number; audios: number; faltam_videos: number; faltam_audios: number;
+  /** Vídeos + áudios principais: concluem o roteiro e liberam a ativação. */
+  obrigatorias?: number; obrigatorias_gravadas?: number;
+  /** Quebra de objeção: opcional, fica em aberto para gravar depois (o agente usa o texto enquanto isso). */
+  objecoes?: number; objecoes_gravadas?: number; concluido?: boolean;
 }
 
 export interface RoteiroDoProduto extends ResumoRoteiro {

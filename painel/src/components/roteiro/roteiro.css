@@ -154,3 +154,5 @@
   .rg-passos span { font-size: 10.5px; }
 }
 @media (prefers-reduced-motion: reduce) { .rg-relogio i { animation: none; } }
+
+.rg-progresso-extra { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--rg-ink-3, #69786F); }

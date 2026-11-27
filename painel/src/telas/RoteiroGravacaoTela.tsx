@@ -25,13 +25,18 @@ export function TelaRoteirosGravacao() {
           ) : (
             <div className="rg-produtos">
               {dados.produtos.map((p) => {
-                const pct = p.total ? Math.round((p.gravadas / p.total) * 100) : 0;
+                // O que conta para concluir são os obrigatórios (vídeos + áudios principais); objeções são opcionais.
+                const obrig = p.obrigatorias ?? p.total;
+                const feitas = p.obrigatorias_gravadas ?? p.gravadas;
+                const pct = obrig ? Math.round((feitas / obrig) * 100) : 0;
+                const tudo = p.gravadas === p.total;
+                const pronto = p.concluido ?? tudo;
                 return (
                   <button key={p.id} type="button" className="rg-produto" onClick={() => navegar(`/roteiros/${p.id}`)}>
                     <div className="rg-produto-topo">
                       <h3>{p.nome}</h3>
-                      <span className={`selo ${p.gravadas === p.total ? "ok" : ""}`}>
-                        {p.gravadas === p.total ? "Concluído" : p.gravadas ? "Em andamento" : "Pendente"}</span>
+                      <span className={`selo ${pronto ? "ok" : ""}`}>
+                        {tudo ? "Concluído" : pronto ? "Pronto · objeções em aberto" : p.gravadas ? "Em andamento" : "Pendente"}</span>
                     </div>
                     <div className="rg-produto-num">
                       <span><Video size={13} /> <b>{p.videos}</b> vídeos</span>
@@ -39,7 +44,7 @@ export function TelaRoteirosGravacao() {
                       {p.ativado && <span>· já ativado</span>}
                     </div>
                     <div className="rg-barra"><i style={{ width: `${pct}%` }} /></div>
-                    <div className="rg-produto-pe"><span>{p.gravadas} de {p.total} enviados</span>
+                    <div className="rg-produto-pe"><span>{feitas} de {obrig} obrigatórios{p.objecoes ? ` · objeções ${p.objecoes_gravadas ?? 0}/${p.objecoes}` : ""}</span>
                       <span>{p.gravadas ? "Continuar" : "Começar"} <ArrowRight size={14} style={{ verticalAlign: -2 }} /></span></div>
                   </button>
                 );
