@@ -116,7 +116,7 @@ const Biblioteca = () => {
             </button>
           )}
         </div>
-        <div className="flex rounded-xl bg-muted/60 p-1 border border-border/60" role="radiogroup" aria-label="Ordenar">
+        <div className="lc-seg" role="radiogroup" aria-label="Ordenar">
           {[
             { v: "az", l: "A–Z", icon: ArrowDownAZ },
             { v: "za", l: "Z–A", icon: ArrowUpAZ },
@@ -127,7 +127,7 @@ const Biblioteca = () => {
               role="radio"
               aria-checked={sort === s.v}
               onClick={() => setSort(s.v as "az" | "za")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${FOCO} ${sort === s.v ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`lc-seg__op ${FOCO} ${sort === s.v ? "on" : ""}`}
             >
               <s.icon className="size-3.5" /> {s.l}
             </button>
@@ -135,7 +135,7 @@ const Biblioteca = () => {
         </div>
         {/* Filtro de mídia — só aparece quando existe variante com áudio publicada */}
         {temAudio && (
-          <div className="flex flex-wrap rounded-xl bg-muted/60 p-1 border border-border/60" role="radiogroup" aria-label="Filtrar por mídia">
+          <div className="lc-seg flex-wrap" role="radiogroup" aria-label="Filtrar por mídia">
             {[
               { v: "all", l: "Todos", icon: LayoutGrid },
               { v: "audio", l: "Com biblioteca de mídia", icon: Headphones },
@@ -147,7 +147,7 @@ const Biblioteca = () => {
                 role="radio"
                 aria-checked={modoMidia === s.v}
                 onClick={() => setModoMidia(s.v as "all" | "audio" | "texto")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${FOCO} ${modoMidia === s.v ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`lc-seg__op ${FOCO} ${modoMidia === s.v ? "on" : ""}`}
               >
                 <s.icon className="size-3.5" /> {s.l}
               </button>
