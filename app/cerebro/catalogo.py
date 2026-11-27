@@ -1447,7 +1447,8 @@ def sem_midias_repetidas(mensagens: list[dict[str, Any]], ja_enviadas: set[str])
     return resto if len(resto) < len(mensagens) and any(m["tipo"] == "texto" for m in resto) else None
 
 
-INTERNO = ("acionar tool", "transferir_para", "@agente", "@transferencia", "ferramenta:", "{{", "}}", "[[")
+# "[mídia enviada:" é como o histórico registra a mídia que a IA mandou; a IA às vezes copiava o começo dele num balão.
+INTERNO = ("acionar tool", "transferir_para", "@agente", "@transferencia", "ferramenta:", "{{", "}}", "[[", "[mídia enviada", "[midia enviada")
 
 
 def conferir(mensagens: list[dict[str, Any]], etapa: str | None = None) -> list[str]:
