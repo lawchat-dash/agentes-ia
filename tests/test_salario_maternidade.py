@@ -335,3 +335,8 @@ def test_gestante_clt_ativa_pode_ser_desqualificada():
         config = {"catalogo": {"slug": "salario-maternidade-v2"}}
     assert not turno._gestante_sem_motivo(P(), {"situacao": "gestante", "categoria": "clt_ativa"})
     assert turno._gestante_sem_motivo(P(), {"situacao": "gestante", "categoria": "desempregada"})
+
+
+def test_guia_do_assinante_da_maternidade():
+    from app.cerebro import catalogo
+    assert "MÃE" in catalogo.GUIA_DO_ASSINANTE["salario_maternidade"]

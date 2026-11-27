@@ -226,6 +226,9 @@ GUIA_DO_ASSINANTE = {
                   "(os campos sem _menor são dele; os com _menor são da criança). Adulto ou idoso assina por si: "
                   "os campos sem _menor são do próprio beneficiário."),
     "bpc_idoso": "Contrato do BPC idoso: quem assina é o idoso (os campos sem _menor são dele).",
+    "salario_maternidade": ("Contrato do Salário-Maternidade: quem assina é a MÃE (ou quem adotou), mesmo que outra pessoa "
+                            "(marido, mãe dela, outro parente) esteja conversando. Todos os campos do contrato são dela; "
+                            "nome e CPF de quem fala por ela nunca vão para o contrato."),
 }
 
 
