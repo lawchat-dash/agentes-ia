@@ -74,7 +74,7 @@ class HelenaFalsa:
     def __call__(self, pedido: httpx.Request) -> httpx.Response:
         self.pedidos.append((pedido.method, pedido.url.path))
         token = pedido.headers.get("authorization", "")
-        if token == "Bearer token-ruim-123":
+        if token.startswith("Bearer token-ruim-"):
             return httpx.Response(401, json={"error": True})
         if pedido.url.path in self.falhar:
             return httpx.Response(500, text="falhou")
@@ -274,7 +274,8 @@ async def test_falha_das_acoes_de_admin_fica_registrada(ambiente):
     cliente, falsa, banco = ambiente
     # Token recusado na criação: o escritório existe e a falha fica no histórico.
     id_conta = str(uuid.uuid4())
-    ruim = await _criar(cliente, "token-ruim-123", id_conta_helena=id_conta)
+    # Token único: o banco de teste é compartilhado e outro teste já guardou "token-ruim-123" noutro escritório.
+    ruim = await _criar(cliente, f"token-ruim-{uuid.uuid4().hex[:8]}", id_conta_helena=id_conta)
     assert ruim.status_code == 502
     id_escritorio = await banco._pool.fetchval(
         "select id from agentesia_escritorios where id_conta_helena = $1::uuid", id_conta)

@@ -16,6 +16,8 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+import uuid
+
 import pytest
 
 from app import pipeline as modulo_pipeline
@@ -132,7 +134,7 @@ async def test_editor_ativa_e_le_de_volta_delay_e_pausa(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Delay e Pausa", "token-bom-222222")
+    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Delay e Pausa", "token-bom-222222-" + uuid.uuid4().hex[:6])
     id_a, agentes = await _produto(cliente, h, "Delay")
 
     ativado = await cliente.post(f"/api/produtos-ativados/{id_a}/ativar", headers=h,
@@ -174,7 +176,7 @@ async def test_salvar_followup_sem_limites_mantem_os_do_agente(ambiente):
     cliente, _simulada, email_admin, banco = ambiente
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Limites FU", "token-bom-333333")
+    _esc, h, zapi, _oficial = await _escritorio(cliente, pool, "Limites FU", "token-bom-333333-" + uuid.uuid4().hex[:6])
     id_a, agentes = await _produto(cliente, h, "Limites")
     ativado = await cliente.post(f"/api/produtos-ativados/{id_a}/ativar", headers=h, json=_payload(agentes, zapi))
     assert ativado.status_code == 200, ativado.text

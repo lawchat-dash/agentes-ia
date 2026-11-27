@@ -102,7 +102,7 @@ async def test_ativacao_liga_o_followup_com_o_padrao_desligar_religar_e_aviso(am
     pool = banco._pool
     _incluir_rotas(cliente)
     await _entrar(cliente, email_admin, "senha-admin-123")
-    esc, h, zapi, oficial = await _escritorio(cliente, pool, "Follow-up Padrão", "token-bom-111111")
+    esc, h, zapi, oficial = await _escritorio(cliente, pool, "Follow-up Padrão", "token-bom-111111-" + uuid.uuid4().hex[:6])
     id_a, agentes_a, id_catalogo = await _produto_com_padrao(cliente, h, "Auxílio FU")
 
     # A etapa "Follow-up" do assistente mostra a cadência que vai ser copiada.
@@ -155,7 +155,7 @@ async def test_ativacao_liga_o_followup_com_o_padrao_desligar_religar_e_aviso(am
     assert (await cliente.post(f"/api/produtos-ativados/{id_b}/status", headers=h, json={"status": "pausado"})).status_code == 200
     assert (await cliente.get("/api/inicio", headers=h)).json()["followup_desligado"] == []
     # Outro escritório não liga o produto deste.
-    _esc2, h2, _z2, _o2 = await _escritorio(cliente, pool, "Follow-up Outro", "token-bom-222222")
+    _esc2, h2, _z2, _o2 = await _escritorio(cliente, pool, "Follow-up Outro", "token-bom-222222-" + uuid.uuid4().hex[:6])
     assert (await cliente.post(f"/api/produtos-ativados/{id_b}/followup/ligar-padrao", headers=h2)).status_code == 404
 
 
@@ -169,7 +169,7 @@ async def test_admin_ve_todos_e_liga_em_lote_com_registro(ambiente):
     _incluir_rotas(cliente)
     await _entrar(cliente, email_admin, "senha-admin-123")
     ids = []
-    for i, token in enumerate(("token-bom-333333", "token-bom-444444")):
+    for i, token in enumerate(("token-bom-333333-" + uuid.uuid4().hex[:6], "token-bom-444444-" + uuid.uuid4().hex[:6])):
         _esc, h, zapi, _o = await _escritorio(cliente, pool, f"Lote {i} {uuid.uuid4().hex[:4]}", token)
         id_ativado, agentes, _ = await _produto_com_padrao(cliente, h, f"Lote {i}")
         resposta = await cliente.post(f"/api/produtos-ativados/{id_ativado}/ativar", headers=h, json=_payload(agentes, zapi))
@@ -209,7 +209,7 @@ async def test_script_so_lista_sem_aplicar_e_liga_com_aplicar(ambiente, capsys):
     cliente, _simulada, email_admin, banco = ambiente
     pool = banco._pool
     await _entrar(cliente, email_admin, "senha-admin-123")
-    esc, h, zapi, _o = await _escritorio(cliente, pool, f"Script {uuid.uuid4().hex[:4]}", "token-bom-555555")
+    esc, h, zapi, _o = await _escritorio(cliente, pool, f"Script {uuid.uuid4().hex[:4]}", "token-bom-555555-" + uuid.uuid4().hex[:6])
     id_ativado, agentes, _ = await _produto_com_padrao(cliente, h, "Script")
     id_agente = (await cliente.post(f"/api/produtos-ativados/{id_ativado}/ativar", headers=h, json=_payload(agentes, zapi))).json()["id_agente"]
     await pool.execute("update agentesia_agentes set config = config - 'followup' where id = $1::uuid", id_agente)

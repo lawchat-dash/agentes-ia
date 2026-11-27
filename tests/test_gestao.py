@@ -48,7 +48,7 @@ class HelenaSimulada:
 
     def __call__(self, pedido: httpx.Request) -> httpx.Response:
         self.pedidos.append((pedido.method, pedido.url.path))
-        if pedido.headers.get("authorization") == "Bearer token-ruim-123":
+        if pedido.headers.get("authorization", "").startswith("Bearer token-ruim-"):
             return httpx.Response(401, json={"error": True})
         caminho = pedido.url.path
         if caminho == "/chat/v1/channel":
@@ -178,7 +178,7 @@ async def test_jornada_completa_do_admin_e_do_cliente(ambiente):
     assert crm["config"]["id_painel"] == "painel-1"
 
     # Token errado: avisa e não quebra.
-    ruim = await cliente.put("/api/integracoes/helena", json={"token": "token-ruim-123"})
+    ruim = await cliente.put("/api/integracoes/helena", json={"token": "token-ruim-" + uuid.uuid4().hex[:8]})
     assert ruim.status_code == 502 and "recusou o token" in ruim.json()["detail"]
     assert (await cliente.put("/api/integracoes/helena", json={"token": "token-bom-" + uuid.uuid4().hex[:8]})).status_code == 200
     await cliente.post("/api/integracoes/helena/conectar")
