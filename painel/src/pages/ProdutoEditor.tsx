@@ -216,7 +216,7 @@ const ProdutoEditor = () => {
   // o wizard de create restaura o rascunho (bootstrapPipeline) e provisiona ao ativar.
   if (product && !(product as any).weaver_agent_id) {
     const slug = (product as any).source_template?.slug;
-    if (slug) return <Navigate to={`/ativar/${slug}`} replace />;
+    if (slug) return <Navigate to={`/ativar/${slug}?continuar=1`} replace />;  // abre onde a pessoa parou
     return (
       <div className="p-8 text-center max-w-md mx-auto">
         <p className="text-muted-foreground">Este produto ainda é um rascunho e não foi ativado. Retome a ativação pela biblioteca.</p>

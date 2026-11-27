@@ -17,6 +17,7 @@ import { HANDOFF_LABELS, TOOL_LABELS, LEGACY_TOOL_LABELS } from "@/data/handoffT
 import { MarcarFraseTroca } from "./MarcarFraseTroca";
 import { rotuloFrase, COR_TRANSFERENCIA, FraseTroca, PREFIXO_TRANSFERENCIA } from "@/data/frasesTroca";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { nomeDaPasta, rotuloDaPasta } from "@/lib/pastasMidia";
 
 // Limite SUAVE (recomendado) — só p/ o contador/barra. NÃO bloqueia mais a digitação/colagem
 // (o CharacterCount entra sem `limit`), então prompts grandes podem ser colados sem truncar.
@@ -231,7 +232,7 @@ interface Props {
   /** Áudios da Biblioteca p/ o submenu inline do @ (legado — use `media`). */
   audios?: { id: string; name: string; url: string }[];
   /** TODA a mídia da Biblioteca (áudio/vídeo/imagem) p/ o submenu @ — lista e insere por tipo. */
-  media?: { id: string; name: string; url: string; type: "audio" | "video" | "image" }[];
+  media?: { id: string; name: string; url: string; type: "audio" | "video" | "image"; pasta?: string | null }[];
   /** Monta o token do áudio inserido no prompt. Default = contrato [audio:nome](url). */
   buildAudioToken?: (a: { name: string; url: string }) => string;
   /** Valores já preenchidos (Edição rápida) — realça em verde no prompt p/ identificar. */
@@ -253,7 +254,7 @@ interface Props {
   variaveis?: { nome: string; valor: string | null }[];
 }
 
-type MediaLite = { id: string; name: string; url: string; type: "audio" | "video" | "image" };
+type MediaLite = { id: string; name: string; url: string; type: "audio" | "video" | "image"; pasta?: string | null };
 const MEDIA_ICON = { audio: Music, video: Video, image: ImageIcon } as const;
 
 /**
@@ -894,6 +895,9 @@ export const RichPromptEditor = forwardRef<RichPromptEditorHandle, Props>(
                       <button key={"media-" + a.id} type="button" onMouseEnter={() => setSelIdx(i)} onMouseDown={(e) => { e.preventDefault(); acionar(r); }} title={`Inserir ${a.type === "image" ? "imagem" : a.type === "video" ? "vídeo" : "áudio"} no prompt`} className={base + " font-medium text-[#101828]"}>
                         <MIcon className="size-3.5 text-[#7c3aed] shrink-0" />
                         <span className="flex-1 truncate">{a.name}</span>
+                        {a.pasta && (
+                          <span className="max-w-[45%] truncate text-[10.5px] font-normal text-[#69786F] shrink" title={`Pasta: ${rotuloDaPasta(a.pasta)}`}>{nomeDaPasta(a.pasta)}</span>
+                        )}
                         <span className="text-[9px] font-bold uppercase tracking-wider text-[#cbd5e1] shrink-0">{a.type === "image" ? "img" : a.type}</span>
                       </button>
                     );

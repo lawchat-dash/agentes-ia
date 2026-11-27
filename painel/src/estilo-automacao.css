@@ -140,6 +140,22 @@
 .mid-previa audio { width: 100%; height: 36px; }
 .mid-acoes { display: flex; gap: 2px; margin-left: auto; }
 .mid-acoes .btn { padding: 0 8px; }
+/* Pastas da biblioteca (cartões no topo + trilha de navegação) */
+.mid-pastas { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); margin-bottom: 16px; }
+.mid-pasta { text-align: left; font: inherit; color: inherit; padding: 0; cursor: pointer; }
+.mid-pasta:hover, .mid-pasta:focus-visible { border-color: var(--acento); outline: none; }
+.mid-pasta .au-cartao-corpo { padding: 14px 16px; }
+.mid-pasta .au-cartao-cab { align-items: center; }
+.mid-pasta-seta { width: 16px; height: 16px; flex: none; color: var(--ink-3); }
+.mid-trilha { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 12px; font-size: 13px; }
+.mid-trilha-passo { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.mid-trilha button { border: 0; background: none; padding: 4px 7px; border-radius: 7px; color: var(--acento-texto); font-weight: 600;
+  display: inline-flex; align-items: center; gap: 5px; }
+.mid-trilha button:hover { background: var(--acento-suave); }
+.mid-trilha b { padding: 4px 7px; color: var(--ink); font-weight: 650; }
+.mid-trilha svg { width: 14px; height: 14px; color: var(--ink-3); }
+.mid-trilha button svg { color: inherit; }
+.mid-chip-pasta { border: 0; cursor: pointer; align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; }
 
 /* Follow-up do agente (telas/AgenteFollowup.tsx): resumo, agendados, cadência e barra de salvar */
 .fu-titulo { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0; }

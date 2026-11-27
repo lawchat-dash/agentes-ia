@@ -19,8 +19,8 @@ export function TelaFerramentas() {
           texto="Seja avisado no WhatsApp quando algo importante acontecer com um cliente: novos leads, contratos assinados e mais." />
         <Cartao icone={<Library />} cor="#7C3AED" titulo="Biblioteca de Mídia" onClick={() => navegar("/ferramentas/midia")}
           texto="Áudios, vídeos e imagens num só lugar, prontos para inserir nos prompts dos agentes." />
-        <Cartao icone={<Mic />} cor="#0891B2" titulo="Roteiros" novo onClick={() => navegar("/ferramentas/roteiros")}
-          texto="Escreva o texto que a equipe vai gravar, grave direto pelo navegador e use o áudio nos prompts." />
+        <Cartao icone={<Mic />} cor="#0891B2" titulo="Roteiros de gravação" novo onClick={() => navegar("/roteiros")}
+          texto="Grave os áudios e vídeos de cada produto pelo navegador. Eles vão para a Biblioteca e entram no prompt na ativação." />
         <Cartao icone={<FileText />} cor="#B26B00" titulo="Resumo de contrato" novo onClick={() => navegar("/ferramentas/resumo-contrato")}
           texto="Quando o contrato é assinado, a IA escreve o resumo do caso para a equipe. Ajuste o prompt, o modelo e veja o consumo por agente." />
       </div>

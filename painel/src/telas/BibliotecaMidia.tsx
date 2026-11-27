@@ -1,16 +1,18 @@
 // Ferramentas › Biblioteca de mídia (tela própria; antes era um pop-up). Os pop-ups de "Inserir mídia" dos editores
 // de prompt continuam usando components/agent/MediaLibrary.tsx. Backend: /midia (GET lista + cota, POST envia,
-// PATCH renomeia, DELETE apaga).
+// PATCH renomeia, DELETE apaga). Pastas: a coluna `pasta` ("Roteiros gravados/Auxílio-Acidente") vira cartões de pasta no
+// topo, com navegação (trilha) ao entrar; arquivos sem pasta ficam na raiz como antes.
 import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Copy, FolderOpen, Image as ImageIcon, Mic, Music, Pencil, Search, Trash2, UploadCloud, Video } from "lucide-react";
+import { ArrowLeft, ChevronRight, Copy, Folder, FolderOpen, Image as ImageIcon, Mic, Music, Pencil, Search, Trash2, UploadCloud, Video } from "lucide-react";
 import { api, enviar } from "../api";
 import { Cabecalho, Carregando, Modal, Vazio, useAcao, useAvisar, useCarregar, useConfirmar } from "../componentes/ui";
 import { useSessao } from "../sessao";
 import { arquivoParaBase64 } from "@/lib/base64";
+import { conteudoDaPasta, descreverPasta, nomeDaPasta, normalizarPasta, rotuloDaPasta, trilhaDaPasta } from "@/lib/pastasMidia";
 import "../estilo-automacao.css";
 
-interface ItemBruto { id: string; nome: string; tipo: string; url: string; mime_type: string | null; tamanho_bytes: number | null; created_at: string }
+interface ItemBruto { id: string; nome: string; tipo: string; url: string; mime_type: string | null; tamanho_bytes: number | null; created_at: string; pasta?: string | null }
 interface Lista { itens: ItemBruto[]; usado_bytes: number; limite_bytes: number }
 type Tipo = "audio" | "video" | "imagem";
 
@@ -40,6 +42,7 @@ export function TelaBibliotecaMidia() {
   const [confirmar, janelaConfirmar] = useConfirmar();
   const [filtro, setFiltro] = useState<"todos" | Tipo>("todos");
   const [texto, setTexto] = useState("");
+  const [pasta, setPasta] = useState("");
   const [arrastando, setArrastando] = useState(false);
   const [enviando, setEnviando] = useState<string | null>(null);
   const [renomear, setRenomear] = useState<ItemBruto | null>(null);
@@ -49,8 +52,15 @@ export function TelaBibliotecaMidia() {
   const deRoteiro = useMemo(() => Object.fromEntries((roteiros.dados ?? []).filter((r) => r.id_midia).map((r) => [r.id_midia as string, r.titulo])), [roteiros.dados]);
   const itens = useMemo(() => (dados?.itens ?? []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), [dados]);
   const termo = texto.trim().toLowerCase();
-  const visiveis = itens.filter((i) => (filtro === "todos" || tipoDo(i.tipo) === filtro)
-    && (!termo || i.nome.toLowerCase().includes(termo) || (deRoteiro[i.id] ?? "").toLowerCase().includes(termo)));
+  const doTipo = itens.filter((i) => filtro === "todos" || tipoDo(i.tipo) === filtro);
+  // Com busca, procura em todas as pastas (e o cartão mostra a pasta); sem busca, mostra o conteúdo da pasta aberta.
+  const conteudo = conteudoDaPasta(doTipo, pasta, (i) => i.pasta, (i) => i.nome, (i) => i.created_at);
+  const pastasVisiveis = termo ? [] : conteudo.pastas;
+  const visiveis = termo
+    ? doTipo.filter((i) => i.nome.toLowerCase().includes(termo) || (deRoteiro[i.id] ?? "").toLowerCase().includes(termo)
+      || normalizarPasta(i.pasta).toLowerCase().includes(termo))
+    : conteudo.arquivos;
+  const trilha = trilhaDaPasta(pasta);
   const contagem = (t: "todos" | Tipo) => (t === "todos" ? itens.length : itens.filter((i) => tipoDo(i.tipo) === t).length);
 
   const usado = dados?.usado_bytes ?? 0;
@@ -144,8 +154,40 @@ export function TelaBibliotecaMidia() {
         </div>
       </div>
 
+      {pasta && !termo && (
+        <nav className="mid-trilha" aria-label="Pastas">
+          <button type="button" onClick={() => setPasta("")}><ArrowLeft />Biblioteca</button>
+          {trilha.map((t, n) => (
+            <span key={t.caminho} className="mid-trilha-passo">
+              <ChevronRight aria-hidden />
+              {n === trilha.length - 1 ? <b aria-current="page">{t.nome}</b> : <button type="button" onClick={() => setPasta(t.caminho)}>{t.nome}</button>}
+            </span>
+          ))}
+        </nav>
+      )}
+
+      {dados && pastasVisiveis.length > 0 && (
+        <div className="mid-pastas">
+          {pastasVisiveis.map((p) => (
+            <button key={p.caminho} type="button" className="au-cartao mid-pasta" style={{ "--au-cor": "#00852A" } as CSSProperties}
+              onClick={() => setPasta(p.caminho)} aria-label={`Abrir a pasta ${p.nome}`}>
+              <div className="au-cartao-corpo">
+                <div className="au-cartao-cab">
+                  <span className="au-icone"><Folder /></span>
+                  <div><b title={p.nome}>{p.nome}</b><small>{descreverPasta(p)}</small></div>
+                  <ChevronRight className="mid-pasta-seta" aria-hidden />
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
       {!dados ? <Carregando erro={erro} /> : visiveis.length === 0 ? (
-        <div className="panel"><Vazio icone={<FolderOpen />}>{itens.length === 0 ? "Nenhum arquivo ainda. Envie o primeiro acima." : "Nada com esse filtro."}</Vazio></div>
+        pastasVisiveis.length > 0 ? null : (
+          <div className="panel"><Vazio icone={<FolderOpen />}>{itens.length === 0 ? "Nenhum arquivo ainda. Envie o primeiro acima."
+            : pasta && !termo ? (filtro === "todos" ? "Esta pasta está vazia." : "Nada com esse filtro nesta pasta.") : "Nada com esse filtro."}</Vazio></div>
+        )
       ) : (
         <div className="au-grade">
           {visiveis.map((i) => {
@@ -161,6 +203,10 @@ export function TelaBibliotecaMidia() {
                     <div><b title={i.nome}>{i.nome}</b>
                       <small>{t.rotulo} · {tamanho(i.tamanho_bytes ?? 0)} · {new Date(i.created_at).toLocaleDateString("pt-BR")}</small></div>
                   </div>
+                  {termo && normalizarPasta(i.pasta) && (
+                    <button type="button" className="chip ac mid-chip-pasta" title={`Abrir a pasta ${rotuloDaPasta(i.pasta)}`}
+                      onClick={() => { setPasta(normalizarPasta(i.pasta)); setTexto(""); }}><Folder size={11} />{nomeDaPasta(normalizarPasta(i.pasta))}</button>
+                  )}
                   {deRoteiro[i.id] && <span className="chip info" title={`Gravado no roteiro "${deRoteiro[i.id]}"`}><Mic size={11} />Roteiro: {deRoteiro[i.id]}</span>}
                 </div>
                 <div className="au-cartao-rodape">

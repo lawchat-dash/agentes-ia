@@ -36,6 +36,8 @@ const TelaConversas = lazy(() => import("./telas/Conversas").then((m) => ({ defa
 const TelaFerramentas = lazy(() => import("./telas/Ferramentas").then((m) => ({ default: m.TelaFerramentas })));
 const TelaRoteiro = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiro })));
 const TelaRoteiros = lazy(() => import("./telas/Roteiros").then((m) => ({ default: m.TelaRoteiros })));
+const TelaRoteirosGravacao = lazy(() => import("./telas/RoteiroGravacaoTela").then((m) => ({ default: m.TelaRoteirosGravacao })));
+const TelaRoteiroGravacao = lazy(() => import("./telas/RoteiroGravacaoTela").then((m) => ({ default: m.TelaRoteiroGravacao })));
 const TelaFollowup = lazy(() => import("./telas/Followup").then((m) => ({ default: m.TelaFollowup })));
 const TelaBibliotecaMidia = lazy(() => import("./telas/BibliotecaMidia").then((m) => ({ default: m.TelaBibliotecaMidia })));
 const TelaResumosContrato = lazy(() => import("./telas/ResumoContrato").then((m) => ({ default: m.TelaResumosContrato })));
@@ -180,6 +182,8 @@ function ComEstrutura() {
           <Route path="/historico" element={precisaEscritorio(<TelaHistorico />)} />
           <Route path="/consumo" element={precisaEscritorio(<TelaCreditos />)} />
           <Route path="/ferramentas" element={precisaEscritorio(<TelaFerramentas />)} />
+          <Route path="/roteiros" element={precisaEscritorio(<TelaRoteirosGravacao />)} />
+          <Route path="/roteiros/:produto" element={precisaEscritorio(<TelaRoteiroGravacao />)} />
           <Route path="/ferramentas/roteiros" element={precisaEscritorio(<TelaRoteiros />)} />
           <Route path="/ferramentas/followup" element={precisaEscritorio(<TelaFollowup />)} />
           <Route path="/ferramentas/midia" element={precisaEscritorio(<TelaBibliotecaMidia />)} />

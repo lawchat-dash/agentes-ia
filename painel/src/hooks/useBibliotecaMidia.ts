@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { normalizarPasta } from "@/lib/pastasMidia";
 
 /** Item da Biblioteca de Mídia (sistemaia_biblioteca_midia) no shape da UI. */
 export interface MidiaItem {
@@ -10,6 +11,8 @@ export interface MidiaItem {
   url: string;
   size_bytes: number | null;
   created_at: string;
+  /** Pasta da biblioteca ("Roteiros gravados/Auxílio-Acidente"); null = solta na raiz. */
+  pasta: string | null;
 }
 
 const TIPO_DB_TO_UI: Record<string, MidiaItem["type"]> = {
@@ -40,6 +43,7 @@ export function useBibliotecaMidia() {
         url: d.url,
         size_bytes: d.tamanho_bytes ?? null,
         created_at: d.created_at,
+        pasta: normalizarPasta(d.pasta) || null,
       }));
     },
   });

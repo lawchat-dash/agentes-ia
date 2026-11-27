@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Loader2, Music, Image as ImageIcon, Video, UploadCloud, Trash2, Plus, Copy, Pencil, RefreshCw, Search, Mic, FolderOpen,
+  Folder, ChevronRight, ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { bibliotecaMidiaKey } from "@/hooks/useBibliotecaMidia";
 import { usePlanFeatures } from "@/hooks/usePlanFeatures";
 import { toast } from "sonner";
+import { conteudoDaPasta, descreverPasta, normalizarPasta, pastaDeCima, rotuloDaPasta, trilhaDaPasta } from "@/lib/pastasMidia";
 
 /** Formata bytes em KB/MB legível. */
 const fmtBytes = (b: number) => (!b ? "0 KB" : b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
@@ -38,6 +40,8 @@ export interface MediaItem {
   mime_type: string | null;
   size_bytes: number | null;
   created_at: string;
+  /** Pasta da biblioteca ("Roteiros gravados/Auxílio-Acidente"); null = solto na raiz. */
+  pasta: string | null;
 }
 
 const TYPE_RULES: Record<MediaItem["type"], { ext: string; mime: string; icon: any }> = {
@@ -60,6 +64,7 @@ const rowToItem = (d: any): MediaItem => ({
   mime_type: d.mime_type ?? null,
   size_bytes: d.tamanho_bytes ?? null,
   created_at: d.created_at,
+  pasta: normalizarPasta(d.pasta) || null,
   webhook_response: d.resposta_webhook,
 } as MediaItem);
 
@@ -92,6 +97,7 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
   const [dragActive, setDragActive] = useState(false);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todos");
+  const [pasta, setPasta] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const autoTriggered = useRef(false);
 
@@ -118,6 +124,7 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
   useEffect(() => {
     if (open) {
       setBusca("");
+      setPasta("");
       setFiltro(uploadOnly ?? "todos");
       fetchItems();
       if (uploadOnly && !autoTriggered.current) {
@@ -256,8 +263,15 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
     image: base.filter((i) => i.type === "image").length,
   };
   const termo = busca.trim().toLowerCase();
-  const visibleItems = base.filter((it) => (filtro === "todos" || it.type === filtro)
-    && (!termo || it.name.toLowerCase().includes(termo) || (deRoteiro[it.id] ?? "").toLowerCase().includes(termo)));
+  const doTipo = base.filter((it) => filtro === "todos" || it.type === filtro);
+  // Sem busca: pastas primeiro (clicar entra) e os arquivos da pasta aberta. Com busca: procura em tudo.
+  const conteudo = conteudoDaPasta(doTipo, pasta, (it) => it.pasta, (it) => it.name, (it) => it.created_at);
+  const pastasVisiveis = termo ? [] : conteudo.pastas;
+  const visibleItems = termo
+    ? doTipo.filter((it) => it.name.toLowerCase().includes(termo) || (deRoteiro[it.id] ?? "").toLowerCase().includes(termo)
+      || (it.pasta ?? "").toLowerCase().includes(termo))
+    : conteudo.arquivos;
+  const trilha = trilhaDaPasta(pasta);
   const acceptAttr = uploadOnly === "audio" ? ".ogg,.oga,.opus,.mp3,.m4a" : uploadOnly === "video" ? ".mp4" : uploadOnly === "image" ? ".jpg,.jpeg,.png" : ".ogg,.oga,.opus,.mp3,.m4a,.mp4,.jpg,.jpeg,.png";
   const filtros: { chave: Filtro; rotulo: string }[] = uploadOnly
     ? [{ chave: uploadOnly, rotulo: TYPE_LABEL[uploadOnly] }]
@@ -346,15 +360,52 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
             </Button>
           </div>
 
+          {/* Pasta aberta: voltar + trilha */}
+          {pasta && !termo && (
+            <nav className="flex flex-wrap items-center gap-1 text-[13px]" aria-label="Pastas">
+              <button type="button" onClick={() => setPasta(pastaDeCima(pasta))}
+                className="inline-flex items-center gap-1.5 h-8 px-2.5 mr-1 rounded-lg border border-[#E2E9E4] bg-white font-semibold text-[#00852A] hover:bg-[#E6F5EB]">
+                <ArrowLeft className="size-3.5" />Voltar
+              </button>
+              <button type="button" onClick={() => setPasta("")} className="px-1.5 py-1 rounded-md font-semibold text-[#00852A] hover:bg-[#E6F5EB]">Biblioteca</button>
+              {trilha.map((t, n) => (
+                <span key={t.caminho} className="inline-flex items-center gap-1 min-w-0">
+                  <ChevronRight className="size-3.5 text-[#69786F] shrink-0" aria-hidden />
+                  {n === trilha.length - 1
+                    ? <span className="px-1.5 py-1 font-semibold text-[#0C1811] truncate" aria-current="page">{t.nome}</span>
+                    : <button type="button" onClick={() => setPasta(t.caminho)} className="px-1.5 py-1 rounded-md font-semibold text-[#00852A] hover:bg-[#E6F5EB]">{t.nome}</button>}
+                </span>
+              ))}
+            </nav>
+          )}
+
+          {/* Pastas */}
+          {pastasVisiveis.length > 0 && (
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {pastasVisiveis.map((p) => (
+                <button key={p.caminho} type="button" onClick={() => setPasta(p.caminho)} aria-label={`Abrir a pasta ${p.nome}`}
+                  className="group flex items-center gap-3 rounded-xl border border-[#E2E9E4] bg-card px-3.5 py-3 text-left transition-colors hover:border-[#00BC33] hover:bg-[#E6F5EB]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00BC33]/30">
+                  <span className="size-9 rounded-lg grid place-items-center shrink-0 bg-[#E6F5EB] text-[#00852A]"><Folder className="size-[18px]" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-[#0C1811] truncate" title={p.nome}>{p.nome}</span>
+                    <span className="block text-[11.5px] text-[#69786F] truncate">{descreverPasta(p)}</span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-[#69786F] group-hover:text-[#00852A]" />
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Arquivos */}
           {loading && items.length === 0 ? (
             <div className="grid place-items-center py-10"><Loader2 className="size-6 animate-spin text-primary" /></div>
-          ) : visibleItems.length === 0 ? (
+          ) : visibleItems.length === 0 ? (pastasVisiveis.length > 0 ? null : (
             <div className="flex items-center justify-center gap-2.5 text-sm text-muted-foreground py-7 rounded-xl bg-muted/40">
               <FolderOpen className="size-4" />
-              {base.length === 0 ? "Nenhum arquivo ainda. Envie o primeiro acima." : "Nada encontrado com esse filtro."}
+              {base.length === 0 ? "Nenhum arquivo ainda. Envie o primeiro acima."
+                : pasta && !termo ? (filtro === "todos" ? "Esta pasta está vazia." : "Nada com esse filtro nesta pasta.") : "Nada encontrado com esse filtro."}
             </div>
-          ) : (
+          )) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {visibleItems.map((it) => {
                 const Icon = TYPE_RULES[it.type].icon;
@@ -389,6 +440,12 @@ export const MediaLibrary = ({ open, onOpenChange, webhookUrl, onInsert, uploadO
                             <span className="text-[11px] text-muted-foreground tabular-nums">{fmtBytes(it.size_bytes ?? 0)}</span>
                           </div>
                           <div className="text-[11px] text-muted-foreground mt-0.5">{fmtDate(it.created_at)}</div>
+                          {termo && it.pasta && (
+                            <button type="button" onClick={() => { setPasta(it.pasta ?? ""); setBusca(""); }} title="Abrir esta pasta"
+                              className="mt-1 inline-flex max-w-full items-center gap-1 text-[11px] font-medium text-[#00852A] hover:underline">
+                              <Folder className="size-3 shrink-0" /><span className="truncate">{rotuloDaPasta(it.pasta)}</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="mt-auto flex items-center gap-1 pt-1">

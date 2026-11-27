@@ -12,6 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv
 
+# ffmpeg: converte vídeo gravado no navegador (WebM) ou do iPhone (MOV) para MP4, e áudio WAV/AAC para Ogg/Opus,
+# os formatos que o WhatsApp entrega (roteiro de gravação).
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 # Dependências de produção (pytest fica de fora da imagem).
 COPY requirements.txt /tmp/requirements.txt
 RUN grep -viE '^(pytest|pytest-asyncio)([=<>~ ]|$)' /tmp/requirements.txt > /tmp/requirements-prod.txt \

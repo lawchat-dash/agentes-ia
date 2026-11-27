@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Headphones, Music, Library, Trash2 } from "lucide-react";
+import { Headphones, Music, Library, Trash2, CheckCircle2, Clapperboard } from "lucide-react";
 import { MediaLibrary } from "./MediaLibrary";
+import type { SugestaoDeMidia } from "@/components/roteiro/RoteiroNaAtivacao";
 
 /** Token do MediaLibrary.onInsert é "[tipo:nome](url)" — extrai a URL de QUALQUER mídia
  *  (áudio, vídeo ou imagem). O marcador vira o link inline; o bot envia qualquer mídia do @. */
@@ -22,6 +23,10 @@ interface Props {
   onFill: (marker: string, url: string) => void;
   /** Excluir → remove o marcador dos textos (pra quem não tem essa mídia). */
   onRemove: (marker: string) => void;
+  /** Gravações do roteiro que preenchem cada marcador (o escritório gravou a parte certa): escutar e confirmar. */
+  sugestoes?: Record<string, SugestaoDeMidia>;
+  /** Abre o roteiro de gravação (salva o rascunho e vai para Roteiros). */
+  onGravarRoteiro?: () => void;
 }
 
 /**
@@ -29,7 +34,7 @@ interface Props {
  * de mídia, TROCA o marcador pelo LINK direto no prompt (o bot envia o link, igual o @). Espelha a
  * "Edição rápida de Prompt" ({{ }} → valor).
  */
-export const AudioSlotsPanel = ({ markers, onFill, onRemove }: Props) => {
+export const AudioSlotsPanel = ({ markers, onFill, onRemove, sugestoes = {}, onGravarRoteiro }: Props) => {
   const [picking, setPicking] = useState<string | null>(null); // marcador em escolha
 
   return (
@@ -52,18 +57,36 @@ export const AudioSlotsPanel = ({ markers, onFill, onRemove }: Props) => {
         {markers.length > 0 && <Badge variant="outline" className="text-[11px]">{markers.length} pendente{markers.length > 1 ? "s" : ""}</Badge>}
       </div>
 
+      {Object.keys(sugestoes).length > 0 && (
+        <div className="rounded-xl border border-[#a7ddb5] bg-[#f4fbf6] p-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <Clapperboard className="size-4 text-[#00852a] shrink-0" />
+            <p className="text-[13px] text-[#0b5e27]">
+              <strong>{Object.keys(sugestoes).length}</strong> {Object.keys(sugestoes).length > 1 ? "gravações do seu roteiro combinam" : "gravação do seu roteiro combina"} com os marcadores. Escute e confirme.
+            </p>
+          </div>
+          <Button type="button" size="sm" className="gap-1.5 bg-[#00852a] hover:bg-[#00701f] text-white"
+            onClick={() => Object.values(sugestoes).forEach((s) => onFill(s.marcador, s.gravacao.url))}>
+            <CheckCircle2 className="size-3.5" />Confirmar todas
+          </Button>
+        </div>
+      )}
+
       {markers.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-6 text-center">
           <div className="size-10 rounded-xl bg-muted grid place-items-center mx-auto mb-2 text-muted-foreground"><Music className="size-5" /></div>
           <p className="text-sm text-muted-foreground">Nenhum marcador de áudio pendente.</p>
+          {onGravarRoteiro && <button type="button" onClick={onGravarRoteiro} className="mt-2 text-[12.5px] font-semibold text-[#00852a] underline">Abrir o roteiro de gravação</button>}
           <p className="text-[12px] text-muted-foreground mt-1">
             No prompt, clique no botão <strong>🎵 (mídia)</strong> do editor (ou digite <code className="text-cyan-600">[[midia:nome]]</code>) onde quiser que o agente envie uma mídia.
           </p>
         </div>
       ) : (
         <div className="space-y-2">
-          {markers.map((mk) => (
-            <div key={mk} className="rounded-xl border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-3 flex-wrap">
+          {markers.map((mk) => {
+            const sug = sugestoes[mk];
+            return (
+            <div key={mk} className={`rounded-xl border p-3 flex items-center justify-between gap-3 flex-wrap ${sug ? "border-[#a7ddb5] bg-white" : "border-border/60 bg-muted/20"}`}>
               <div className="flex items-center gap-2 min-w-0">
                 <div className="size-7 rounded-lg grid place-items-center shrink-0 bg-cyan-500/10 text-cyan-600"><Headphones className="size-3.5" /></div>
                 <code className="text-[13px] font-semibold text-foreground truncate">{`[[${mk}]]`}</code>
@@ -84,11 +107,27 @@ export const AudioSlotsPanel = ({ markers, onFill, onRemove }: Props) => {
                   onClick={() => setPicking(mk)}
                 >
                   <Library className="size-3.5" />
-                  Escolher da biblioteca
+                  {sug ? "Outra da biblioteca" : "Escolher da biblioteca"}
                 </Button>
               </div>
+              {sug && (
+                <div className="basis-full flex items-center gap-3 flex-wrap rounded-lg bg-[#f4fbf6] px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#00852a]">Sua gravação do roteiro</div>
+                    <div className="text-[13px] font-semibold text-foreground truncate">{sug.titulo}</div>
+                    {sug.gravacao.qualidade && sug.gravacao.qualidade !== "boa" && <div className="text-[11px] text-[#a85b06]">Recebida com problema de som: vale ouvir antes.</div>}
+                  </div>
+                  {sug.gravacao.tipo === "video"
+                    ? <video src={sug.gravacao.url} controls preload="metadata" className="h-24 rounded-md bg-black" />
+                    : <audio src={sug.gravacao.url} controls preload="metadata" className="h-9 max-w-[260px]" />}
+                  <Button type="button" size="sm" className="gap-1.5 bg-[#00852a] hover:bg-[#00701f] text-white" onClick={() => onFill(mk, sug.gravacao.url)}>
+                    <CheckCircle2 className="size-3.5" />Confirmar
+                  </Button>
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

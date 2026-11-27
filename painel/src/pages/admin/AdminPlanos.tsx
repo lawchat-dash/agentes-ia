@@ -11,6 +11,8 @@ export interface Plano {
   bonus_acumula: boolean; ativo: boolean; ordem: number; escritorios: number;
   preco_anual_brl?: number | null; sob_proposta?: boolean; usuarios?: number; canais_whatsapp?: number; canais_instagram?: number;
   cria_agentes?: boolean; ia_inclusa?: boolean; selo?: string | null; icone?: string | null;
+  /** Libera mídia nos agentes e o roteiro de gravação (migração 019; sem ela o campo não vem). */
+  midia?: boolean;
 }
 interface Adicional { id: string; codigo: string; nome: string; descricao: string | null; preco_mensal_brl: number; icone: string | null; ativo: boolean; ordem: number }
 
@@ -54,12 +56,14 @@ export default function AdminPlanos() {
     adicionais.recarregar();
   };
   const semRecursos = planos.dados?.length ? planos.dados[0].usuarios === undefined : false;
+  // Sem a migração 019 o servidor não manda "midia": a coluna mostra "—" e o formulário esconde a chave.
+  const temMidia = planos.dados?.length ? planos.dados[0].midia !== undefined : true;
 
   return (
     <div className="stack ap-planos">
       <Cabecalho titulo="Planos" texto="Catálogo comercial: valores mensal e anual, limites e recursos."
         acoes={<button className="btn pri" onClick={() => setEditar({ codigo: "", nome: "", preco_mensal_brl: 0, bonus_mensal_brl: 0, bonus_acumula: false, ativo: true,
-          ordem: ((planos.dados?.length ?? 0) + 1) * 10, usuarios: 3, canais_whatsapp: 1, canais_instagram: 1, cria_agentes: false, ia_inclusa: false, sob_proposta: false, selo: "", icone: "raio" })}>
+          ordem: ((planos.dados?.length ?? 0) + 1) * 10, usuarios: 3, canais_whatsapp: 1, canais_instagram: 1, cria_agentes: false, ia_inclusa: false, midia: false, sob_proposta: false, selo: "", icone: "raio" })}>
           <Plus />Novo plano</button>} />
 
       <div className="ap-aviso"><Info size={16} />
@@ -71,7 +75,7 @@ export default function AdminPlanos() {
           <table className="ap-tabela">
             <thead><tr>
               <th>Plano</th><th>Mensal</th><th>Anual (1x)</th><th className="c">Usuários</th><th className="c">WA / IG</th>
-              <th className="c">Cria agentes</th><th className="c">IA inclusa</th><th>Bônus de IA</th><th className="c">Escritórios</th><th>Status</th><th className="d">Ações</th>
+              <th className="c">Cria agentes</th><th className="c">IA inclusa</th><th className="c">Mídia</th><th>Bônus de IA</th><th className="c">Escritórios</th><th>Status</th><th className="d">Ações</th>
             </tr></thead>
             <tbody>{planos.dados.map((p) => {
               const ic = ICONES_PLANO[p.icone ?? ""] ?? ICONES_PLANO.raio;
@@ -87,6 +91,7 @@ export default function AdminPlanos() {
                   <td className="c ap-mono">{p.canais_whatsapp ?? "—"} / {p.canais_instagram ?? "—"}</td>
                   <td className="c"><Sim v={p.cria_agentes} /></td>
                   <td className="c"><Sim v={p.ia_inclusa} /></td>
+                  <td className="c">{p.midia === undefined ? "—" : <Sim v={p.midia} />}</td>
                   <td className="ap-valor">{p.bonus_mensal_brl > 0 ? reais(p.bonus_mensal_brl) : "—"}</td>
                   <td className="c ap-mono">{p.escritorios}</td>
                   <td><span className={`ap-status ${p.ativo ? "on" : ""}`}>{p.ativo ? "Ativo" : "Inativo"}</span></td>
@@ -128,7 +133,7 @@ export default function AdminPlanos() {
         </div>
       )}
 
-      {editar && <EditarPlano plano={editar} aoFechar={(mudou) => { setEditar(null); if (mudou) planos.recarregar(); }} />}
+      {editar && <EditarPlano plano={editar} temMidia={temMidia} aoFechar={(mudou) => { setEditar(null); if (mudou) planos.recarregar(); }} />}
       {editarAd && <EditarAdicional item={editarAd} aoFechar={(mudou) => { setEditarAd(null); if (mudou) adicionais.recarregar(); }} />}
       {modalConfirmar}
     </div>
@@ -149,7 +154,7 @@ function Chave({ rotulo, v, aoMudar, ajuda }: { rotulo: string; v?: boolean; aoM
   );
 }
 
-function EditarPlano({ plano, aoFechar }: { plano: Partial<Plano>; aoFechar: (mudou: boolean) => void }) {
+function EditarPlano({ plano, temMidia, aoFechar }: { plano: Partial<Plano>; temMidia: boolean; aoFechar: (mudou: boolean) => void }) {
   const { ocupado, executar } = useAcao();
   const [p, setP] = useState<Partial<Plano>>(plano);
   const [anualManual, setAnualManual] = useState(plano.preco_anual_brl != null);
@@ -163,6 +168,7 @@ function EditarPlano({ plano, aoFechar }: { plano: Partial<Plano>; aoFechar: (mu
       usuarios: Number(p.usuarios ?? 0), canais_whatsapp: Number(p.canais_whatsapp ?? 0), canais_instagram: Number(p.canais_instagram ?? 0),
       cria_agentes: Boolean(p.cria_agentes), ia_inclusa: Boolean(p.ia_inclusa), selo: p.selo ?? "", icone: p.icone ?? "",
     };
+    if (temMidia) corpo.midia = Boolean(p.midia);
     if (anualManual) corpo.preco_anual_brl = Number(p.preco_anual_brl ?? anualAuto);
     if (novo) await enviar("/admin/planos", { ...corpo, codigo: p.codigo, selo: p.selo || null, icone: p.icone || null });
     else await enviar(`/admin/planos/${plano.id}`, { ...corpo, limpar_preco_anual: !anualManual }, "PATCH");
@@ -210,6 +216,7 @@ function EditarPlano({ plano, aoFechar }: { plano: Partial<Plano>; aoFechar: (mu
           <Chave rotulo="Cria agentes" ajuda="Pode montar agentes próprios." v={p.cria_agentes} aoMudar={(v) => mudar({ cria_agentes: v })} />
           <Chave rotulo="IA inclusa" ajuda="Ativação dos agentes já vem no plano." v={p.ia_inclusa} aoMudar={(v) => mudar({ ia_inclusa: v })} />
         </div>
+        {temMidia && <Chave rotulo="Mídia e roteiros" ajuda="Libera mídia nos agentes e o roteiro de gravação." v={p.midia} aoMudar={(v) => mudar({ midia: v })} />}
         <div className="ap-form-grade">
           <Campo rotulo="Bônus mensal de IA (R$)" ajuda="Crédito de consumo da IA renovado todo mês.">
             <input inputMode="decimal" value={String(p.bonus_mensal_brl ?? 0).replace(".", ",")} onChange={(e) => mudar({ bonus_mensal_brl: numero(e.target.value) })} /></Campo>

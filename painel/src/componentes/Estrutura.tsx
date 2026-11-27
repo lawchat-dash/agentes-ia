@@ -10,6 +10,7 @@ import { MotionConfig, motion } from "framer-motion";
 import {
   BarChart3, Cpu, Workflow, Activity, AlertOctagon, Headset, BellRing, BookOpen, Bot, Building2, ChevronDown, ChevronRight, History, Home, LayoutGrid, Library,
   CreditCard, LogOut, Target, Menu, MessagesSquare, Package, ShieldCheck, Wrench, PanelLeftClose, PanelLeftOpen, PlugZap, Search, Settings, Users, Wallet, X,
+  Mic,
 } from "lucide-react";
 import { NOME_PAPEL, type Agente } from "../api";
 import iconeLawChat from "@/assets/lawchat-icone.svg";
@@ -434,10 +435,11 @@ interface GrupoDoMenu { prefixo: string | string[]; filhos: { para: string; rotu
 const dentroDo = (g: GrupoDoMenu, caminho: string) => (Array.isArray(g.prefixo) ? g.prefixo : [g.prefixo]).some((p) => caminho.startsWith(p));
 const GRUPOS_DO_MENU: Record<string, GrupoDoMenu> = {
   "/meus-produtos": {
-    prefixo: ["/meus-produtos", "/agentes", "/biblioteca", "/ferramentas", "/ativar", "/produtos", "/chatbots"],
+    prefixo: ["/meus-produtos", "/agentes", "/biblioteca", "/ferramentas", "/ativar", "/produtos", "/chatbots", "/roteiros"],
     filhos: [
       { para: "/meus-produtos", rotulo: "Agentes Inteligentes", icone: <Bot size={16} /> },
       { para: "/biblioteca", rotulo: "Biblioteca", icone: <Library size={16} /> },
+      { para: "/roteiros", rotulo: "Roteiros de gravação", icone: <Mic size={16} /> },
       { para: "/ferramentas", rotulo: "Ferramentas", icone: <Wrench size={16} /> },
       { para: "/chatbots", rotulo: "Chatbots", icone: <Cpu size={16} /> },
     ],

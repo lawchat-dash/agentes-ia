@@ -1,0 +1,155 @@
+"""Roteiro de gravação por produto (migração 019): partes no admin, gravação do escritório, parte geral e plano."""
+import base64
+import os
+import shutil
+import subprocess
+import tempfile
+import uuid
+
+import pytest
+
+from app.gestao.rotas_roteiro_gravacao import marcadores_do_texto, normalizar
+
+URL_PG = os.environ.get("AGENTESIA_TESTE_PG_URL")
+precisa_pg = pytest.mark.skipif(not URL_PG, reason="sem AGENTESIA_TESTE_PG_URL")
+precisa_ffmpeg = pytest.mark.skipif(not shutil.which("ffmpeg"), reason="sem ffmpeg")
+
+if URL_PG:
+    from tests.test_gestao import _entrar, ambiente  # noqa: F401  (fixture do painel com Postgres local)
+
+OGG = b"OggS" + b"\x00" * 60
+
+
+def test_marcadores_e_normalizacao():
+    texto = "Envie [[audio:Honorários]] e depois \\[\\[video:Video Inicial\\]\\]. De novo [[áudio: honorarios ]] [[midia:objecao_caro]]"
+    assert marcadores_do_texto(texto) == [("audio", "Honorários"), ("video", "Video Inicial"), ("audio", "objecao_caro")]
+    assert normalizar(" Honorários_ ") == "honorarios"
+
+
+def _b64(dados: bytes) -> str:
+    return base64.b64encode(dados).decode()
+
+
+def _video_webm() -> bytes:
+    with tempfile.TemporaryDirectory() as pasta:
+        destino = os.path.join(pasta, "v.webm")
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
+                        "-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", "-c:v", "libvpx", "-c:a", "libopus", destino],
+                       check=True)
+        with open(destino, "rb") as arquivo:
+            return arquivo.read()
+
+
+async def _produto(pool, nome: str) -> str:
+    produto = str(await pool.fetchval(
+        """insert into agentesia_biblioteca_produtos (slug, nome, status, modo_midia, faq)
+           values ($1, $2, 'publicado', 'audio', $3::jsonb) returning id""",
+        f"teste-{uuid.uuid4().hex[:8]}", nome, '[{"pergunta": "Quanto custa?", "resposta": "[[audio:Honorários]]"}]'))
+    await pool.execute(
+        """insert into agentesia_biblioteca_agentes (id_produto_biblioteca, papel, nome_exibicao, texto_prompt)
+           values ($1::uuid, 'sdr', 'SDR', $2)""",
+        produto, "Comece com [[video:Video Inicial]].\nDepois [[audio:Como funciona]] e se achar caro [[audio:objecao_caro]].")
+    return produto
+
+
+@precisa_pg
+async def test_roteiro_do_admin_a_gravacao(ambiente):
+    cliente, _simulada, email_admin, banco = ambiente
+    from app.gestao.rotas_roteiro_gravacao import api
+    cliente._transport.app.include_router(api)
+    await _entrar(cliente, email_admin, "senha-admin-123")
+    pool = banco._pool
+    escritorio = (await cliente.post("/api/admin/escritorios", json={
+        "nome": "Roteiro Adv", "id_conta_helena": str(uuid.uuid4()), "token_helena": "token-bom-" + uuid.uuid4().hex[:8]})).json()["escritorio"]
+    h = {"x-escritorio": escritorio["id"]}
+    a = await _produto(pool, "Auxílio Teste")
+    b = await _produto(pool, "BPC Teste")
+
+    # Admin: marcadores achados nos textos do produto e dos agentes; "puxar" cria uma parte para cada.
+    r = (await cliente.get(f"/api/admin/biblioteca/produtos/{a}/roteiro")).json()
+    assert [(m["tipo"], m["nome"]) for m in r["marcadores"]] == [
+        ("audio", "Honorários"), ("video", "Video Inicial"), ("audio", "Como funciona"), ("audio", "objecao_caro")]
+    puxado = (await cliente.post(f"/api/admin/biblioteca/produtos/{a}/roteiro/puxar")).json()
+    assert puxado["criadas"] == 4 and all(m["tem_parte"] for m in puxado["marcadores"])
+    secoes = {p["marcador"]: (p["tipo"], p["secao"]) for p in puxado["partes"]}
+    assert secoes["Video Inicial"] == ("video", "videos") and secoes["objecao_caro"] == ("audio", "objecoes")
+    assert (await cliente.post(f"/api/admin/biblioteca/produtos/{a}/roteiro/puxar")).json()["criadas"] == 0
+
+    # O vídeo inicial é parte geral (mesma chave nos dois produtos); o texto fica editável.
+    video_a = next(p for p in puxado["partes"] if p["marcador"] == "Video Inicial")
+    mudada = (await cliente.patch(f"/api/admin/roteiro/partes/{video_a['id']}",
+                                  json={"chave_geral": "Vídeo inicial", "texto": "Olá, eu sou..."})).json()
+    assert mudada["chave_geral"] == "video_inicial"
+    await cliente.post(f"/api/admin/biblioteca/produtos/{b}/roteiro/puxar")
+    partes_b = (await cliente.get(f"/api/admin/biblioteca/produtos/{b}/roteiro")).json()["partes"]
+    video_b = next(p for p in partes_b if p["marcador"] == "Video Inicial")
+    await cliente.patch(f"/api/admin/roteiro/partes/{video_b['id']}", json={"chave_geral": "video_inicial"})
+    assert (await cliente.put(f"/api/admin/biblioteca/produtos/{a}/roteiro/orientacoes", json={"texto": "Grave num lugar calmo."})).status_code == 200
+
+    # Escritório: lista com progresso.
+    meus = (await cliente.get("/api/roteiro-gravacao", headers=h)).json()
+    assert meus["liberado"] is True
+    item_a = next(p for p in meus["produtos"] if p["id"] == a)
+    assert (item_a["total"], item_a["gravadas"], item_a["videos"], item_a["audios"]) == (4, 0, 1, 3)
+    detalhe = (await cliente.get(f"/api/roteiro-gravacao/{a}", headers=h)).json()
+    assert detalhe["produto"]["roteiro_orientacoes"] == "Grave num lugar calmo."
+
+    # Grava o áudio dos honorários: entra na biblioteca na pasta do produto, com o nome da parte.
+    honorarios = next(p for p in detalhe["partes"] if p["marcador"] == "Honorários")
+    g = await cliente.post(f"/api/roteiro-gravacao/partes/{honorarios['id']}", headers=h,
+                           json={"conteudo_base64": _b64(OGG), "mime": "audio/ogg", "duracao_s": 12, "qualidade": "boa"})
+    assert g.status_code == 200, g.text
+    grav = g.json()["gravacao"]
+    assert grav["url"].endswith(".ogg") and grav["qualidade"] == "boa"
+    midia = await pool.fetchrow("select nome, pasta from agentesia_biblioteca_midia where id = $1::uuid", grav["id_midia"])
+    assert midia["pasta"] == "Roteiros gravados/Auxílio Teste" and midia["nome"].endswith("Honorários")
+
+    # Regravar substitui (uma gravação por parte) e apaga o arquivo antigo.
+    g2 = (await cliente.post(f"/api/roteiro-gravacao/partes/{honorarios['id']}", headers=h,
+                             json={"conteudo_base64": _b64(OGG), "mime": "audio/ogg"})).json()["gravacao"]
+    assert g2["id_midia"] != grav["id_midia"]
+    assert not await pool.fetchval("select 1 from agentesia_biblioteca_midia where id = $1::uuid", grav["id_midia"])
+    assert await pool.fetchval("select count(*) from agentesia_roteiro_gravacoes where id_escritorio = $1::uuid", escritorio["id"]) == 1
+
+    # Áudio numa parte de vídeo é recusado; com "trocar por áudio" entra.
+    assert (await cliente.post(f"/api/roteiro-gravacao/partes/{video_a['id']}", headers=h,
+                               json={"conteudo_base64": _b64(OGG), "mime": "audio/ogg"})).status_code == 400
+    troca = await cliente.post(f"/api/roteiro-gravacao/partes/{video_a['id']}", headers=h,
+                               json={"conteudo_base64": _b64(OGG), "mime": "audio/ogg", "como_audio": True})
+    assert troca.status_code == 200, troca.text
+
+    # Parte geral: gravada no produto A, já aparece como feita (reaproveitada) no produto B.
+    no_b = (await cliente.get(f"/api/roteiro-gravacao/{b}", headers=h)).json()
+    vb = next(p for p in no_b["partes"] if p["marcador"] == "Video Inicial")
+    assert vb["gravacao"] and vb["gravacao"]["reaproveitada"] is True
+    assert no_b["gravadas"] == 1
+
+    # Apagar a gravação.
+    assert (await cliente.delete(f"/api/roteiro-gravacao/partes/{honorarios['id']}", headers=h)).json()["ok"] is True
+    assert (await cliente.get(f"/api/roteiro-gravacao/{a}", headers=h)).json()["gravadas"] == 1
+
+    # Plano sem mídia: não grava.
+    plano = await pool.fetchval("insert into agentesia_planos (codigo, nome, midia) values ($1, 'Básico', false) returning id",
+                                f"p{uuid.uuid4().hex[:6]}")
+    await pool.execute("""insert into agentesia_carteiras (id_escritorio, id_plano) values ($1::uuid, $2)
+                          on conflict (id_escritorio) do update set id_plano = excluded.id_plano""", escritorio["id"], plano)
+    # A equipe LawChat sempre pode; o gestor do escritório não.
+    gestor = f"gestor-{uuid.uuid4().hex[:6]}@teste.com"
+    from app.gestao import seguranca
+    await pool.execute("insert into agentesia_usuarios (email, nome, senha_hash, papel, id_escritorio) values ($1, 'G', $2, 'gestor', $3::uuid)",
+                       gestor, seguranca.gerar_hash("senha-gestor-123"), escritorio["id"])
+    await cliente.post("/api/sair")
+    await _entrar(cliente, gestor, "senha-gestor-123")
+    bloqueado = (await cliente.get("/api/roteiro-gravacao")).json()
+    assert bloqueado["liberado"] is False and "Básico" in bloqueado["motivo"]
+    assert (await cliente.post(f"/api/roteiro-gravacao/partes/{honorarios['id']}",
+                               json={"conteudo_base64": _b64(OGG)})).status_code == 403
+
+
+@precisa_ffmpeg
+async def test_video_do_navegador_vira_mp4():
+    from app.gestao.rotas_roteiro_gravacao import preparar_arquivo
+    mp4, extensao = await preparar_arquivo(_video_webm(), "video", "video/webm", "gravacao.webm")
+    assert extensao == "mp4" and mp4[4:8] == b"ftyp"
+    ogg, ext_audio = await preparar_arquivo(_video_webm(), "audio", "video/webm", "x.webm")
+    assert ext_audio == "ogg" and ogg[:4] == b"OggS"
