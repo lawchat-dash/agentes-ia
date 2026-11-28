@@ -8,6 +8,7 @@ import {
 import { api, enviar, quando, type Agente } from "../api";
 import { Alerta, Carregando, Interruptor, Painel, Vazio, useAcao, useAvisar, useCarregar } from "../componentes/ui";
 import { useSessao } from "../sessao";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DashboardFollowup, HistoricoFollowup } from "./Followup";
 import BotaoBrilho from "@/components/reactbits/BotaoBrilho";
 import { LIMITE_ETAPA_FOLLOWUP, LIMITE_PROMPT_FOLLOWUP, PromptFollowupEditor, type VariavelFollowup } from "@/components/followup/PromptFollowupEditor";
@@ -37,6 +38,8 @@ type Resposta = Config & { reprogramacao?: { reprogramados: number; cancelados: 
 
 const DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 const SEM_FOLLOWUP = new Set(["desqualificado", "contrato_assinado"]);
+/** Resultados: quantos itens cada lista mostra; o resto fica no pop-up "Ver mais", com filtros. */
+const MOSTRAR = 10;
 const MIN_H = 10 / 60;
 const MAX_H = 24 * 90;
 
@@ -261,6 +264,7 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
   const [previas, setPrevias] = useState<Record<number, string[]>>({});
   const [tentPrevia, setTentPrevia] = useState(0);
   const [dias, setDias] = useState(30);
+  const [verTodos, setVerTodos] = useState<string | null>(null);
   const [aba, setAba] = useState<Aba>("cadencia");
   const [inicio, setInicio] = useState(0);
   useEffect(() => { if (dados) setC(dados.config); }, [dados]);
@@ -285,6 +289,7 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
   const etapasMarcadas = c.etapas.filter((e) => codigosPossiveis.includes(e));
   const mudarPasso = (i: number, p: Partial<Passo>) => setC({ ...c, passos: c.passos.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   const totalPassos = c.passos.length;
+  const enviadosRecentes = dados.recentes.filter((r) => r.situacao === "enviado");
   const limites: Limites = c.limites ?? { max_toques_sem_resposta: 0, oferecer_parar: false, lead_parado_apos: 3 };
   const mudarLimites = (l: Partial<Limites>) => setC({ ...c, limites: { ...limites, ...l } });
   const horasOrd = c.passos.map((p) => p.apos_horas).sort((a, b) => a - b);
@@ -652,11 +657,11 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
         <DashboardFollowup dias={dias} agente={agente.id} compacto />
         <div className="fu2-g3">
           <div className="fu2-card fu2-painel" style={d(6)}>
-            <div className="fu2-ph"><h3><CalendarClock size={16} className="c-azul" />Próximos agendados</h3><span className="fu2-tot">{dados.proximos.length}</span></div>
+            <div className="fu2-ph"><h3><CalendarClock size={16} className="c-azul" />Próximos agendados</h3><span className="fu2-tot">{dados.proximos.length >= 30 ? "30+" : dados.proximos.length}</span></div>
             {dados.proximos.length === 0 ? <Vazio icone={<CalendarClock />}>{ligadoSalvo
               ? "Nenhum follow-up agendado agora. Ele é agendado depois de cada resposta da IA, para quem está numa etapa com follow-up."
               : "Nada agendado: o follow-up está desligado."}</Vazio> : (
-              <div className="fu2-agendados">{dados.proximos.map((p, i) => (
+              <div className="fu2-agendados">{dados.proximos.slice(0, MOSTRAR).map((p, i) => (
                 <div key={i} className="fu2-ag">
                   <span className="av">{(p.nome || "?").slice(0, 1).toUpperCase()}</span>
                   <div><b>{p.nome || "Lead sem nome"}</b>
@@ -665,11 +670,12 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
                   <div className="contagem"><b>{p.situacao === "reservado" ? "agora" : quando(p.agendado_para)}</b><small>{p.situacao === "reservado" ? "enviando" : "previsto"}</small></div>
                 </div>))}
               </div>)}
+            {dados.proximos.length > MOSTRAR && <button type="button" className="fu2-ver-mais" onClick={() => setVerTodos("agendado")}>Ver todos os agendados</button>}
           </div>
           <div className="fu2-card fu2-painel" style={d(7)}>
-            <div className="fu2-ph"><h3><Send size={16} className="c-verde" />Últimos enviados e cancelados</h3></div>
-            {dados.recentes.length === 0 ? <Vazio>Nenhum follow-up enviado ou cancelado ainda.</Vazio> : (
-              <div className="fu2-recentes">{dados.recentes.map((r, i) => {
+            <div className="fu2-ph"><h3><Send size={16} className="c-verde" />Últimos enviados</h3></div>
+            {enviadosRecentes.length === 0 ? <Vazio>Nenhum follow-up enviado ainda.</Vazio> : (
+              <div className="fu2-recentes">{enviadosRecentes.slice(0, MOSTRAR).map((r, i) => {
                 const textos = Array.isArray(r.mensagens) ? (r.mensagens as unknown[]).filter((m): m is string => typeof m === "string") : [];
                 const cls = r.situacao === "enviado" ? "ok" : r.situacao === "falhou" ? "bad" : "no";
                 return (
@@ -682,8 +688,20 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
                     {r.situacao === "enviado" && textos.length > 0 && <div className="txt">“{textos.join(" ")}”</div>}
                   </div>);
               })}</div>)}
+            <button type="button" className="fu2-ver-mais" onClick={() => setVerTodos("enviado")}>Ver mais, com filtros</button>
           </div>
         </div>
+        <Dialog open={verTodos !== null} onOpenChange={(v) => { if (!v) setVerTodos(null); }}>
+          <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+            <DialogHeader className="p-6 pb-3 text-left space-y-1">
+              <DialogTitle className="flex items-center gap-2"><History className="size-5 text-slate-500" />Follow-ups de {agente.nome || "este agente"}</DialogTitle>
+              <DialogDescription>Filtre por situação ou busque o lead. Clique numa linha para ver a mensagem.</DialogDescription>
+            </DialogHeader>
+            <div className="px-6 pb-6 overflow-y-auto">
+              {verTodos !== null && <HistoricoFollowup key={verTodos} dias={dias} agente={agente.id} situacaoInicial={verTodos} comBusca />}
+            </div>
+          </DialogContent>
+        </Dialog>
       </section>}
 
       {/* ===== Histórico ===== */}

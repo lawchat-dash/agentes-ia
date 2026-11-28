@@ -81,9 +81,9 @@ export function TelaVozesProntas() {
         <>
           {!carga.liberado && <div className="rg-bloqueado"><Lock size={16} /><span>{carga.motivo}</span></div>}
           {carga.vozes.length === 0 ? (
-            <div className="panel">
+            <div className="panel vp-vazio">
               <Vazio icone={<Headphones />}>As vozes prontas ainda não estão disponíveis. Enquanto isso, você pode gravar o roteiro com a sua voz.</Vazio>
-              <div className="flex justify-center mt-3"><button type="button" className="btn pri" onClick={() => navegar("/roteiros")}><Mic />Gravar o roteiro</button></div>
+              <div className="vp-vazio-acao"><button type="button" className="btn pri" onClick={() => navegar("/roteiros")}><Mic />Gravar o roteiro</button></div>
             </div>
           ) : (
             <div className="vp"><div className="vp-galeria" ref={galeria}>

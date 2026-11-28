@@ -103,3 +103,8 @@
 
 .vp-aviso--valor { color: #8a5a00; }
 .vp-aviso--valor b { font-weight: 600; }
+
+/* Sem vozes ainda: aviso e o botão de gravar dentro do cartão, com respiro embaixo. */
+.panel.vp-vazio { display: flex; flex-direction: column; align-items: center; height: auto; overflow: visible; padding-bottom: 28px; }
+.panel.vp-vazio .vazio { align-self: stretch; padding-bottom: 12px; }
+.vp-vazio-acao { display: flex; justify-content: center; }

@@ -160,8 +160,10 @@ function ListaAgentes({ visao, erro, aoMudar }: { visao: Visao | null; erro: str
 }
 
 // --------------------------------------------------------------------------- histórico
-export function HistoricoFollowup({ dias, agentes, agente, compacto = false }: { dias: number; agentes?: AgenteFu[]; agente?: string; compacto?: boolean }) {
-  const [situacao, setSituacao] = useState("");
+export function HistoricoFollowup({ dias, agentes, agente, compacto = false, situacaoInicial = "", comBusca }: {
+  dias: number; agentes?: AgenteFu[]; agente?: string; compacto?: boolean; situacaoInicial?: string; comBusca?: boolean;
+}) {
+  const [situacao, setSituacao] = useState(situacaoInicial);
   const [doAgente, setDoAgente] = useState("");
   const [texto, setTexto] = useState("");
   const [aberto, setAberto] = useState<string | null>(null);
@@ -189,7 +191,7 @@ export function HistoricoFollowup({ dias, agentes, agente, compacto = false }: {
             {agentes.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
           </select>
         )}
-        {!compacto && <label className="au-busca"><Search /><input className="inp" placeholder="Buscar lead (nome ou número)" aria-label="Buscar lead" value={texto} onChange={(e) => setTexto(e.target.value)} /></label>}
+        {(comBusca ?? !compacto) && <label className="au-busca"><Search /><input className="inp" placeholder="Buscar lead (nome ou número)" aria-label="Buscar lead" value={texto} onChange={(e) => setTexto(e.target.value)} /></label>}
       </div>
       {!dados ? <Carregando erro={erro} /> : dados.itens.length === 0 ? (
         <div className="panel"><Vazio icone={<History />}>Nenhum follow-up nesse filtro nos últimos {dias} dias.</Vazio></div>

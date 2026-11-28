@@ -496,6 +496,8 @@
 .fu2-ag .contagem { text-align: right; }
 .fu2-ag .contagem b { font-size: 14px; font-weight: 700; color: var(--brand-800); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fu2-recentes { display: flex; flex-direction: column; margin-top: 6px; }
+.fu2-ver-mais { align-self: center; margin-top: 4px; padding: 7px 16px; border-radius: 10px; border: 1px solid var(--line, #e2e8f0); background: #fff; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; transition: background .15s, border-color .15s; }
+.fu2-ver-mais:hover { background: #f1f8f3; border-color: #9fd9ae; }
 .fu2-it { padding: 11px 0; border-top: 1px solid var(--fu-soft); min-width: 0; }
 .fu2-it:first-child { border-top: 0; }
 .fu2-it .l1 { display: flex; gap: 6px 8px; align-items: center; flex-wrap: wrap; }
