@@ -1956,8 +1956,11 @@ def _variaveis_sem_valor(entrada: Entrada, saida: Saida, etapa: str, faltam: lis
     _gravar_marca(saida, MARCA_VARIAVEIS_SEM_VALOR, vistos, novos)
 
 
-_PERGUNTA_DE_SIM = re.compile(r"^(?:\w+ )?(?:podemos|posso|vamos|pode|quer|gostaria|deseja|tudo bem|faz sentido|"
-                              r"conseguiu|ficou claro|topa|bora|seguimos|vamos seguir)\b|\b(?:tudo bem|pode ser|"
+# Só licença para seguir ("Podemos iniciar a coleta?", "Faz sentido?"). Pedido de dado no formato de pergunta ("Pode me
+# passar o nome completo?", "Quer me mandar a foto?") não é: no piloto de 28/11 ele segurou a troca à toa.
+_PERGUNTA_DE_SIM = re.compile(r"^(?:\w+ )?(?:(?:podemos|vamos|quer|gostaria de|deseja) (?:seguir|iniciar|comecar|continuar|"
+                              r"prosseguir|avancar|fechar)|posso (?:te |lhe )?(?:explicar|mostrar|seguir)|faz sentido|"
+                              r"conseguiu entender|ficou claro|tudo bem|topa|bora|seguimos)\b|\b(?:tudo bem|pode ser|"
                               r"podemos seguir|podemos iniciar|podemos comecar|faz sentido)$")
 
 
