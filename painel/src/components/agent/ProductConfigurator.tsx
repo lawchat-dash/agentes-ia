@@ -422,6 +422,8 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
         integracoes: integrations, numero_ia: selectedWhatsapp || null,
         rascunho,
       }, "PATCH");
+      // Salvo no servidor: o rascunho local não tem mais nada a recuperar (evita oferecer uma versão mais velha).
+      rascunhoLocal.limpar();
     } catch (e: any) {
       console.warn("[rascunho] falha ao salvar", e?.message);
     }
@@ -652,7 +654,9 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
   const rascunhoLocal = useRascunhoLocal<RascunhoWizard>({
     chave: isEdit
       ? (editData?.groupId ? `produto:${editData.groupId}` : null)
-      : (workspace?.id && template?.id ? `ativar:${workspace.id}:${template.id}` : null),
+      // Uma chave por ATIVAÇÃO (o rascunho do servidor, groupId): antes era por produto, e o rascunho local de uma
+      // ativação antiga aparecia como "alterações não salvas" numa nova e, recuperado, trocava o trabalho atual.
+      : (workspace?.id && template?.id && groupId ? `ativar:${workspace.id}:${template.id}:${groupId}` : null),
     // Edição: o estado inicial já vem do servidor. Ativação: só depois do bootstrap do rascunho.
     habilitado: isEdit ? !!editData : !!groupId && !bootstrapping,
     obter: obterRascunhoLocal,
