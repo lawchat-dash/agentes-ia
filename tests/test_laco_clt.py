@@ -278,3 +278,16 @@ def test_cpf_valido_da_fala_vira_fato():
     s3 = turno.Saida()
     turno._cpf_da_fala(entrada(["12345678900"], etapa="contratos", historico=[]), s3)
     assert "cpf" not in s3.fatos_depois
+
+
+def test_fotos_de_documento_com_texto_do_caso_nao_e_suspeito():
+    from datetime import datetime, timedelta
+    from app.canal import suspeito
+
+    t0 = datetime(2026, 11, 28, 10, 0)
+    fotos = [{"autor": "ia", "tipo": "texto", "texto": "Em qual ano aconteceu o acidente?", "enviada_em": t0}] + [
+        {"autor": "lead", "tipo": "imagem", "texto": "", "enviada_em": t0 + timedelta(seconds=10 + i)} for i in range(6)]
+    assert suspeito.avaliar(fotos).motivo == "so_midia"
+    fotos.append({"autor": "lead", "tipo": "texto", "texto": "Então, foi do acidente, minha mão ficou com dor e limitação",
+                  "enviada_em": t0 + timedelta(seconds=30)})
+    assert suspeito.avaliar(fotos) is None

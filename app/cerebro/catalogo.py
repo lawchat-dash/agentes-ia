@@ -849,7 +849,10 @@ REGRA_ENCERRAMENTO = """Encerramento
 - Esta etapa encerra o atendimento: não retome a qualificação, não diga que agora o caso pode seguir, não peça nome,
   dados ou documentos.
 - O resumo do que o lead contou usa só o que ele disse. O motivo é o motivo real da desqualificação, que está na
-  conversa, nunca um exemplo do roteiro.
+  conversa, nunca um exemplo do roteiro. Nunca diga que ele tem advogado, é aposentado, recebe benefício ou não tem
+  sequela se ele não disse isso com as próprias palavras (teste real de 28/11: "seu caso já está com outro advogado"
+  para quem nunca falou de advogado). Sem motivo claro na conversa, não invente: diga só que, pelo que ele contou, o
+  caso não se encaixa neste benefício agora e siga o encerramento.
 - Uma etapa do roteiro por resposta: depois da pergunta de confirmação, espere a resposta antes de pedir a nota, mesmo
   que o lead tenha agradecido ou se despedido.
 - Se o lead disser que algo mudou e o roteiro mandar voltar à qualificação, volte uma vez só. Se já voltou antes,

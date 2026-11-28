@@ -258,6 +258,10 @@ def avaliar(mensagens: Iterable[Any], regras: Regras | None = None, *, avancado:
         return veredito("robo")
     if parecidas >= regras.repetidas - 1 and instantaneas >= 3 and len(da_ia) >= 3:
         return veredito("robo")                  # responde na hora, sempre o mesmo, e a IA não sai do lugar
-    if midias >= regras.midia and not pediu_arquivo:
+    # Lead que manda as fotos dos documentos e também escreve sobre o caso é lead de verdade (teste com conversas reais,
+    # 28/11: 6 fotos de laudo e receita + "foi do acidente, minha mão ficou com dor" pausava como suspeito).
+    escreveu = any(str(_campo(m, "tipo") or "texto").lower() == "texto" and _letras(str(tx or "")) >= 20
+                   for m, tx in zip(do_lead, textos))
+    if midias >= regras.midia and not pediu_arquivo and not escreveu:
         return veredito("so_midia")
     return None
