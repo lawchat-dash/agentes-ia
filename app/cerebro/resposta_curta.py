@@ -233,8 +233,8 @@ def resolver(historico: list[dict[str, Any]], novas: list[str], aceitas: Iterabl
 # é só para não aceitar um fato que caiu do céu.
 ASSUNTO: dict[str, re.Pattern[str]] = {
     "aposentado": _re(r"\baposent\w*"),
-    "tem_advogado_no_caso": _re(r"\b(?:advogad\w*|adv|doutor\w*|dr|dra|escritorio\w*|processo\w*|juridic\w*|"
-                                r"defensoria|justica|acao)\b"),
+    # Só "advogado" e afins: "Seu escritório é...?" na fala do lead gravava advogado=sim (lote 2 do teste real, 28/11).
+    "tem_advogado_no_caso": _re(r"\b(?:advogad\w*|adv|doutor\w*|dra|defensoria)\b"),
     "sequela": _re(r"\b(?:sequela\w*|limitac\w*|limitad\w*|dificuldade\w*|dor\w*|doi\w*|manc\w*|andar|anda|ando|mexer|"
                    r"moviment\w*|forca|incha\w*|perd\w*|amput\w*|cicatriz\w*|consig\w*|consegu\w*|bengala|muleta\w*|"
                    r"trav\w*|deficien\w*|lesao|lesoes|machuc\w*|problema\w*|recuper\w*|normal|bem|sarou|sarei|curad\w*|"

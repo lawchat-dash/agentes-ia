@@ -184,6 +184,34 @@ def mes_ano(valor: Any) -> str | None:
     return f"{mes:02d}/{ano}"
 
 
+_NAO_E_NOME = {"ola", "oi", "bom", "boa", "dia", "tarde", "noite", "eu", "minha", "meu", "sim", "nao", "ok", "isso",
+               "infelizmente", "obrigado", "obrigada", "tudo", "bem", "quero", "sou", "estou", "tenho", "era", "foi",
+               "estava", "trabalho", "trabalhava", "frentista", "auxiliar", "ajudante", "pedreiro", "motorista",
+               "senhor", "senhora", "doutor", "doutora", "pode", "certo", "entendi", "acidente", "moto", "carro"}
+
+
+_RELATO = {"bati", "cai", "sofri", "fui", "tive", "quebrei", "fiquei", "machuquei", "estava", "indo", "na", "no", "em",
+           "com", "pra", "para", "pelo", "pela", "uma", "um", "que", "porque", "quando", "aconteceu", "trabalhando"}
+
+
+def nome_valido(valor: Any) -> str | None:
+    """Nome de quem conversa: 1 a 5 palavras, sem número, sem saudação/pronome/profissão/frase (lote 2 do teste real,
+    28/11: "Olá", "Eu", "Bati de moto na dutra" e uma frase inteira gravados como nome; a IA chamava o lead de
+    "Infelizmente", "Frentista")."""
+    import unicodedata
+    texto = re.sub(r"\s+", " ", str(valor or "")).strip(" .,!?")
+    palavras = texto.split()
+    if not palavras or len(palavras) > 5 or re.search(r"\d", texto):
+        return None
+    sem_acento = ["".join(c for c in unicodedata.normalize("NFKD", p.lower()) if not unicodedata.combining(c))
+                  for p in palavras]
+    if sem_acento[0] in _NAO_E_NOME or sum(p in _NAO_E_NOME for p in sem_acento) >= 2:
+        return None
+    if set(sem_acento) & _RELATO:
+        return None                    # "Bati de moto na dutra", "Eu estava indo para o serviço": relato, não nome
+    return texto[:120]
+
+
 def _validar_pela_regra(regra: tuple[str, ...] | str | None, valor: Any) -> Any | None:
     """Mesma conferência de aa.validar_valor, para os fatos que não são do Auxílio-Acidente (FATOS_BPC)."""
     if regra == "mes_ano":
@@ -555,6 +583,8 @@ class ProdutoCatalogo:
         return "\n".join(linhas)
 
     def validar_valor(self, chave: str, valor: Any) -> Any | None:
+        if chave == "nome":
+            return nome_valido(valor)
         if chave in FATOS_EXTRAS and chave in self.fatos_de_qualificacao:
             texto = str(valor or "").strip().lower()
             return texto if texto in FATOS_EXTRAS[chave] else None

@@ -470,6 +470,8 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     ja_enviadas = _midias_ja_enviadas(entrada)
     linhas.append("\nMENSAGENS NOVAS DO LEAD:")
     linhas += [f"- {t}" for t in entrada.novas]
+    if etapa in ("closer", "contratos", "assinatura"):
+        _cpf_da_fala(entrada, saida)
     if dados := _dados_informados(saida):
         linhas.append("\nDADOS JÁ INFORMADOS PELO LEAD (não pergunte de novo): " + dados)
     if primeiro := _primeiro_nome(saida.fatos_depois):
@@ -739,6 +741,16 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         # Closer perguntou e passou no mesmo turno, e o Contratos já pediu o nome completo sem o lead responder. A
         # primeira pergunta do destino escrita pela própria IA ("seu nome completo?") não espera sim e não se segura.
         destino = _segurar_transferencia(entrada, saida, destino, mensagens, papeis, etapa)
+    adiada = str(entrada.fatos.get(MARCA_ADIADA) or "")
+    if (not destino and adiada and adiada in destinos and adiada != "desqualificado"
+            and _e_um_sim(normalizar_texto(" ".join(entrada.novas)))):
+        # A troca ficou esperando o "sim" do lead e ele disse sim, mas a IA não repetiu o destino (lote 2 do teste real,
+        # 28/11: a troca sumia e a conversa ficava parada). O motor faz a passagem que ficou combinada.
+        destino = adiada
+        _gravar_controle(saida, MARCA_ADIADA, "")
+        saida.eventos.append(_evento("transferencia_adiada_concluida", "info", "lawchat",
+                                     f"O lead disse sim e a passagem para {destino}, que estava esperando, foi feita.",
+                                     destino=destino, etapa=etapa))
     if destino:
         saida.mensagens = _com_frase_de_troca(saida, saida.mensagens, destino, papeis, etapa)
     saida.etapa_depois = destino or etapa
@@ -975,6 +987,29 @@ def _linha_da_renda_bpc(produto: Any, fatos: dict[str, Any]) -> str | None:
             f"{fatos.get('pessoas_na_casa')} pessoas). Conta interna, nunca mostre ao lead. {texto[faixa]}.")
 
 
+def _cpf_da_fala(entrada: Entrada, saida: Saida) -> None:
+    """CPF válido (11 dígitos, dígitos verificadores certos) escrito pelo lead vira o fato cpf, mesmo que o extrator não
+    grave (lote 2 do teste real, 28/11: "Já te passei, 162.951.857.38" e a IA pediu o CPF 3 vezes). Só um CPF na fala
+    (dois = o dele e o da criança: fica para o extrator, que sabe de quem é)."""
+    from app.contrato import dados as cdados
+
+    achados = {re.sub(r"\D", "", m) for m in re.findall(r"\b\d{3}[.\s]?\d{3}[.\s]?\d{3}[-.\s]?\d{2}\b", " ".join(entrada.novas))}
+    achados = {c for c in achados if cdados.cpf_valido(c)}
+    if len(achados) != 1 or any(f.get("chave") in ("cpf", "cpf_menor") for f in saida.fatos_novos):
+        return
+    if _SOBRE_A_CRIANCA.search(" ".join(_ultima_resposta_da_ia(entrada.historico))):
+        return                          # pediram o CPF da criança: quem decide de quem é o dado é a realocação do contrato
+    c = achados.pop()
+    valor = f"{c[:3]}.{c[3:6]}.{c[6:9]}-{c[9:]}"
+    if re.sub(r"\D", "", str(saida.fatos_depois.get("cpf") or "")) in (c, ""):
+        if saida.fatos_depois.get("cpf"):
+            return
+    elif re.sub(r"\D", "", str(saida.fatos_depois.get("cpf_menor") or "")) == c:
+        return
+    saida.fatos_novos.append({"chave": "cpf", "valor": valor, "trecho": valor, "fonte": "extrator"})
+    saida.fatos_depois["cpf"] = valor
+
+
 def normalizar_texto(texto: str) -> str:
     from app.cerebro.extrator import normalizar
 
@@ -986,8 +1021,8 @@ def _pergunta_pela_terceira_vez(entrada: Entrada, textos: list[str]) -> str | No
     mesmo "em qual mês...?", "quem são as pessoas da casa?", "como a fibromialgia afeta...?" 4 a 9 vezes. O lead
     pedindo para repetir ou explicar libera."""
     novas = normalizar_texto(" ".join(entrada.novas))
-    if (_PEDE_ESCLARECIMENTO.search(novas) or _PEDE_REENVIO.search(novas) or _NAO_CONFIRMA.search(novas)
-            or re.search(r"\brepetid\w*", novas)):
+    if (_PEDE_ESCLARECIMENTO.search(novas) or _PEDE_REENVIO.search(novas)
+            or re.search(r"\b(?:errad\w*|corrig\w*|repetid\w*|nao e (?:isso|esse|essa)|troc\w*)\b", novas)):
         return None                     # pediu para explicar ou corrigiu um dado: perguntar de novo é o certo
     feitas = [normalizar_texto(q) for m in entrada.historico if m.get("autor") in ("você", "ia")
               for q in _PERGUNTA.findall(str(m.get("texto") or ""))]
@@ -1025,6 +1060,19 @@ _CONFIRMACAO_FEITA = re.compile(r"\b(?:so pra|so para|apenas para|pra eu|para eu
                                 r"ter certeza)\b|\bconfirm\w*\b|\b(?:e isso|certo|correto)$")
 
 
+_SIM_CLARO = {"sim", "s", "ss", "simm", "isso", "mesmo", "exato", "exatamente", "correto", "certo", "confirmo", "tenho",
+              "tem", "e", "ja", "recebi", "recebo", "sou", "estou", "senhor", "senhora", "ta", "esta"}
+
+
+def _sim_inequivoco(normal: str) -> bool:
+    """Sim claro de quem confirma uma trava ("sim", "isso mesmo", "tenho sim"): sem outro assunto junto, sem emoji só,
+    sem "pode" (que responde a outra coisa)."""
+    palavras = normal.split()
+    return bool(palavras) and len(palavras) <= 5 and set(palavras) <= _SIM_CLARO and bool(
+        set(palavras) & {"sim", "s", "ss", "simm", "isso", "exato", "exatamente", "correto", "certo", "confirmo", "tenho",
+                         "recebi", "recebo", "sou", "estou"})
+
+
 def _desqualificacao_sem_motivo(entrada: Entrada, produto: Any, saida: Saida, destino: str) -> str | None:
     """Passar para o Desqualificado sem nenhum fato que comprove um motivo e sem ter confirmado antes com o lead (lote 1
     do teste real, 28/11: 3 de 15 conversas do Auxílio desqualificadas por um "Sim" que respondia outra pergunta).
@@ -1034,9 +1082,15 @@ def _desqualificacao_sem_motivo(entrada: Entrada, produto: Any, saida: Saida, de
 
     if destino != "desqualificado":
         return None
+    confirmou = any(_CONFIRMACAO_FEITA.search(normalizar(t)) for t in _ultima_resposta_da_ia(entrada.historico))
+    if confirmou and not _sim_inequivoco(normalizar(" ".join(entrada.novas))):
+        # Lote 2 do teste real (28/11): "Pode", "🤣🤣" e "Sim, moramos em casa própria" foram tomados como confirmação.
+        return ("Você pediu para o lead confirmar, mas a resposta dele não foi um sim claro a essa pergunta. Não "
+                "desqualifique: se ele falou de outra coisa, responda e refaça a confirmação uma vez com outras palavras "
+                "(pergunta de sim ou não, sem \"ou\"); se ele negou, siga a qualificação.")
     if catalogo.motivo_de_desqualificar(getattr(produto, "config", {}) or {}, saida.fatos_depois):
         return None
-    if any(_CONFIRMACAO_FEITA.search(normalizar(t)) for t in _ultima_resposta_da_ia(entrada.historico)):
+    if confirmou:
         return None
     return ("Você ia desqualificar o lead sem ele ter dito com clareza um motivo do roteiro. Releia a CONVERSA ATÉ AQUI: "
             "se ele disse um motivo, confirme uma vez com uma pergunta curta sobre ESSE ponto e não desqualifique ainda; "
@@ -2029,6 +2083,15 @@ def _guardas_do_catalogo(entrada: Entrada, produto: Any, saida: Saida, *, etapa:
         guardas.append(_Guarda("frase_de_troca",
                                f"Ao passar o lead para \"{destino}\", envie exatamente esta frase: \"{frase}\". Se ainda "
                                "precisa confirmar alguma coisa com o lead, não transfira agora (deixe transferir_para vazio)."))
+    if calculadora and etapa == "periododegraca" and destino != "desqualificado":
+        cobertura = contexto.cobertura_na_data_do_acidente(fatos, regras)
+        if cobertura and cobertura[0] == "fora" and not fatos.get("aposentado") == "sim":
+            # Lote 2 do teste real (28/11): saiu da CLT "uns 25 anos atrás" e a IA perguntou do seguro 6 vezes e mandou
+            # para a equipe; a conta já dizia "não coberta".
+            guardas.append(_Guarda("periodo_fora_sem_desqualificar",
+                                   "Pelos FATOS DO SISTEMA a pessoa NÃO estava coberta pelo INSS na data do acidente. Não "
+                                   "pergunte mais datas nem seguro e não mande para a equipe: siga a regra do roteiro para "
+                                   "\"não coberta pelas datas\" (desqualificar, com cuidado e acolhimento)."))
     if calculadora and etapa == "periododegraca" and destino == "desqualificado":
         cobertura = contexto.cobertura_na_data_do_acidente(fatos, regras)
         if cobertura and cobertura[0] == "dentro":

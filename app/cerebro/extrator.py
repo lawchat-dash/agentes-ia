@@ -348,6 +348,11 @@ def pela_pergunta(extracao: Extracao, historico: list[dict[str, str]], novas: li
     # desligado): o código anota o "Não" para a IA ver em DADOS JÁ INFORMADOS e não perguntar de novo.
     extras = {c for c in resposta_curta.SO_DO_RESOLVEDOR if c not in aceitas and c in aa.FATOS}
     for achado in resposta_curta.resolver(historico, novas, aceitas | extras, normalizar):
+        if not achado.sozinha and achado.chave in travadas and not re.search(
+                r"\b(?:falei|disse|respondi|informei|acabei|mandei)\b", normalizar(" ".join(novas))):
+            # "Sim, moramos em casa própria" respondendo "já tem advogado?": o "Sim," do começo não é a resposta a uma
+            # pergunta que desqualifica (lote 2 do teste real, 28/11). Fica para o extrator de IA, que lê a frase toda.
+            continue
         valor = (aa.validar_valor(achado.chave, achado.valor) if achado.chave in extras
                  else produto.validar_valor(achado.chave, achado.valor))
         if valor is None:

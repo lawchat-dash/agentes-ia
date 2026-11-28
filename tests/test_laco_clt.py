@@ -247,3 +247,34 @@ def test_renda_por_pessoa_do_bpc():
     assert turno._faixa_da_renda_bpc(prod, {"renda_total_reais": 2100}) is None
     aux = catalogo.carregar({"catalogo": {"slug": "auxilio-acidente-v2", "papeis": {"sdr": {}}}})
     assert turno._faixa_da_renda_bpc(aux, fatos) is None
+
+
+def test_confirmacao_de_trava_precisa_de_sim_claro():
+    assert turno._sim_inequivoco(normalizar("Sim"))
+    assert turno._sim_inequivoco(normalizar("tenho sim"))
+    assert not turno._sim_inequivoco(normalizar("Pode"))
+    assert not turno._sim_inequivoco(normalizar("🤣🤣"))
+    assert not turno._sim_inequivoco(normalizar("Sim, moramos em casa própria"))
+
+
+def test_nome_valido():
+    assert catalogo.nome_valido("Pedro Paulo") == "Pedro Paulo"
+    assert catalogo.nome_valido("maria das dores") == "maria das dores"
+    for ruim in ("Olá", "Eu", "Bati de moto na dutra", "Infelizmente", "Frentista", "Eu estava indo para o serviço"):
+        assert catalogo.nome_valido(ruim) is None, ruim
+
+
+def test_cpf_valido_da_fala_vira_fato():
+    from tests.test_catalogo_weaver import entrada
+
+    s = turno.Saida()
+    turno._cpf_da_fala(entrada(["Já te passei, 529.982.247.25"], etapa="contratos",
+                               historico=[{"autor": "você", "texto": "Qual o seu CPF?"}]), s)
+    assert s.fatos_depois.get("cpf") == "529.982.247-25"
+    s2 = turno.Saida()
+    turno._cpf_da_fala(entrada(["52998224725"], etapa="contratos",
+                               historico=[{"autor": "você", "texto": "Qual o CPF do seu filho?"}]), s2)
+    assert "cpf" not in s2.fatos_depois
+    s3 = turno.Saida()
+    turno._cpf_da_fala(entrada(["12345678900"], etapa="contratos", historico=[]), s3)
+    assert "cpf" not in s3.fatos_depois
