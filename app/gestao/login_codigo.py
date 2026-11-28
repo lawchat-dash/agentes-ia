@@ -80,9 +80,13 @@ _JANELA_ENVIO_S, _MAX_ENVIOS_ID, _MAX_ENVIOS_IP = 15 * 60, 5, 20
 
 # ============================================================================ configuração
 def configuracao() -> dict[str, str]:
-    url = (os.environ.get("AGENTESIA_HELENA_LOGIN_URL") or os.environ.get("AGENTESIA_HELENA_INTERNA_URL") or "").strip()
-    return {"url": url.rstrip("/"), "parceiro": (os.environ.get("AGENTESIA_HELENA_PARCEIRO_ID") or "").strip(),
-            "origem": (os.environ.get("AGENTESIA_HELENA_PARCEIRO_ORIGEM") or "").strip().rstrip("/")}
+    def ler(nome: str) -> str:
+        # Sem espaços nem aspas coladas no valor (no painel de variáveis é fácil colar "valor" com aspas).
+        return (os.environ.get(nome) or "").strip().strip("\"'").strip()
+
+    url = ler("AGENTESIA_HELENA_LOGIN_URL") or ler("AGENTESIA_HELENA_INTERNA_URL")
+    return {"url": url.rstrip("/"), "parceiro": ler("AGENTESIA_HELENA_PARCEIRO_ID").lower(),
+            "origem": ler("AGENTESIA_HELENA_PARCEIRO_ORIGEM").rstrip("/")}
 
 
 def _cfg() -> dict[str, str]:
@@ -235,7 +239,10 @@ async def pedir_codigo(dados: Pedido, pedido: Request) -> dict[str, Any]:
         log.warning("login por código: send-otp sem resposta (%s) em %s", type(erro).__name__, cfg["url"])
         raise HTTPException(503, FORA_DO_AR) from None
     if resposta.status_code < 400:
-        log.info("login por código: send-otp aceito HTTP %s para %s", resposta.status_code, _mascarar(tipo, valor))
+        # Com parceiro errado a plataforma também responde 200 e o código não chega: o log mostra o final do parceiro,
+        # a origem e o endereço usados, para conferir com a tela oficial (parceiro certo termina em …8b47).
+        log.warning("login por código: send-otp aceito HTTP %s para %s (parceiro …%s, origem %s, em %s)",
+                    resposta.status_code, _mascarar(tipo, valor), cfg["parceiro"][-4:], cfg["origem"], cfg["url"])
         return {"ok": True, "mensagem": GENERICO}
 
     try:
