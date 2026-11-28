@@ -369,4 +369,37 @@ def pela_pergunta(extracao: Extracao, historico: list[dict[str, str]], novas: li
         extracao.fatos.append(FatoExtraido(achado.chave, valor, achado.trecho))
         extracao.resolvidos.append({"chave": achado.chave, "valor": valor, "trecho": achado.trecho,
                                     "pergunta": resposta_curta.ultima_pergunta(historico)[-200:]})
+    texto_lead = normalizar(" ".join(novas))
+    # Advogado de antes não é advogado de hoje (tickets TK-1557, TK-1589, TK-1361, TK-1552: "a advogada mexeu, foi negado
+    # e eu falei pra ela deixar quieto" desqualificava). Só fica "sim" se o lead não disse que acabou.
+    if _ADVOGADO_DE_ANTES.search(texto_lead) and not _ADVOGADO_HOJE.search(texto_lead):
+        for fato in [f for f in extracao.fatos if f.chave == "tem_advogado_no_caso" and f.valor == "sim"]:
+            extracao.fatos.remove(fato)
+            extracao.rejeitados.append({"chave": fato.chave, "valor": fato.valor, "trecho": fato.trecho,
+                                        "motivo": "advogado_de_antes"})
+    # Sequela contada na história ("até hoje com muita dificuldade de andar"): anota sim, para a IA não perguntar de novo
+    # (teste do dono, 28/11). Só "sim": sequela não desqualifica ninguém.
+    if ("sequela" in aceitas and fatos_conhecidos.get("sequela") in (None, "", "nao_sabe")
+            and not any(f.chave == "sequela" for f in extracao.fatos)
+            and (achado := _SEQUELA_CONTADA.search(texto_lead))):
+        extracao.fatos.append(FatoExtraido("sequela", "sim", achado.group(0)))
+        extracao.resolvidos.append({"chave": "sequela", "valor": "sim", "trecho": achado.group(0), "pergunta": ""})
     return extracao
+
+
+_ADVOGADO_DE_ANTES = re.compile(
+    r"\b(?:tive|tinha|teve|tivemos|ja tive|ja teve|era) (?:um |uma )?(?:advogad\w*|adv|doutor\w*|dra)\b|"
+    r"\b(?:advogad\w*|doutor\w*|dra) (?:tinha|tava|estava|era|que eu tinha)\b|"
+    r"\b(?:advogad\w*|adv|doutor\w*|dra)\b.{0,140}\b(?:nao (?:e|esta|ta|cuida|mexe|faz) mais|larg\w*|desist\w*|"
+    r"abandon\w*|deixa(?:r)? quiet\w*|parou|saiu do caso|nao quis mais|dispensei|cancelei|perdeu|nao conseguiu)\b|"
+    r"\b(?:sem|nao tenho (?:mais )?|nao estou com|nao to com) (?:nenhum |mais )?(?:advogad\w*|adv)\b")
+_ADVOGADO_HOJE = re.compile(r"\b(?:ainda (?:tenho|esta|ta|cuida)|atualmente|hoje (?:tenho|ela|ele)|esta cuidando|"
+                            r"ta cuidando|meu advogado (?:esta|ta|e)|ja tenho advogad\w*|tenho advogad\w*)\b")
+_SEQUELA_CONTADA = re.compile(
+    r"\b(?:ate hoje|ainda|ficou|fiquei|fico|tenho|sinto|sente|com) .{0,40}\b(?:dificuldade\w*|dor\w*|doi|limitac\w*|"
+    r"sequela\w*|manc\w*|bengala|muleta\w*|nao consigo|nao consegue|nao dobra|travad\w*|inchad\w*|fraqueza|"
+    r"formigament\w*|dormente|pino\w*|placa\w*|platina)\b|"
+    r"\b(?:dificuldade|dificil) (?:de|pra|para) (?:andar|anda|trabalhar|subir|abaixar|carregar|segurar|mexer|dobrar)\b|"
+    r"\bnao consigo (?:mais )?(?:andar|trabalhar|correr|subir|abaixar|carregar|segurar|mexer|dobrar|fazer forca)\b|"
+    r"\b(?:perdi|perdeu|amputa\w*) (?:o |a |os |as |um |uma |parte )?(?:dedo|dedos|mao|perna|pe|braco|movimento\w*|forca|"
+    r"visao|olho|audicao)\b")

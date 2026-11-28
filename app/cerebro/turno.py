@@ -485,6 +485,9 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         linhas.append("\n" + linha_portao)
     if saida.contexto.get("barreira") == "fora_do_tema":
         linhas.append("\n" + LINHA_FORA_DO_TEMA)
+    desconfia = _lead_desconfia(entrada.novas)
+    if desconfia:
+        linhas.append("\n" + LINHA_DESCONFIANCA)
     so_texto = bool(saida.fatos_depois.get(MARCA_SO_TEXTO))
     if so_texto:
         linhas.append("\n(sistema) " + sinais_catalogo.ORIENTACAO_SEM_PAUSA["deficiencia_auditiva"])
@@ -608,6 +611,17 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             guardas.append(_Guarda("fechamento_futuro_desqualificado", ORIENTACAO_FECHAMENTO_FUTURO))
         if destino == "desqualificado" and _gestante_sem_motivo(produto, saida.fatos_depois):
             guardas.append(_Guarda("gestante_desqualificada", ORIENTACAO_GESTANTE))
+        textos_turno = [m["texto"] for m in mensagens if m["tipo"] == "texto"]
+        if desconfia and _faltam_dados_do_escritorio(textos_turno, entrada.conhecimento):
+            guardas.append(_Guarda("objecao_sem_dados_do_escritorio",
+                                   "O lead desconfia (golpe, se o escritório é real). Mande, num balão, os DADOS DO "
+                                   "ESCRITÓRIO (nome, endereço, OAB, CNPJ, site ou Instagram: o que houver), copiados "
+                                   "exatamente, depois de acolher em 1 frase; e siga a etapa."))
+        if (juntas := _perguntas_juntas(textos_turno, sistema, "zapsign" in acoes)) > 1:
+            guardas.append(_Guarda("duas_perguntas",
+                                   f"Sua resposta tem {juntas} perguntas. Faça UMA pergunta só, no fim (a mais importante "
+                                   "para o roteiro); o resto vira frase afirmativa ou sai. Não confirme com \"..., certo?\" "
+                                   "o que o lead disse com clareza."))
         novas_marcas += [g.marca for g in guardas if g.marca and g.marca not in novas_marcas]
         saida.reprovacoes.append([{"codigo": "catalogo", "orientacao": e} for e in erros]
                                  + [{"codigo": g.codigo, "orientacao": g.orientacao} for g in guardas])
@@ -736,6 +750,7 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     base_conhecimento.registrar(saida, entrada, resposta.get("base"), etapa)
 
     mensagens = _so_o_primeiro_nome(mensagens, saida.fatos_depois)
+    mensagens = _sem_eco_de_confirmacao(saida, mensagens, sistema, "zapsign" in acoes)
     mensagens = _sem_baloes_ja_enviados(entrada, saida, mensagens, papeis, etapa)
     mensagens = _para_na_pergunta_de_permissao(saida, mensagens, etapa)
     saida.mensagens = [m if m["tipo"] == "midia" else p for m in mensagens
@@ -955,6 +970,118 @@ def _so_o_primeiro_nome(mensagens: list[dict[str, Any]], fatos: dict[str, Any]) 
     return saida
 
 
+# ---------------------------------------------------------------------------- uma pergunta por vez (teste do dono, 28/11)
+# "Você recebeu auxílio-doença por 8 meses, certo?" + "O acidente gerou alguma sequela?" no mesmo turno: duas perguntas
+# confundem o lead (ele responde "isso" e a segunda fica sem resposta). Tickets TK-1156/TK-1093: repetir o que o lead
+# disse como pergunta passa a impressão de que a IA não leu.
+# Lido no texto cru (minúsculo): o normalizador tira a vírgula, e "tudo certo?" não é eco.
+_ECO_DE_CONFIRMACAO = re.compile(r",\s*(?:certo|n[eé]|correto|isso|isso mesmo|confere|ok|beleza)\s*$", re.I)
+# Confirmar um motivo de desqualificar ("aposentado, certo?") é pergunta de verdade: o motor exige essa confirmação.
+_ECO_QUE_DESQUALIFICA = re.compile(r"\b(?:aposent\w*|advogad\w*|mei|servidor\w*|concurs\w*|benefici\w*|bpc|loas|pensao|"
+                                   r"autonom\w*|nunca trabalh\w*|menor)\b")
+
+
+def _e_eco(frase: str) -> bool:
+    return (bool(_ECO_DE_CONFIRMACAO.search((frase or "").strip(" ?")))
+            and not _ECO_QUE_DESQUALIFICA.search(normalizar_texto(frase)))
+
+
+_CONFIRMACAO_DO_CONTRATO = re.compile(r"\b(?:posso gerar|esta tudo (?:certo|correto)|tudo (?:certo|correto)|confere|"
+                                      r"dados (?:estao|corretos)|cpf)\b")
+
+
+def _frases_de_pergunta(texto: str) -> list[str]:
+    """Cada pergunta do texto, sem o "?" do fim."""
+    return [p.strip().rstrip("?").strip() for p in re.findall(r"[^?.!\n]*\?", texto or "") if p.strip(" ?")]
+
+
+def _do_roteiro(frase: str, sistema_normal: str) -> bool:
+    """A pergunta está escrita no roteiro (texto que o roteiro manda enviar como está): não conta."""
+    normal = normalizar_texto(frase).strip()
+    return len(normal) >= 12 and normal in sistema_normal
+
+
+def _perguntas_juntas(textos: list[str], sistema: str, contrato: bool) -> int:
+    """Quantas perguntas a resposta faz, sem o eco de confirmação (sai no pós-processamento), sem os textos literais do
+    roteiro e sem a confirmação do resumo do contrato."""
+    sistema_normal = normalizar_texto(sistema or "")
+    total = 0
+    for frase in (f for t in textos for f in _frases_de_pergunta(t)):
+        normal = normalizar_texto(frase).strip()
+        if _e_eco(frase) or _do_roteiro(frase, sistema_normal):
+            continue
+        if contrato and _CONFIRMACAO_DO_CONTRATO.search(normal):
+            continue
+        total += 1
+    return total
+
+
+def _sem_eco_de_confirmacao(saida: Saida, mensagens: list[dict[str, Any]], sistema: str,
+                            contrato: bool) -> list[dict[str, Any]]:
+    """Tira a pergunta-eco ("Você recebeu auxílio-doença por 8 meses, certo?") quando o turno já tem outra pergunta.
+    O resto do balão fica ("Entendi, João."); balão que só tinha o eco sai. No contrato, o resumo com CPF fica."""
+    perguntas = [(i, f) for i, m in enumerate(mensagens) if m.get("tipo") == "texto"
+                 for f in _frases_de_pergunta(m.get("texto") or "")]
+    ecos = [(i, f) for i, f in perguntas if _e_eco(f)
+            and not (contrato and re.search(r"\d{3}\.?\d{3}\.?\d{3}-?\d{2}", mensagens[i].get("texto") or ""))
+            and not _do_roteiro(f, normalizar_texto(sistema or ""))]
+    if not ecos or len(perguntas) - len(ecos) < 1:
+        return mensagens                    # o eco é a única pergunta: fica (é a pergunta do turno)
+    tirar: dict[int, list[str]] = {}
+    for i, frase in ecos:
+        tirar.setdefault(i, []).append(frase)
+    saida_msgs: list[dict[str, Any]] = []
+    for i, m in enumerate(mensagens):
+        if i not in tirar:
+            saida_msgs.append(m)
+            continue
+        texto = str(m.get("texto") or "")
+        for frase in tirar[i]:
+            texto = texto.replace(frase + "?", "", 1).replace(frase.strip() + "?", "", 1)
+        texto = re.sub(r"\s{2,}", " ", texto).strip()
+        if len(re.sub(r"\W", "", texto)) >= 2:
+            saida_msgs.append({**m, "texto": texto})
+    saida.eventos.append(_evento("eco_de_confirmacao", "info", "lawchat",
+                                 "A IA ia confirmar com \"..., certo?\" algo que o lead disse e fazer outra pergunta "
+                                 "no mesmo turno; a confirmação saiu.", trecho=" | ".join(f for _, f in ecos)[:300]))
+    return saida_msgs
+
+
+# ---------------------------------------------------------------------------- desconfiança (golpe) → dados do escritório
+# Teste do dono (28/11): "eu to achando que isso é golpe" e a IA respondeu "posso garantir que aqui não tem golpe", sem
+# endereço, OAB nem CNPJ. Pedido do dono: em quase toda objeção de confiança, mandar os dados do escritório (todos os
+# produtos). Tickets TK-1059, TK-1088, TK-1147, TK-1156, TK-1165, TK-1595, TK-1723.
+_DESCONFIANCA = re.compile(
+    r"\b(?:golpe\w*|golpista\w*|fraude\w*|picaret\w*|falso|falsa|fake|desconfi\w*|nao confio|confiavel|confiaveis|"
+    r"e verdade (?:isso|mesmo)|isso e real|existe mesmo|voces existem|como (?:eu )?(?:sei|vou saber) que|"
+    r"(?:sao|e) advogad\w* mesmo|tem oab|qual (?:e )?(?:a )?oab|numero da oab|cnpj|onde fica\w*|onde (?:e|sao) "
+    r"(?:o escritorio|voces)|endereco do escritorio|qual (?:e )?o endereco|de onde (?:e|sao) voces|quem (?:sao|e) voces|"
+    r"medo de cair|ja cai em|me enganar|enganad\w*)\b")
+
+
+def _lead_desconfia(novas: list[str]) -> bool:
+    texto = normalizar_texto(" ".join(novas or []))
+    return bool(texto) and bool(_DESCONFIANCA.search(texto)) and not re.search(r"\bfoi engano\b|\bpor engano\b", texto)
+
+
+LINHA_DESCONFIANCA = (
+    "(sistema) O lead desconfia (medo de golpe, quer saber se o escritório é real, onde fica ou quem são os advogados). "
+    "Acolha em 1 frase, sem um \"pode confiar\" vazio; mande num balão os DADOS DO ESCRITÓRIO (nome, endereço, OAB, "
+    "CNPJ, site ou Instagram: o que houver, copiado exatamente); se o roteiro tiver áudio para essa objeção (golpe, "
+    "desconfiança, distância), mande-o; lembre, se o roteiro disser, que nada é pago antes; depois siga a etapa.")
+
+
+def _faltam_dados_do_escritorio(textos: list[str], conhecimento: dict[str, Any] | None) -> bool:
+    """Há dados do escritório com número (OAB, CNPJ, CEP, telefone) e a resposta não traz nenhum deles."""
+    dados = str((conhecimento or {}).get("dados_escritorio") or "")
+    numeros = {re.sub(r"\D", "", n) for n in re.findall(r"\d[\d./-]{3,}\d", dados)}
+    numeros = {n for n in numeros if len(n) >= 4}
+    if not numeros:
+        return False
+    resposta = re.sub(r"\D", "", " ".join(textos))
+    return not any(n in resposta for n in numeros)
+
+
 # Salário mínimo de referência das faixas do BPC (roteiros: até R$ 810,50 por pessoa qualifica; até R$ 1.000 depende
 # dos gastos). Lote 1 do teste real (28/11): 3 de 6 conversas do BPC Autismo foram para a equipe com renda que qualificava.
 BPC_FAIXA_QUALIFICA = 810.50
@@ -1168,7 +1295,9 @@ _PERGUNTA_DO_DADO: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     ("nome", "o nome", re.compile(r"\b(?:qual (?:e )?o seu nome|como (?:voce )?se chama)\b(?! completo)(?!.*completo)")),
     ("auxilio_doenca", "se recebeu auxílio-doença", re.compile(r"\brecebeu (?:o )?auxilio doenca\b")),
     ("vinculo_na_data", "a carteira assinada na época", re.compile(r"\b(?:carteira assinada|clt|registrad\w*)\b")),
-    ("sequela", "a sequela", re.compile(r"\b(?:ficou com|teve) (?:alguma )?(?:sequela|limitac\w*)\b")),
+    # Qualquer pergunta sobre sequela/limitação (teste do dono, 28/11: "muita dificuldade de andar" e depois "O acidente
+    # gerou alguma sequela ou limitação, mesmo que leve?").
+    ("sequela", "a sequela", re.compile(r"\b(?:sequela\w*|limitac\w*)\b")),
     # Todos os produtos
     ("tem_advogado_no_caso", "se tem advogado no caso", re.compile(r"\b(?:tem|possui|ja tem|esta com) (?:algum )?advogad")),
     # Salário-Maternidade (revisão de 28/11: "Você está grávida?" para quem abriu com "Estou gestante", em 29 de 30)

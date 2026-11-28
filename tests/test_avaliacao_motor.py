@@ -246,6 +246,7 @@ async def test_varias_perguntas_vira_metrica_e_a_trava_sombra_conta(monkeypatch)
     # mede é só a métrica de várias perguntas.
     from app.cerebro import turno
     monkeypatch.setattr(turno, "_pergunta_de_dado_informado", lambda *a, **k: [])
+    monkeypatch.setattr(turno, "_perguntas_juntas", lambda *a, **k: 0)    # a trava real (28/11) refaria
     conversa = await conversar("01", lambda r: r["sdr"].__setitem__(
         1, passo("Entendi.", "Na época você trabalhava de carteira assinada? E já ficou com sequela?")))
     assert conversa.codigos() == {"varias_perguntas"}

@@ -365,7 +365,9 @@ ROTEIROS: dict[str, dict[str, list[dict[str, Any]]]] = {
             passo("Combinado! Vou gerar o seu contrato agora.", ferramenta="zapsign"),
         ],
         "assinatura": [
-            passo("É seguro sim! O link é da plataforma de assinatura digital que usamos, e o contrato traz o nome do escritório.",
+            # Regra do dono (28/11): desconfiança leva os dados do escritório (aqui, a OAB do cenário).
+            passo("É seguro sim! O link é da plataforma de assinatura digital que usamos, e o contrato traz o nome do "
+                  "Escritório Exemplo Advocacia, OAB/SP nº 99.999.",
                   "Antes de assinar, você pode conferir todos os dados com calma."),
             passo("Que ótimo! Vou conferir aqui e já te retorno."),
         ],

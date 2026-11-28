@@ -124,7 +124,7 @@ async def test_motor_troca_as_variaveis_e_registra_a_que_falta_uma_vez():
     sistema = next(p["sistema"] for p in modelo.pedidos if p["papel"] == "etapa")
     assert sistema.startswith("Você é Júlia, do Escritório Teste.\nHonorários: 5 salários do benefício.\n"
                               "Link: https://g.page/r/abc/review\nPergunte o nome.")
-    assert not VARIAVEL.search(sistema) and "CNPJ" not in sistema                     # nenhum {{X}} chega ao modelo
+    assert not VARIAVEL.search(sistema) and "CNPJ:" not in sistema  # a linha sem valor saiu                     # nenhum {{X}} chega ao modelo
     assert 'Mensagem de boas-vindas: "Oi! Aqui é a Júlia."' in conteudos(modelo)[0]
     eventos = [e for e in saida.eventos if e["tipo"] == "variavel_sem_valor"]
     assert [e["detalhe"]["variavel"] for e in eventos] == ["CNPJ"]
