@@ -92,9 +92,12 @@ DESCRICAO_DOS_SINAIS = {
     "quer_videochamada": "pede chamada de vídeo (vídeo, Zoom, Meet, \"te ver por chamada\"). NÃO é: \"deixa eu ver\", "
                          "\"ver com a esposa\", \"quero conversar\", pedido de áudio.",
     "quer_audio": "pede áudio ou voz (\"manda um áudio\", \"prefiro voz\", \"explica em áudio\"). NÃO é: \"ouvi falar\", "
-                  "\"quero ouvir como funciona\", só ter mandado áudios.",
+                  "\"quero ouvir como funciona\", só ter mandado áudios, \"posso mandar áudio?\", \"pode ser por áudio?\" (é ELE "
+                  "querendo falar por áudio: responda que pode mandar, sem mandar áudio).",
     "nao_sabe_ler": "diz que não sabe ler ou lê com dificuldade. NÃO é: \"não li ainda\", \"não entendi\".",
-    "cliente_antigo": "afirma vínculo com ESTE escritório (\"já sou cliente de vocês\", \"vocês já cuidam do meu processo\"). "
+    "cliente_antigo": "afirma vínculo com ESTE escritório (\"já sou cliente de vocês\", \"vocês já cuidam do meu processo\", "
+                      "\"já fui aí no escritório\", \"te entreguei os papéis\", \"vocês já deram entrada?\", \"alguma novidade do "
+                      "meu processo?\", \"esse WhatsApp é da doutora X, eu converso por aqui\"). "
                       "NÃO é: \"tenho advogado\", \"meu advogado disse\", processo em OUTRO lugar.",
     "outro_beneficio": "pede um benefício diferente do que está em conversa{conversa}. NÃO é: menção genérica a INSS "
                        "ou benefício, nem contar que recebe ou recebeu outro.",

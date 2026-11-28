@@ -205,3 +205,31 @@ def test_balao_ja_enviado_e_pergunta_de_permissao():
 def test_diz_que_assinou_pela_frase():
     assert turno._DIZ_QUE_ASSINOU.search(turno._fala_de_quem_assinou("Sim assinei"))
     assert not turno._DIZ_QUE_ASSINOU.search(turno._fala_de_quem_assinou("ainda não assinei"))
+
+
+# ----------------------------------------------------------------------------- lote 1 do teste real (28/11)
+def test_terceira_vez_da_mesma_pergunta_e_isso_nao_e_sim():
+    from tests.test_catalogo_weaver import entrada
+
+    p = "Em qual mês de 2007 aconteceu o acidente?"
+    hist = [{"autor": "você", "texto": p}, {"autor": "lead", "texto": "Gari"}, {"autor": "você", "texto": "Entendi. " + p},
+            {"autor": "lead", "texto": "O que é Rpps."}]
+    assert turno._pergunta_pela_terceira_vez(entrada(["Isso"], historico=hist), ["Certo. " + p])
+    assert not turno._pergunta_pela_terceira_vez(entrada(["Não entendi"], historico=hist), [p])
+    assert not turno._pergunta_pela_terceira_vez(entrada(["Isso"], historico=hist[:2]), [p])
+    hist2 = [{"autor": "você", "texto": "Na época do acidente, você atuava como MEI, Autônomo ou Contribuinte Individual?"}]
+    achados = resposta_curta.resolver(hist2, ["Isso, não. Eu era registrada"], {"vinculo_na_data"}, normalizar)
+    assert achados == []
+
+
+def test_resumo_aceito_com_tudo_bem():
+    from tests.test_catalogo_weaver import entrada
+    from tests.test_auditoria_tickets import FATOS_CONTRATO
+
+    resumo = ("Vamos confirmar: Nome completo: Patrícia Souza Lima, CPF 529.982.247-25, Rua das Flores, 12, Centro, "
+              "Campinas/SP. Está tudo certo?")
+    e = entrada(["tudo bem"], etapa="contratos", fatos=dict(FATOS_CONTRATO), historico=[{"autor": "você", "texto": resumo}])
+    s = turno.Saida(); s.fatos_depois = dict(FATOS_CONTRATO)
+    assert turno._resumo_aceito(e, s)
+    e2 = entrada(["não, o CPF está errado"], etapa="contratos", historico=[{"autor": "você", "texto": resumo}])
+    assert not turno._resumo_aceito(e2, s)

@@ -214,6 +214,12 @@ def resolver(historico: list[dict[str, Any]], novas: list[str], aceitas: Iterabl
         if (resposta := sim_nao(normal, texto)) is None:
             continue
         valor_sn, sozinha = resposta
+        if not sozinha:
+            resto = normalizar(texto.strip()[len(re.split(r"[,.!;:\-–—]", texto.strip(), maxsplit=1)[0]):])
+            # "Isso, não. Eu era registrada": o começo diz sim e o resto desdiz. Fica para o extrator de IA (lote 1 do
+            # teste real, 28/11: virava MEI e o lead de carteira assinada ia para o período de graça).
+            if (valor_sn == "sim" and re.search(r"\bnao\b", resto)) or (valor_sn == "nao" and re.match(r"\s*sim\b", resto)):
+                continue
         valor = (regra.valores or {"sim": "sim", "nao": "nao", "nao_sabe": "nao_sabe"}).get(valor_sn)
         if valor is None:
             return []                         # "Não" a "estava registrado?" não diz qual era o vínculo

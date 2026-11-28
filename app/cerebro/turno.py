@@ -554,6 +554,22 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             guardas.append(_Guarda("pergunta_de_dado_informado",
                                    "O lead já informou " + ", ".join(ja_informados) + " (veja DADOS JÁ INFORMADOS): não "
                                    "pergunte de novo. Reconheça em poucas palavras e faça a próxima pergunta do roteiro."))
+        if etapa != "periododegraca" and (sem_motivo := _desqualificacao_sem_motivo(entrada, produto, saida, destino)):
+            # No Período de Graça quem decide é a conta das datas (linhas do sistema), não um fato de desqualificar.
+            guardas.append(_Guarda("desqualificacao_sem_motivo", sem_motivo))
+        if destino == "desqualificado" and any(
+                "?" in t and _CONFIRMACAO_FEITA.search(normalizar_texto(t)) for t in
+                (m["texto"] for m in mensagens if m["tipo"] == "texto")):
+            guardas.append(_Guarda("desqualificou_sem_esperar",
+                                   "Você pediu para o lead confirmar e desqualificou na mesma resposta. Mande só a "
+                                   "pergunta de confirmação e deixe transferir_para vazio: decida depois da resposta dele."))
+        if not any(f.get("fonte", "extrator") != "sistema" for f in saida.fatos_novos) and (
+                terceira := _pergunta_pela_terceira_vez(entrada, [m["texto"] for m in mensagens if m["tipo"] == "texto"])):
+            # Com dado novo do lead (corrigiu a cidade, mandou o CPF) perguntar de novo é o certo ("Posso gerar?").
+            guardas.append(_Guarda("pergunta_pela_terceira_vez",
+                                   f"Você já fez esta pergunta duas vezes e o lead não respondeu direto: \"{terceira[:120]}\". "
+                                   "Não pergunte de novo: aceite o que ele já disse (\"não sei\" também vale), responda ao "
+                                   "que ele escreveu agora e siga para o próximo passo do roteiro."))
         if repetidos := _baloes_ja_enviados(entrada, [m["texto"] for m in mensagens if m["tipo"] == "texto"], papeis):
             guardas.append(_Guarda("balao_ja_enviado",
                                    "Você já mandou estas mensagens antes nesta conversa: " + " | ".join(
@@ -718,6 +734,14 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     saida.etapa_depois = destino or etapa
     saida.motivo = f"transferencia:{destino}" if destino else "catalogo"
     ferramenta = resposta.get("ferramenta") or ""
+    if not ferramenta and "zapsign" in acoes and not destino and _resumo_aceito(entrada, saida):
+        # Lote 1 do teste real (28/11): "tudo bem", "ok", "está certo sim" ao resumo e a IA mostrava o resumo de novo
+        # (3 de 15 conversas do Auxílio não fecharam por isso). Resumo mostrado + sim + dados certos = gera o contrato.
+        ferramenta = "zapsign"
+        saida.mensagens = formatador.formatar([{"tipo": "texto", "texto": AVISO_DE_GERANDO}])
+        saida.eventos.append(_evento("contrato_pelo_resumo_aceito", "info", "lawchat",
+                                     "O lead confirmou o resumo dos dados e a IA não pediu o contrato; o sistema pediu.",
+                                     etapa=etapa))
     if not ferramenta and "zapsign" in acoes and not destino and _correcao_do_contrato_respondida(entrada, saida):
         # 28/11: o sistema pediu o CPF ("Para finalizar seu contrato, preciso confirmar..."), o lead mandou, e a IA só
         # respondeu "Recebi seu CPF, está tudo certo" sem pedir o contrato de novo: o lead ficou sem contrato. Com o dado
@@ -902,6 +926,75 @@ def _so_o_primeiro_nome(mensagens: list[dict[str, Any]], fatos: dict[str, Any]) 
                   for linha in str(m["texto"]).split("\n")]
         saida.append({**m, "texto": "\n".join(linhas)})
     return saida
+
+
+def normalizar_texto(texto: str) -> str:
+    from app.cerebro.extrator import normalizar
+
+    return normalizar(texto)
+
+
+def _pergunta_pela_terceira_vez(entrada: Entrada, textos: list[str]) -> str | None:
+    """Pergunta da resposta que a IA já fez 2+ vezes na conversa (semelhança > 0,85). Lote 1 do teste real (28/11): o
+    mesmo "em qual mês...?", "quem são as pessoas da casa?", "como a fibromialgia afeta...?" 4 a 9 vezes. O lead
+    pedindo para repetir ou explicar libera."""
+    novas = normalizar_texto(" ".join(entrada.novas))
+    if (_PEDE_ESCLARECIMENTO.search(novas) or _PEDE_REENVIO.search(novas) or _NAO_CONFIRMA.search(novas)
+            or re.search(r"\brepetid\w*", novas)):
+        return None                     # pediu para explicar ou corrigiu um dado: perguntar de novo é o certo
+    feitas = [normalizar_texto(q) for m in entrada.historico if m.get("autor") in ("você", "ia")
+              for q in _PERGUNTA.findall(str(m.get("texto") or ""))]
+    for texto in textos:
+        for q in _PERGUNTA.findall(texto or ""):
+            atual = normalizar_texto(q)
+            if len(atual) < 15 or re.search(r"\b(?:posso gerar|esta tudo (?:certo|correto)|tudo correto)\b", atual):
+                continue
+            # a conferência do contrato volta a cada correção do lead (trava própria do contrato)
+            if sum(1 for f in feitas if difflib.SequenceMatcher(None, atual, f).ratio() > 0.85) >= 2:
+                return q.strip()
+    return None
+
+
+def _resumo_aceito(entrada: Entrada, saida: Saida) -> bool:
+    """A última resposta da IA mostrou o resumo dos dados do contrato, o lead respondeu com um sim e os dados conferem."""
+    from app.cerebro.extrator import normalizar
+    from app.contrato import dados as cdados
+
+    resposta = normalizar(" ".join(entrada.novas))
+    if not _e_um_sim(resposta) or _NAO_CONFIRMA.search(resposta):
+        return False
+    dados, erros = cdados.validar_dados(cdados.dados_dos_fatos(saida.fatos_depois), entrada.fatos_sistema.get("telefone"),
+                                        entrada.obrigatorios_contrato or cdados.OBRIGATORIOS_PADRAO)
+    ultima = _ultima_resposta_da_ia(entrada.historico)
+    texto = normalizar(" ".join(ultima))
+    # Só o resumo de verdade: tem o CPF e pede a conferência ("está tudo certo?", "posso gerar?"). Um "pode sim" a outra
+    # pergunta, logo depois de a IA citar o endereço achado pelo CEP, não gera contrato.
+    return (not erros and _so_digitos(dados.get("cpf", "")) in _so_digitos(" ".join(ultima))
+            and bool(re.search(r"\b(?:posso gerar|tudo (?:certo|correto|certinho)|esta(?:o)? corret\w*|confere|confira|conferir)\b",
+                               texto)) and _parece_resumo(ultima, dados))
+
+
+_CONFIRMACAO_FEITA = re.compile(r"\b(?:so pra|so para|apenas para|pra eu|para eu) (?:eu )?(?:confirmar|entender|nao errar|"
+                                r"ter certeza)\b|\bconfirm\w*\b|\b(?:e isso|certo|correto)$")
+
+
+def _desqualificacao_sem_motivo(entrada: Entrada, produto: Any, saida: Saida, destino: str) -> str | None:
+    """Passar para o Desqualificado sem nenhum fato que comprove um motivo e sem ter confirmado antes com o lead (lote 1
+    do teste real, 28/11: 3 de 15 conversas do Auxílio desqualificadas por um "Sim" que respondia outra pergunta).
+    Leve: a IA refaz uma vez; se insistir, segue (há motivos do roteiro que não viram fato, como AVC)."""
+    from app.cerebro import catalogo
+    from app.cerebro.extrator import normalizar
+
+    if destino != "desqualificado":
+        return None
+    if catalogo.motivo_de_desqualificar(getattr(produto, "config", {}) or {}, saida.fatos_depois):
+        return None
+    if any(_CONFIRMACAO_FEITA.search(normalizar(t)) for t in _ultima_resposta_da_ia(entrada.historico)):
+        return None
+    return ("Você ia desqualificar o lead sem ele ter dito com clareza um motivo do roteiro. Releia a CONVERSA ATÉ AQUI: "
+            "se ele disse um motivo, confirme uma vez com uma pergunta curta sobre ESSE ponto e não desqualifique ainda; "
+            "se o \"sim\" ou \"não\" dele respondia outra pergunta, ou o motivo é de antes ou de outro assunto (advogado "
+            "antigo, outro benefício), siga a qualificação normalmente, sem transferir_para.")
 
 
 def _correcao_do_contrato_respondida(entrada: Entrada, saida: Saida) -> bool:
@@ -2252,10 +2345,11 @@ _PALAVRAS_DO_SIM = {"sim", "s", "isso", "mesmo", "exato", "exatamente", "correto
                     "gerar", "mandar", "seguir", "fazer", "ok", "okay", "perfeito", "beleza", "blz", "positivo", "obrigado",
                     "obrigada", "e", "ai", "os", "dados", "todos", "sao", "esses", "estes", "favor", "por", "agora",
                     "entao", "ja", "pronto", "manda", "gera", "bora", "vamos", "ss", "sss", "simm", "obg", "tudinho",
-                    "contrato", "o", "certinho"}
+                    "contrato", "o", "certinho", "bem", "claro", "uhum", "aham", "com", "certeza", "eu", "so", "isso",
+                    "sim,", "tranquilo", "show", "top", "certissimo", "corretissimo"}
 _SIM_FORTE = {"sim", "s", "isso", "exato", "exatamente", "correto", "corretos", "certo", "certos", "certinho", "confirmo",
               "confirmado", "confirmados", "pode", "ok", "okay", "perfeito", "positivo", "ss", "sss", "simm", "gera",
-              "manda"}
+              "manda", "claro", "uhum", "aham", "beleza", "blz", "tranquilo", "show", "certissimo", "corretissimo", "bem"}
 
 
 def _e_um_sim(normal: str) -> bool:
