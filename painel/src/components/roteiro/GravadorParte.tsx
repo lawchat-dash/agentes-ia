@@ -7,6 +7,7 @@ import { arquivoParaBase64 } from "@/lib/base64";
 import { useConfirmar } from "@/componentes/ui";
 import { toast } from "sonner";
 import type { ParteRoteiro, Qualidade } from "./tipos";
+import "./vozesProntas.css";
 
 const TIPOS_AUDIO = ["audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
 const TIPOS_VIDEO = ["video/mp4;codecs=avc1,mp4a", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
@@ -232,7 +233,10 @@ export function GravadorParte({ parte, aoMudar, aoOcupar, liberado = true }: {
   };
 
   const excluir = async () => {
-    if (!(await confirmar({ titulo: "Excluir este envio?", texto: "A gravação sai da Biblioteca e esta parte volta para gravar.", confirmar: "Excluir", perigo: true }))) return;
+    const pronta = parte.gravacao?.origem === "pronta";
+    if (!(await confirmar(pronta
+      ? { titulo: "Tirar a voz pronta?", texto: "O modelo sai desta parte e da sua Biblioteca, e a parte volta para gravar.", confirmar: "Tirar", perigo: true }
+      : { titulo: "Excluir este envio?", texto: "A gravação sai da Biblioteca e esta parte volta para gravar.", confirmar: "Excluir", perigo: true }))) return;
     try {
       const r = await api<{ ok: boolean; arquivo_ficou: boolean }>(`/roteiro-gravacao/partes/${parte.id}`, { metodo: "DELETE" });
       aoMudar({ ...parte, gravacao: null });
@@ -241,6 +245,8 @@ export function GravadorParte({ parte, aoMudar, aoOcupar, liberado = true }: {
   };
 
   const g = parte.gravacao;
+  // Voz pronta da LawChat: gravar ou enviar por cima vira gravação própria (a própria sempre vale mais).
+  const pronta = g?.origem === "pronta";
   const mostrarGravador = !g || regravar || gravando || !!previa;
 
   return (
@@ -255,20 +261,22 @@ export function GravadorParte({ parte, aoMudar, aoOcupar, liberado = true }: {
       )}
 
       {g && !regravar && !gravando && !previa && (
-        <div className="rg-enviado">
+        <div className={`rg-enviado ${pronta ? "vp-pronta" : ""}`}>
           <div className="rg-enviado-topo">
             <div>
               <b>{parte.titulo}</b>
-              <small><CheckCircle2 size={13} />{g.reaproveitada ? "Você já tem este material (gravado em outro produto)" : "Enviado com sucesso"}
+              <small><CheckCircle2 size={13} />{pronta ? `Voz pronta${g.voz_nome ? ` · ${g.voz_nome}` : ""} (modelo da LawChat)`
+                : g.reaproveitada ? "Você já tem este material (gravado em outro produto)" : "Enviado com sucesso"}
                 {g.duracao_s ? ` · ${fmtTempo(g.duracao_s)}` : ""} · {quando(g.atualizado_em || g.criado_em)}</small>
               {g.qualidade && g.qualidade !== "boa" && <small className="rg-alerta">Recebido, mas com problema de som: {FRASE_QUALIDADE[g.qualidade].toLowerCase()}</small>}
             </div>
             <div className="rg-enviado-acoes">
-              <button type="button" title="Gravar ou enviar novamente" aria-label="Gravar ou enviar novamente" onClick={() => setRegravar(true)} disabled={!liberado}><RotateCcw size={15} /></button>
-              <button type="button" className="perigo" title="Excluir este envio" aria-label="Excluir este envio" onClick={excluir}><Trash2 size={15} /></button>
+              <button type="button" title={pronta ? "Gravar com a minha voz" : "Gravar ou enviar novamente"} aria-label={pronta ? "Gravar com a minha voz" : "Gravar ou enviar novamente"} onClick={() => setRegravar(true)} disabled={!liberado}><RotateCcw size={15} /></button>
+              <button type="button" className="perigo" title={pronta ? "Tirar a voz pronta desta parte" : "Excluir este envio"} aria-label={pronta ? "Tirar a voz pronta desta parte" : "Excluir este envio"} onClick={excluir}><Trash2 size={15} /></button>
             </div>
           </div>
           {g.tipo === "video" ? <video src={g.url} controls preload="metadata" playsInline /> : <audio src={g.url} controls preload="metadata" />}
+          {pronta && <small className="rg-ajuda">Prefere a sua voz? Grave ou envie por cima: a sua gravação passa a valer no lugar deste modelo.</small>}
         </div>
       )}
 

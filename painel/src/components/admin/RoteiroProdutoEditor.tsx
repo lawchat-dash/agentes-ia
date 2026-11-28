@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import VozesProntasEditor from "@/components/admin/VozesProntasEditor";
 
 /**
  * Admin › Produtos › Roteiros: o que o escritório grava (áudios e vídeos) para a IA falar com a voz dele.
@@ -258,6 +259,10 @@ export default function RoteiroProdutoEditor({ idProduto, modoMidia }: { idProdu
         </div>
         <div className="space-y-3">{linhas}</div>
       </Card>
+
+      {/* Vozes prontas: recarrega quando as partes mudam (título, seção, tipo, ligada) */}
+      <VozesProntasEditor idProduto={idProduto}
+        versaoPartes={partes.map((p) => `${p.id}:${p.titulo}:${p.secao}:${p.tipo}:${p.ativo ? 1 : 0}`).join("|")} />
       {janelaConfirmar}
     </div>
   );

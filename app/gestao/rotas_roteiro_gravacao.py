@@ -478,15 +478,26 @@ async def tirar_exemplo(id_parte: str, pedido: Request, _: Contexto = Depends(AD
 
 
 # ======================================================================================================= escritório
+_SQL_GRAVACOES = """select g.chave, g.id_parte, g.qualidade, g.duracao_s::float8 as duracao_s, g.criado_em,
+                            g.atualizado_em, m.id as id_midia, m.nome, m.url, m.tipo, m.mime_type, m.tamanho_bytes,
+                            p.id_produto_biblioteca as produto_da_gravacao{extra}
+                       from agentesia_roteiro_gravacoes g
+                       join agentesia_biblioteca_midia m on m.id = g.id_midia
+                       left join agentesia_roteiro_partes p on p.id = g.id_parte{junta}
+                      where g.id_escritorio = $1::uuid"""
+
+
 async def _gravacoes_do_escritorio(pedido: Request, ctx: Contexto) -> dict[str, dict[str, Any]]:
-    linhas = await _consultar(pedido, "fetch",
-                              """select g.chave, g.id_parte, g.qualidade, g.duracao_s::float8 as duracao_s, g.criado_em,
-                                        g.atualizado_em, m.id as id_midia, m.nome, m.url, m.tipo, m.mime_type, m.tamanho_bytes,
-                                        p.id_produto_biblioteca as produto_da_gravacao
-                                   from agentesia_roteiro_gravacoes g
-                                   join agentesia_biblioteca_midia m on m.id = g.id_midia
-                                   left join agentesia_roteiro_partes p on p.id = g.id_parte
-                                  where g.id_escritorio = $1::uuid""", ctx.escritorio())
+    """Gravações do escritório por chave. origem: 'propria' (gravada ou anexada) ou 'pronta' (voz pronta da LawChat,
+    migração 020: id_voz e voz_nome). Sem a 020, tudo é 'propria'."""
+    try:
+        linhas = await _pool(pedido).fetch(
+            _SQL_GRAVACOES.format(extra=", g.origem, g.id_voz, v.nome as voz_nome",
+                                  junta="\n                       left join agentesia_vozes_prontas v on v.id = g.id_voz"),
+            ctx.escritorio())
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
+        linhas = [{**dict(l), "origem": "propria", "id_voz": None, "voz_nome": None}
+                  for l in await _consultar(pedido, "fetch", _SQL_GRAVACOES.format(extra="", junta=""), ctx.escritorio())]
     return {l["chave"]: _linha(l) for l in linhas}  # type: ignore[misc]
 
 
@@ -561,6 +572,14 @@ class Gravacao(Arquivo):
         return min(max(float(valor), 0.0), float(teto))
 
 
+_UPSERT_GRAVACAO = """insert into agentesia_roteiro_gravacoes (id_escritorio, chave, id_parte, id_midia, duracao_s, pico,
+                                                               silencio_pct, qualidade, id_usuario{colunas})
+           values ($1::uuid, $2, $3::uuid, $4::uuid, $5, $6, $7, $8, $9::uuid{valores})
+           on conflict (id_escritorio, chave) do update set id_parte = excluded.id_parte, id_midia = excluded.id_midia,
+               duracao_s = excluded.duracao_s, pico = excluded.pico, silencio_pct = excluded.silencio_pct,
+               qualidade = excluded.qualidade, id_usuario = excluded.id_usuario, atualizado_em = now(){sets}"""
+
+
 @api.post("/roteiro-gravacao/partes/{id_parte}")
 async def gravar_parte(id_parte: str, dados: Gravacao, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """Recebe a gravação (ou o arquivo anexado) de uma parte. Regravar substitui a anterior."""
@@ -594,15 +613,14 @@ async def gravar_parte(id_parte: str, dados: Gravacao, pedido: Request, ctx: Con
     pasta = "Roteiros gravados/Gerais" if parte.get("chave_geral") else f"Roteiros gravados/{produto_pasta}"
     await pool.execute("update agentesia_biblioteca_midia set nome = $2, pasta = $3 where id = $1::uuid",
                        criada["id"], nome[:200], pasta)
-    await pool.execute(
-        """insert into agentesia_roteiro_gravacoes (id_escritorio, chave, id_parte, id_midia, duracao_s, pico, silencio_pct,
-                                                    qualidade, id_usuario)
-           values ($1::uuid, $2, $3::uuid, $4::uuid, $5, $6, $7, $8, $9::uuid)
-           on conflict (id_escritorio, chave) do update set id_parte = excluded.id_parte, id_midia = excluded.id_midia,
-               duracao_s = excluded.duracao_s, pico = excluded.pico, silencio_pct = excluded.silencio_pct,
-               qualidade = excluded.qualidade, id_usuario = excluded.id_usuario, atualizado_em = now()""",
-        ctx.escritorio(), chave, parte["id"], criada["id"], dados.duracao_s, dados.pico, dados.silencio_pct, dados.qualidade,
-        ctx.id_usuario)
+    # Gravar por cima de uma voz pronta (migração 020) vira gravação própria. Sem a 020, o upsert de antes.
+    valores = (ctx.escritorio(), chave, parte["id"], criada["id"], dados.duracao_s, dados.pico, dados.silencio_pct,
+               dados.qualidade, ctx.id_usuario)
+    try:
+        await pool.execute(_UPSERT_GRAVACAO.format(colunas=", origem, id_voz", valores=", 'propria', null",
+                                                   sets=", origem = 'propria', id_voz = null"), *valores)
+    except asyncpg.UndefinedColumnError:
+        await pool.execute(_UPSERT_GRAVACAO.format(colunas="", valores="", sets=""), *valores)
     pos_assinatura = False
     if parte.get("chave_geral") == CHAVE_POS_ASSINATURA:   # antes de apagar o antigo: a ZapSign passa a mandar o novo
         pos_assinatura = await _pos_assinatura(pool, ctx.escritorio(), url_anterior, criada["url"])
@@ -624,9 +642,11 @@ async def _abrir_espaco(pedido: Request, ctx: Contexto, id_anterior: str, tamanh
     usado = await _uso_midia(pool, ctx.escritorio())
     if usado + tamanho_novo <= COTA_MIDIA:
         return False
-    antiga = await pool.fetchrow("select url, caminho_storage, tamanho_bytes from agentesia_biblioteca_midia "
-                                 "where id = $1::uuid and id_escritorio = $2::uuid", id_anterior, ctx.escritorio())
-    if not antiga or usado - int(antiga["tamanho_bytes"] or 0) + tamanho_novo > COTA_MIDIA:
+    antiga = await pool.fetchrow("select url, caminho_storage, tamanho_bytes, coalesce(tags, '[]'::jsonb) ? 'voz_pronta' as pronta "
+                                 "from agentesia_biblioteca_midia where id = $1::uuid and id_escritorio = $2::uuid",
+                                 id_anterior, ctx.escritorio())
+    # Voz pronta (arquivo da LawChat) não conta no espaço: tirar antes não abre espaço nenhum.
+    if not antiga or antiga["pronta"] or usado - int(antiga["tamanho_bytes"] or 0) + tamanho_novo > COTA_MIDIA:
         return False
     if await _quem_usa_a_midia(pool, ctx.escritorio(), antiga["caminho_storage"] or antiga["url"]):
         return False

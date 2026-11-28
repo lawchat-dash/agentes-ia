@@ -8,6 +8,7 @@ import { useCarregar } from "@/componentes/ui";
 import { useSessao } from "@/sessao";
 import { ModalCrmPasso } from "./CrmPasso";
 import { ModalDadosEscritorio } from "./DadosEscritorio";
+import { ModalEscolhaAudios } from "./EscolhaAudios";
 import "./PrimeirosPassos.css";
 
 /** GET /api/inicio/primeiros-passos (app/gestao/primeiros_passos.py). */
@@ -32,8 +33,8 @@ const GUIA: Record<string, { porque: string; fazer: string }> = {
     fazer: "Crie o painel no CRM com as etapas sugeridas e depois marque qual coluna é cada etapa.",
   },
   roteiro: {
-    porque: "Os áudios e vídeos com a sua voz deixam o atendimento mais humano e convertem mais.",
-    fazer: "Escolha um produto e grave o roteiro (vídeos e áudios principais). As objeções podem ficar para depois.",
+    porque: "Com áudios em cada parte do atendimento, o agente fica mais humano e converte mais.",
+    fazer: "Grave o roteiro com a voz da equipe ou use os áudios prontos gerados por IA, escolhendo a voz e o produto.",
   },
   dados: {
     porque: "Nome, endereço, CNPJ e redes entram em todos os agentes: você preenche uma vez só.",
@@ -78,7 +79,7 @@ export function PrimeirosPassos({ dados, aoMudar }: { dados: PrimeirosPassosDado
   const [direcao, setDirecao] = useState(1);
   const [comemorando, setComemorando] = useState(false);
   const [recemFeito, setRecemFeito] = useState<string | null>(null);
-  const [popup, setPopup] = useState<"crm" | "dados" | null>(null);
+  const [popup, setPopup] = useState<"crm" | "dados" | "roteiro" | null>(null);
 
   // Passo que acabou de ficar pronto (dados novos): mostra o "feito" e passa para o próximo sozinho.
   const anteriores = useRef<Record<string, PassoInicial["situacao"]>>({});
@@ -112,7 +113,7 @@ export function PrimeirosPassos({ dados, aoMudar }: { dados: PrimeirosPassosDado
       const ag = (agentes.dados ?? []).find((a) => a.nome === nome) ?? (agentes.dados ?? []).find((a) => a.situacao !== "ativo");
       if (ag) return `/agentes/${ag.id}/ativacao`;
     }
-    if (p.codigo === "crm" || p.codigo === "dados") return "#popup";
+    if (p.codigo === "crm" || p.codigo === "dados" || p.codigo === "roteiro") return "#popup";
     return p.para;
   }, [agentes.dados, precisaAgente]);
 
@@ -169,7 +170,7 @@ export function PrimeirosPassos({ dados, aoMudar }: { dados: PrimeirosPassosDado
   const acao = atual.codigo === "produto" && precisaAgente && destino?.includes("/ativacao") ? "Abrir a ativação" : atual.acao;
 
   const abrirDestino = () => {
-    if (atual.codigo === "crm" || atual.codigo === "dados") { setPopup(atual.codigo); return; }
+    if (atual.codigo === "crm" || atual.codigo === "dados" || atual.codigo === "roteiro") { setPopup(atual.codigo); return; }
     if (!destino) return;
     navegar(destino);
   };
@@ -268,6 +269,7 @@ export function PrimeirosPassos({ dados, aoMudar }: { dados: PrimeirosPassosDado
       </div>
       {popup === "crm" && <ModalCrmPasso aoFechar={() => setPopup(null)} aoSalvar={aoMudar} />}
       {popup === "dados" && <ModalDadosEscritorio aoFechar={() => setPopup(null)} aoSalvar={aoMudar} />}
+      {popup === "roteiro" && <ModalEscolhaAudios aoFechar={() => setPopup(null)} />}
     </motion.section>
   );
 }

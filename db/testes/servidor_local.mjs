@@ -30,6 +30,7 @@ await db.exec(fs.readFileSync(path.join(aqui, '../migracoes/016_agentesia_agente
 await db.exec(fs.readFileSync(path.join(aqui, '../migracoes/017_agentesia_planos_recursos.sql'), 'utf8'));
 await db.exec(fs.readFileSync(path.join(aqui, '../migracoes/018_agentesia_log_plataforma.sql'), 'utf8'));
 await db.exec(fs.readFileSync(path.join(aqui, '../migracoes/019_agentesia_roteiro_gravacao.sql'), 'utf8'));
+await db.exec(fs.readFileSync(path.join(aqui, '../migracoes/020_agentesia_vozes_prontas.sql'), 'utf8'));
 // Imitação mínima do Supabase Vault, só para o teste (no Supabase o valor fica cifrado).
 await db.exec(`
   create schema if not exists vault;

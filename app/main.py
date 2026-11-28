@@ -248,6 +248,7 @@ app.include_router(api_contrato)                      # contratos do lead e prom
 from app.gestao.rotas_rascunho import api as api_rascunho; app.include_router(api_rascunho)  # noqa: E402,E702  testar o rascunho e versões
 from app.gestao.rotas_roteiros import api as api_roteiros; app.include_router(api_roteiros)  # noqa: E402,E702  Ferramentas > Roteiros (áudios)
 from app.gestao.rotas_roteiro_gravacao import api as api_roteiro_gravacao; app.include_router(api_roteiro_gravacao)  # noqa: E402,E702  roteiro de gravação por produto (019)
+from app.gestao.rotas_vozes_prontas import api as api_vozes_prontas; app.include_router(api_vozes_prontas)  # noqa: E402,E702  vozes prontas do roteiro (020)
 from app.gestao.rotas_filtro import api as api_filtro; app.include_router(api_filtro)  # noqa: E402,E702  filtro de número por agente (teste)
 from app.gestao.rotas_execucoes import api as api_execucoes; app.include_router(api_execucoes)  # noqa: E402,E702  Superadmin > Execuções (cada turno da IA)
 from app.gestao.rotas_log_plataforma import api as api_log_plataforma; app.include_router(api_log_plataforma)  # noqa: E402,E702  Superadmin > Logs (log da plataforma)

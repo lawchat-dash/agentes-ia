@@ -83,6 +83,18 @@ async def _roteiro(pool: Any, id_escritorio: str) -> dict[str, Any] | None:
     if not linhas:
         return None
     pronto = next((l["nome"] for l in linhas if l["obrigatorias"] and l["gravadas"] >= l["obrigatorias"]), None)
+    if pronto is None:
+        # Quem escolheu uma voz pronta (migração 020) também cumpriu o passo, mesmo deixando os honorários em texto.
+        try:
+            pronto = await pool.fetchval(
+                """select b.nome from agentesia_roteiro_gravacoes g
+                     join agentesia_roteiro_partes r on r.ativo and g.chave = case
+                          when nullif(r.chave_geral, '') is not null then 'geral:' || r.chave_geral else 'parte:' || r.id::text end
+                     join agentesia_biblioteca_produtos b on b.id = r.id_produto_biblioteca
+                    where g.id_escritorio = $1::uuid and g.origem = 'pronta' and b.modo_midia = 'audio' and b.status = 'publicado'
+                    order by b.nome limit 1""", id_escritorio)
+        except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
+            pronto = None
     return {"concluido": pronto}
 
 
@@ -155,8 +167,8 @@ async def calcular(pool: Any, id_escritorio: str) -> dict[str, Any]:
         pronto = roteiro.get("concluido")
         passo("roteiro", "feito" if pronto else "pendente",
               f"roteiro de {pronto} gravado" if pronto
-              else "escolha um produto e grave o roteiro (vídeos e áudios principais)", "/roteiros",
-              "Ver roteiros" if pronto else "Gravar o roteiro")
+              else "grave o roteiro ou use os áudios prontos (vídeos e áudios principais)", "/roteiros",
+              "Ver roteiros" if pronto else "Escolher os áudios")
 
     # 5. Dados do escritório
     dados = _obj(config_escritorio.get("dados_escritorio"))

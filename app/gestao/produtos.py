@@ -1288,7 +1288,9 @@ class MidiaNova(BaseModel):
 
 
 async def _uso_midia(pool: asyncpg.Pool, id_escritorio: str) -> int:
-    return int(await pool.fetchval("select coalesce(sum(tamanho_bytes), 0) from agentesia_biblioteca_midia where id_escritorio = $1::uuid",
+    # Áudio de voz pronta (tag voz_pronta, migração 020) é arquivo compartilhado da LawChat: não gasta a cota do escritório.
+    return int(await pool.fetchval("select coalesce(sum(tamanho_bytes), 0) from agentesia_biblioteca_midia where id_escritorio = $1::uuid "
+                                   "and not (coalesce(tags, '[]'::jsonb) ? 'voz_pronta')",
                                    id_escritorio) or 0)
 
 

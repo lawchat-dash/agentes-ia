@@ -1,10 +1,11 @@
 // Roteiro de gravação de um produto: orientações, materiais principais (vídeos + áudios) e quebra de objeção, com
 // progresso e cada parte num cartão que abre. Tela Roteiros e card da ativação do produto usam este mesmo componente.
-import { useEffect, useMemo, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Lock, Mic, Video } from "lucide-react";
 import { useCarregar, useConfirmar } from "@/componentes/ui";
 import { GravadorParte } from "./GravadorParte";
-import type { ParteRoteiro, RoteiroDoProduto } from "./tipos";
+import { EscolhaModo, VozesProntas, type ModoRoteiro } from "./VozesProntas";
+import type { ParteRoteiro, RoteiroDoProduto, VozesDoProduto } from "./tipos";
 import "./roteiro.css";
 
 type Passo = "orientacoes" | "principais" | "objecoes";
@@ -22,6 +23,7 @@ function CartaoParte({ parte, numero, aberto, aoAbrir, aoMudar, aoOcupar, libera
         <span className="rg-cartao-tit">
           <small>{parte.tipo === "video" ? "Vídeo" : "Áudio"} {String(numero).padStart(2, "0")}{parte.chave_geral ? " · geral" : ""}</small>
           <b>{parte.titulo}</b>
+          {parte.gravacao?.origem === "pronta" && <span className="vp-selo-parte">Voz pronta</span>}
         </span>
         <span className={`rg-check ${feito ? "on" : ""}`} aria-label={feito ? "Enviado" : "Falta enviar"}>{feito && <Check size={14} strokeWidth={3} />}</span>
         <ChevronDown size={16} className="rg-seta" />
@@ -40,7 +42,12 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
   /** Preenchido aqui: quem está fora (ex.: "Voltar para a ativação") chama antes de sair, e só sai se confirmar o descarte. */
   sair?: MutableRefObject<((ir: () => void) => void) | null>;
 }) {
-  const { dados, erro } = useCarregar<RoteiroDoProduto>(`/roteiro-gravacao/${idProduto}`, [idProduto], { guardar: false });
+  const { dados, erro, recarregar } = useCarregar<RoteiroDoProduto>(`/roteiro-gravacao/${idProduto}`, [idProduto], { guardar: false });
+  // Vozes prontas (só na tela cheia; na ativação o roteiro é compacto). Sem vozes ou com erro, fica só o "gravar".
+  const vozes = useCarregar<VozesDoProduto>(compacto ? null : `/roteiro-gravacao/${idProduto}/vozes`, [idProduto], { guardar: false });
+  const temVozes = !!vozes.dados?.vozes.length;
+  const [modo, setModo] = useState<ModoRoteiro | null>(null);
+  const reabrir = useRef(false);                                          // depois de usar uma voz: abrir a 1ª parte que ainda falta
   const [confirmar, modalConfirmar] = useConfirmar();
   const [partes, setPartes] = useState<ParteRoteiro[]>([]);
   const [passo, setPasso] = useState<Passo>(compacto ? "principais" : "orientacoes");
@@ -48,6 +55,11 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
   // Parte com gravação em andamento ou prévia ainda não enviada: fechar/trocar o cartão descartaria sem aviso.
   const [ocupada, setOcupada] = useState<string | null>(null);
   useEffect(() => { if (dados) setPartes(dados.partes); }, [dados]);
+  // Primeira abertura: começa na voz pronta se ainda não gravou nada e há vozes; senão, no gravar.
+  useEffect(() => {
+    if (modo || compacto || !dados || (!vozes.dados && !vozes.erro)) return;
+    setModo(vozes.dados?.vozes.length && !dados.partes.some((p) => p.gravacao) ? "pronta" : "gravar");
+  }, [modo, compacto, dados, vozes.dados, vozes.erro]);
 
   /** Faz `ir` direto ou, se há gravação não enviada, só depois de confirmar o descarte. */
   const seguir = async (ir: () => void) => {
@@ -61,6 +73,15 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
     return () => { sair.current = null; };
   });
   const irPasso = (novo: Passo) => { if (novo !== passo) void seguir(() => setPasso(novo)); };
+  const escolherModo = (novo: ModoRoteiro) => { if (novo !== modo) void seguir(() => setModo(novo)); };
+  // Usou uma voz: recarrega o roteiro (as partes chegam preenchidas) e volta para a lista de partes.
+  const usouVoz = async () => {
+    setModo("gravar");
+    setPasso("principais");
+    void vozes.recarregar();
+    reabrir.current = true;                                               // as partes só mudam quando o roteiro novo chega
+    await recarregar();
+  };
   const voltar = aoVoltar && (() => { void seguir(aoVoltar); });
 
   const principais = useMemo(() => partes.filter((p) => p.secao !== "objecoes"), [partes]);
@@ -72,8 +93,16 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
     setAberta((lista.find((p) => !p.gravacao) ?? lista[0])?.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [passo, partes.length]);
+  useEffect(() => {
+    if (!reabrir.current || passo === "orientacoes") return;
+    reabrir.current = false;
+    setAberta((lista.find((p) => !p.gravacao) ?? lista[0])?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partes]);
 
-  if (!dados) return <div className="rg-carregando">{erro ? `Não deu para abrir o roteiro: ${erro}` : "Abrindo o roteiro…"}</div>;
+  // Espera também as vozes para não abrir no "gravar" e pular para a voz pronta logo depois.
+  const esperandoVozes = !compacto && !modo;
+  if (!dados || esperandoVozes) return <div className="rg-carregando">{erro ? `Não deu para abrir o roteiro: ${erro}` : "Abrindo o roteiro…"}</div>;
 
   const gravadas = partes.filter((p) => p.gravacao).length;
   const total = partes.length;
@@ -101,6 +130,10 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
   };
   const feitas = (l: ParteRoteiro[]) => l.filter((p) => p.gravacao).length;
   const contar = (l: ParteRoteiro[], tipo: "audio" | "video") => l.filter((p) => p.tipo === tipo).length;
+  const escolha = !compacto && temVozes;
+  const verVozes = escolha && modo === "pronta";
+  // Partes que já têm gravação do próprio escritório (não da voz pronta): o aceite oferece trocar também essas.
+  const minhas = partes.filter((p) => p.gravacao && p.gravacao.origem !== "pronta").length;
 
   return (
     <div className={`rg ${compacto ? "rg--compacto" : ""}`}>
@@ -109,13 +142,13 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
           {voltar && <button type="button" className="rg-voltar" onClick={voltar}><ArrowLeft size={15} />Roteiros</button>}
           <h2>Seu roteiro de gravação</h2>
           <p>{dados.produto.nome}</p>
-          <div className="rg-passos">
+          {!verVozes && <div className="rg-passos">
             {passos.map((p, i) => (
               <button key={p.id} type="button" className={i <= indice ? "on" : ""} onClick={() => irPasso(p.id)}>
                 <i /><span>{i + 1}. {p.rotulo}</span>
               </button>
             ))}
-          </div>
+          </div>}
         </div>
       )}
 
@@ -123,11 +156,17 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
         <div className="rg-bloqueado"><Lock size={16} /><span>{dados.motivo ?? "O seu plano não inclui o roteiro de gravação."}</span></div>
       )}
 
+      {escolha && <EscolhaModo modo={modo ?? "gravar"} aoEscolher={escolherModo} />}
+
       <div className="rg-progresso">
         <div><span>Materiais obrigatórios</span><b className={concluido ? "ok" : ""}>{obrigGravadas} de {obrigatorias} enviados</b></div>
         <div className="rg-barra"><i style={{ width: `${obrigatorias ? (obrigGravadas / obrigatorias) * 100 : 0}%` }} /></div>
         {objecoes.length > 0 && <div className="rg-progresso-extra"><span>Quebra de objeção (opcional)</span><span>{objGravadas} de {objecoes.length}</span></div>}
       </div>
+      {verVozes && vozes.dados ? (
+        <VozesProntas idProduto={idProduto} dados={vozes.dados} minhasGravacoes={minhas} liberado={dados.liberado} motivo={dados.motivo}
+          aoUsar={() => { void usouVoz(); }} />
+      ) : <>
       {gravadas === total && total > 0
         ? <div className="rg-fim">🎉 Tudo enviado! As gravações já estão na Biblioteca, prontas para a ativação.</div>
         : concluido && <div className="rg-fim">✅ Materiais obrigatórios completos: você já pode ativar o agente. Os áudios de objeção não são
@@ -200,6 +239,7 @@ export function RoteiroGravacao({ idProduto, aoGravou, compacto = false, aoVolta
           </div>
         </div>
       )}
+      </>}
       {modalConfirmar}
     </div>
   );

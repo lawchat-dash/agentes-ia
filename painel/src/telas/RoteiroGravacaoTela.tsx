@@ -3,7 +3,7 @@
 // /roteiros/:produto   gravação (?voltar=<caminho> mostra "Voltar para a ativação", vindo do Passo 3 da ativação)
 import { useRef, type CSSProperties } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check, Clapperboard, Lock, Mic, Video } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Clapperboard, Headphones, Lock, Mic, Video } from "lucide-react";
 import { Cabecalho, Carregando, Vazio, useCarregar } from "@/componentes/ui";
 import { RoteiroGravacao } from "@/components/roteiro/RoteiroGravacao";
 import type { ProdutoComRoteiro } from "@/components/roteiro/tipos";
@@ -25,7 +25,8 @@ export function TelaRoteirosGravacao() {
   return (
     <div className="stack">
       <Cabecalho eyebrow="Mídia" titulo="Roteiros de gravação"
-        texto="Grave os áudios e vídeos que dão a sua voz ao agente. Cada gravação vai para a Biblioteca e entra no lugar certo do prompt quando você ativar o produto." />
+        texto="Grave os áudios e vídeos que dão a sua voz ao agente. Cada gravação vai para a Biblioteca e entra no lugar certo do prompt quando você ativar o produto."
+        acoes={<button type="button" className="btn" onClick={() => navegar("/roteiros/vozes")}><Headphones />Usar vozes prontas</button>} />
       {!dados ? <Carregando erro={erro} /> : (
         <>
           {!dados.liberado && <div className="rg-bloqueado"><Lock size={16} /><span>{dados.motivo}</span></div>}
