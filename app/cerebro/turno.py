@@ -582,6 +582,11 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                                    f"Você já fez esta pergunta duas vezes e o lead não respondeu direto: \"{terceira[:120]}\". "
                                    "Não pergunte de novo: aceite o que ele já disse (\"não sei\" também vale), responda ao "
                                    "que ele escreveu agora e siga para o próximo passo do roteiro."))
+        if etapa == "desqualificado" and (inventado := _motivo_inventado(
+                [m["texto"] for m in mensagens if m["tipo"] == "texto"], saida.fatos_depois)):
+            guardas.append(_Guarda("motivo_inventado_no_encerramento",
+                                   f"Você disse que {inventado}, mas o lead não disse isso. Não use esse motivo: diga só que, "
+                                   "pelo que ele contou, o caso não se encaixa neste benefício agora, e siga o encerramento."))
         if repetidos := _baloes_ja_enviados(entrada, [m["texto"] for m in mensagens if m["tipo"] == "texto"], papeis):
             guardas.append(_Guarda("balao_ja_enviado",
                                    "Você já mandou estas mensagens antes nesta conversa: " + " | ".join(
@@ -1037,6 +1042,23 @@ def _pergunta_pela_terceira_vez(entrada: Entrada, textos: list[str]) -> str | No
     return None
 
 
+_ALEGACOES_DO_ENCERRAMENTO = (
+    ("tem_advogado_no_caso", "sim", "o caso já tem outro advogado",
+     re.compile(r"\b(?:outro advogado|acompanhado por (?:um |outro )?advogad|representacao ativa|seu advogado)\b")),
+    ("aposentado", "sim", "ele é aposentado", re.compile(r"\b(?:voce (?:ja )?(?:e|esta) aposentad|recebe (?:a |uma )?aposentadoria)\b")),
+)
+
+
+def _motivo_inventado(textos: list[str], fatos: dict[str, Any]) -> str | None:
+    """No encerramento, a IA afirma um motivo (advogado, aposentadoria) que não está nos fatos (reteste de 28/11:
+    "seu caso já está sendo acompanhado por outro advogado" para quem nunca falou de advogado)."""
+    texto = normalizar_texto(" ".join(textos))
+    for chave, valor, rotulo, padrao in _ALEGACOES_DO_ENCERRAMENTO:
+        if padrao.search(texto) and str(fatos.get(chave) or "") != valor:
+            return rotulo
+    return None
+
+
 def _resumo_aceito(entrada: Entrada, saida: Saida) -> bool:
     """A última resposta da IA mostrou o resumo dos dados do contrato, o lead respondeu com um sim e os dados conferem."""
     from app.cerebro.extrator import normalizar
@@ -1088,9 +1110,19 @@ def _desqualificacao_sem_motivo(entrada: Entrada, produto: Any, saida: Saida, de
         return ("Você pediu para o lead confirmar, mas a resposta dele não foi um sim claro a essa pergunta. Não "
                 "desqualifique: se ele falou de outra coisa, responda e refaça a confirmação uma vez com outras palavras "
                 "(pergunta de sim ou não, sem \"ou\"); se ele negou, siga a qualificação.")
-    if catalogo.motivo_de_desqualificar(getattr(produto, "config", {}) or {}, saida.fatos_depois):
-        return None
-    if confirmou:
+    motivo = catalogo.motivo_de_desqualificar(getattr(produto, "config", {}) or {}, saida.fatos_depois)
+    from app.cerebro import resposta_curta
+
+    assunto = resposta_curta.ASSUNTO.get(motivo[0]) if motivo else None
+    disse_com_palavras = bool(assunto and assunto.search(normalizar(" ".join(entrada.novas))))
+    if motivo and not confirmou and not disse_com_palavras and any(
+            f.get("chave") == motivo[0] and f.get("fonte", "extrator") != "sistema" for f in saida.fatos_novos):
+        # O motivo apareceu NESTA mensagem e ninguém confirmou (reteste de 28/11: "Olha, moça, eu não sei de cabeça..."
+        # virou advogado=sim e o lead foi desqualificado na hora).
+        return ("O motivo para desqualificar apareceu agora e ainda não foi confirmado com o lead. Antes de desqualificar, "
+                "confirme uma vez com uma pergunta curta de sim ou não sobre ESSE ponto, com as palavras dele, e deixe "
+                "transferir_para vazio. Se ele não disse isso, siga a qualificação.")
+    if motivo or confirmou:
         return None
     return ("Você ia desqualificar o lead sem ele ter dito com clareza um motivo do roteiro. Releia a CONVERSA ATÉ AQUI: "
             "se ele disse um motivo, confirme uma vez com uma pergunta curta sobre ESSE ponto e não desqualifique ainda; "

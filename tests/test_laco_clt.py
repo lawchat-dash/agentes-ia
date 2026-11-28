@@ -291,3 +291,10 @@ def test_fotos_de_documento_com_texto_do_caso_nao_e_suspeito():
     fotos.append({"autor": "lead", "tipo": "texto", "texto": "Então, foi do acidente, minha mão ficou com dor e limitação",
                   "enviada_em": t0 + timedelta(seconds=30)})
     assert suspeito.avaliar(fotos) is None
+
+
+def test_encerramento_nao_inventa_advogado():
+    textos = ["Verifiquei aqui e vi que seu caso já está sendo acompanhado por outro advogado."]
+    assert turno._motivo_inventado(textos, {}) == "o caso já tem outro advogado"
+    assert turno._motivo_inventado(textos, {"tem_advogado_no_caso": "sim"}) is None
+    assert catalogo.nome_valido("moça") is None

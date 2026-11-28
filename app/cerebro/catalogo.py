@@ -187,7 +187,7 @@ def mes_ano(valor: Any) -> str | None:
 _NAO_E_NOME = {"ola", "oi", "bom", "boa", "dia", "tarde", "noite", "eu", "minha", "meu", "sim", "nao", "ok", "isso",
                "infelizmente", "obrigado", "obrigada", "tudo", "bem", "quero", "sou", "estou", "tenho", "era", "foi",
                "estava", "trabalho", "trabalhava", "frentista", "auxiliar", "ajudante", "pedreiro", "motorista",
-               "senhor", "senhora", "doutor", "doutora", "pode", "certo", "entendi", "acidente", "moto", "carro"}
+               "senhor", "senhora", "doutor", "doutora", "moca", "moco", "querida", "amiga", "amigo", "pode", "certo", "entendi", "acidente", "moto", "carro"}
 
 
 _RELATO = {"bati", "cai", "sofri", "fui", "tive", "quebrei", "fiquei", "machuquei", "estava", "indo", "na", "no", "em",
