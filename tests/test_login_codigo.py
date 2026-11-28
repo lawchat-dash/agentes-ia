@@ -129,6 +129,23 @@ async def test_envia_codigo_e_responde_generico(ambiente, plataforma):
     plataforma.fora_do_ar = True
     r = await cliente.post("/api/entrar/codigo", json={"email": "ana@x.com"})
     assert r.status_code == 503 and "plataforma" in r.json()["detail"]
+    # Cabeçalhos de navegador (a borda da plataforma pode recusar cliente sem User-Agent de navegador).
+    assert "Mozilla/5.0" in plataforma.pedidos[-1][1]["user-agent"]
+
+
+@pg
+async def test_espera_entre_codigos_e_bloqueio(ambiente, plataforma, monkeypatch):
+    cliente, _s, _e, _b = ambiente
+    _app_com_login(cliente)
+    resposta = {"r": httpx.Response(500, json={"customData": {"waitSecondsUntilNextOtp": 47}, "key": "OTP_ERROR_SEND",
+                                                "text": "Aguarde 46 segundos antes de solicitar um novo código"})}
+    monkeypatch.setattr(login_codigo, "TRANSPORTE", httpx.MockTransport(lambda _p: resposta["r"]))
+    r = await cliente.post("/api/entrar/codigo", json={"telefone": "31986936492"})
+    assert r.status_code == 429 and "47 segundos" in r.json()["detail"]
+    # Bloqueio na borda (HTML, 403): avisa que não saiu, em vez de fingir que o código foi enviado.
+    resposta["r"] = httpx.Response(403, text="<html>blocked</html>", headers={"content-type": "text/html"})
+    r = await cliente.post("/api/entrar/codigo", json={"telefone": "31986936492"})
+    assert r.status_code == 503
 
 
 @pg

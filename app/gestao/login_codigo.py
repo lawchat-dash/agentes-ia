@@ -65,6 +65,9 @@ TRANSPORTE: httpx.AsyncBaseTransport | None = None
 CAMPO_TELEFONE = "phoneNumber"
 TIPO_TELEFONE = "PHONENUMBER"
 
+NAVEGADOR = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+             "Chrome/140.0.0.0 Safari/537.36")
+
 GENERICO = "Se este acesso tiver permissão, o código chega em instantes."
 FORA_DO_AR = "Não foi possível falar com a plataforma agora. Tente de novo em instantes."
 CODIGO_ERRADO = "Código errado ou vencido. Confira os 6 dígitos ou peça um novo código."
@@ -90,8 +93,10 @@ def _cfg() -> dict[str, str]:
 
 
 def _cabecalhos(cfg: dict[str, str], token: str | None = None) -> dict[str, str]:
-    cab = {"Content-Type": "application/json", "Accept": "application/json",
-           "Origin": cfg["origem"], "Referer": cfg["origem"] + "/"}
+    # Os mesmos cabeçalhos da tela oficial (navegador): sem User-Agent de navegador, a borda da plataforma pode recusar.
+    cab = {"Content-Type": "application/json", "Accept": "application/json, text/plain, */*",
+           "Accept-Language": "pt-BR,pt;q=0.9", "Origin": cfg["origem"], "Referer": cfg["origem"] + "/",
+           "User-Agent": NAVEGADOR}
     if token:
         cab["Authorization"] = f"Bearer {token}"
     return cab
@@ -227,14 +232,32 @@ async def pedir_codigo(dados: Pedido, pedido: Request) -> dict[str, Any]:
             resposta = await http.post(f"{cfg['url']}/auth/v2/login/send-otp", headers=_cabecalhos(cfg),
                                        content=json.dumps(corpo).encode())
     except httpx.HTTPError as erro:
-        log.warning("login por código: send-otp sem resposta (%s)", type(erro).__name__)
+        log.warning("login por código: send-otp sem resposta (%s) em %s", type(erro).__name__, cfg["url"])
         raise HTTPException(503, FORA_DO_AR) from None
-    if resposta.status_code >= 500:
-        log.warning("login por código: send-otp HTTP %s", resposta.status_code)
+    if resposta.status_code < 400:
+        log.info("login por código: send-otp aceito HTTP %s para %s", resposta.status_code, _mascarar(tipo, valor))
+        return {"ok": True, "mensagem": GENERICO}
+
+    try:
+        erro_json = resposta.json()
+    except ValueError:
+        erro_json = None
+    erro_json = erro_json if isinstance(erro_json, dict) else {}
+    chave = str(erro_json.get("key") or "")
+    texto = str(erro_json.get("text") or "")[:160]
+    # Nunca o telefone/e-mail inteiro: só o status, a chave e o texto da plataforma (e o tipo de conteúdo, se não for JSON).
+    log.warning("login por código: send-otp recusado HTTP %s key=%s text=%r tipo=%s para %s em %s",
+                resposta.status_code, chave or "-", texto or "-", resposta.headers.get("content-type", "-"),
+                _mascarar(tipo, valor), cfg["url"])
+    espera = (erro_json.get("customData") or {}).get("waitSecondsUntilNextOtp") \
+        if isinstance(erro_json.get("customData"), dict) else None
+    if isinstance(espera, (int, float)) and espera > 0:
+        # A plataforma só manda um código por minuto (e responde 500 com a espera).
+        raise HTTPException(429, f"Um código acabou de ser enviado. Aguarde {int(espera)} segundos para pedir outro.")
+    if resposta.status_code >= 500 or (not erro_json and resposta.status_code in (401, 403, 429)):
+        # 5xx ou bloqueio na borda (403/429 sem JSON da API): o código não saiu, e a pessoa precisa saber.
         raise HTTPException(503, FORA_DO_AR)
-    if resposta.status_code >= 400:
-        # Acesso que a plataforma não conhece: mesma resposta (não revela quem tem conta).
-        log.info("login por código: send-otp recusado HTTP %s para %s", resposta.status_code, _mascarar(tipo, valor))
+    # Acesso que a plataforma não conhece: mesma resposta (não revela quem tem conta).
     return {"ok": True, "mensagem": GENERICO}
 
 
