@@ -47,20 +47,28 @@ export function ZapsignDialog({ open, onOpenChange, value, onSave, saving, produ
   // Estado de TRABALHO local (nada é gravado até o "Concluir" final).
   const [selModel, setSelModel] = useState<string | undefined>(undefined);
   const [excluidas, setExcluidas] = useState<Set<string>>(new Set());
-  const [posAtivo, setPosAtivo] = useState(false);
+  // Aviso de assinatura é OBRIGATÓRIO para o contrato: sem ele o lead não avança sozinho, não sai resumo e os lembretes
+  // não param. Sempre criado no "Concluir e salvar" (reusa o da conta se já existir).
+  const posAtivo = true;
 
+  // A aba e a busca só voltam ao começo quando o pop-up ABRE. Antes voltavam também quando o aviso de assinatura era
+  // criado no "Concluir e salvar" (o webhook_id muda): o pop-up pulava para a 1ª aba antes de fechar.
+  const estavaAberto = useRef(false);
   useEffect(() => {
-    if (open) {
-      setToken(accountToken ?? "");
+    if (open && !estavaAberto.current) {
       setReveal(false);
       setBusca("");
       setTab("modelos");
+    }
+    estavaAberto.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    if (open && !committing) {
+      setToken(accountToken ?? "");
       // O modelo salvo DESTE produto vem primeiro; sem ele, o último escolhido no rascunho.
       setSelModel(contrato?.modelo_token ?? value.template_id ?? (value.templates ?? [])[0]?.id);
       setExcluidas(new Set(Object.entries(contrato?.mapeamento ?? {}).filter(([, v]) => (v as any)?.origem === "ignorado").map(([k]) => k)));
-      // Vem LIGADO por padrão (sem o aviso, o lead não avança sozinho, não sai resumo e os lembretes não param).
-      // O aviso é da conta ZapSign do escritório (um só para todos os produtos): desligar aqui só não cadastra.
-      setPosAtivo(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, accountToken, contrato?.id, value.template_id, accountConfig.webhook_id]);
@@ -323,38 +331,32 @@ export function ZapsignDialog({ open, onOpenChange, value, onSave, saving, produ
                 <div>
                   <h3 className="text-sm font-bold text-[#101828]">Verificar assinatura do contrato</h3>
                   <p className="text-xs text-[#667085] mt-0.5 leading-relaxed">
-                    Liga o aviso automático: assim que o cliente <strong>assina</strong>, a ZapSign avisa o agente
-                    (webhook <code className="text-[#7c3aed]">doc_signed</code>) e o lead avança no funil — o agente sabe que assinou.
+                    Etapa obrigatória do contrato: assim que o cliente <strong>assina</strong>, a ZapSign avisa o agente
+                    e o lead avança no funil sozinho. Não precisa fazer nada: criamos o aviso ao clicar em <strong>Concluir e salvar</strong>.
                   </p>
                 </div>
 
-                {/* Toggle de aviso de assinatura */}
-                <button
-                  type="button"
-                  onClick={() => setPosAtivo((v) => !v)}
-                  className={`w-full text-left rounded-xl border p-4 transition-colors ${posAtivo ? "border-emerald-200 bg-emerald-50/50" : "border-[#eef1f5] bg-[#fafbfc] hover:bg-[#f6f8fb]"}`}
-                >
+                {/* Aviso de assinatura: obrigatório, sem chave de ligar/desligar. */}
+                <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
                   <div className="flex items-center gap-3">
-                    <div className={`size-8 rounded-lg grid place-items-center shrink-0 ${posAtivo ? "bg-emerald-100 text-emerald-600" : "bg-[#eef1f5] text-[#94a3b8]"}`}>
-                      {posAtivo ? <CheckCircle2 className="size-[18px]" /> : <FileSignature className="size-[18px]" />}
+                    <div className="size-8 rounded-lg grid place-items-center shrink-0 bg-emerald-100 text-emerald-600">
+                      <CheckCircle2 className="size-[18px]" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-[#101828]">Avisar quando o contrato for assinado</div>
+                      <div className="text-sm font-semibold text-[#101828]">Aviso de contrato assinado</div>
                       <div className="text-[11px] text-[#667085] mt-0.5">
-                        {accountConfig.webhook_id ? `Webhook da conta já configurado (#${accountConfig.webhook_id}).` : "Configura o webhook na conta (uma vez) e liga este produto."}
+                        {accountConfig.webhook_id ? "Já está criado na sua conta ZapSign e vale para este produto." : "Vamos criar na sua conta ZapSign ao concluir (uma vez só, vale para todos os produtos)."}
                       </div>
                     </div>
-                    <span className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${posAtivo ? "bg-emerald-500" : "bg-[#cbd5e1]"}`}>
-                      <span className={`absolute top-0.5 size-4 rounded-full bg-white transition-all ${posAtivo ? "left-[18px]" : "left-0.5"}`} />
+                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-emerald-100 text-emerald-700">
+                      {accountConfig.webhook_id ? "Criado" : "Obrigatório"}
                     </span>
                   </div>
-                  {posAtivo && (
-                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-black/5 text-[11px] text-[#667085]">
-                      <ShieldCheck className="size-3.5 text-emerald-600 shrink-0" />
-                      Ao assinar → lead marcado como <strong>concluído</strong> e follow-up de pós-venda disparado.
-                    </div>
-                  )}
-                </button>
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-black/5 text-[11px] text-[#667085]">
+                    <ShieldCheck className="size-3.5 text-emerald-600 shrink-0" />
+                    Ao assinar → lead marcado como <strong>concluído</strong> e follow-up de pós-venda disparado.
+                  </div>
+                </div>
 
                 <div className="flex justify-between gap-2 pt-1 border-t border-border/60">
                   <Button variant="ghost" onClick={() => setTab("agentes")}><ChevronRight className="size-4 mr-1 rotate-180" />Voltar</Button>
