@@ -88,12 +88,31 @@ async def test_conectar_uma_vez_reaproveitar_e_falha_nao_grava(ambiente, monkeyp
     r2 = await cliente.post(rota, headers=h, json={})
     assert r2.json() == {"webhook_id": "4321", "ja_existia": True} and len(cadastros) == 1
 
+    # Trocou o token (outra conta ZapSign): o aviso antigo não vale; a tela não pode dizer "já criado" e o próximo
+    # pedido cadastra de novo na conta nova.
+    def zap2(pedido: httpx.Request) -> httpx.Response:
+        if pedido.method == "GET":
+            return httpx.Response(200, json=[{"token": "m1", "name": "Modelo"}])
+        cadastros.append(json.loads(pedido.content))
+        return httpx.Response(200, json={"id": 9999})
+
+    _simular_zapsign(monkeypatch, zap2)
+    novo = "token-zapsign-novo-" + uuid.uuid4().hex[:8]
+    assert (await cliente.put("/api/integracoes/zapsign", headers=h, json={"token": novo})).status_code == 200
+    config = (await cliente.get("/api/integracoes", headers=h)).json()["integracoes"]["zapsign"]["config"]
+    assert not config.get("webhook_id")
+    r3 = await cliente.post(rota, headers=h, json={})
+    assert r3.json() == {"webhook_id": "9999", "ja_existia": False} and len(cadastros) == 2
+    # Salvar o MESMO token de novo não apaga o aviso.
+    assert (await cliente.put("/api/integracoes/zapsign", headers=h, json={"token": novo})).status_code == 200
+    assert (await cliente.post(rota, headers=h, json={})).json() == {"webhook_id": "9999", "ja_existia": True}
+
     # O Início recebe a integração com o webhook_id (o painel some com o alerta "Conectar aviso").
     inicio = (await cliente.get("/api/inicio", headers=h)).json()
-    assert inicio["integracoes"]["zapsign"]["config"]["webhook_id"] == "4321"
+    assert inicio["integracoes"]["zapsign"]["config"]["webhook_id"] == "9999"
 
     # Fica no histórico.
     resumo = await pool.fetchval(
-        "select resumo from agentesia_alteracoes where id_escritorio = $1::uuid and acao = 'conectou' order by criado_em desc limit 1",
+        "select resumo from agentesia_alteracoes where id_escritorio = $1::uuid and acao = 'conectou' and resumo like 'Aviso%' order by criado_em desc limit 1",
         escritorio["id"])
     assert "Aviso de assinatura" in resumo

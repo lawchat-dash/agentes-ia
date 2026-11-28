@@ -1347,11 +1347,17 @@ async def salvar_zapsign(dados: TokenZapSign, pedido: Request, ctx: Contexto = D
             ctx.escritorio(), dados.token.strip()):
         raise HTTPException(409, ZAPSIGN_DE_OUTRO_ESCRITORIO)
     atual = await repo.integracao(ctx.escritorio(), "zapsign")
+    token_antes = await repo.ler_segredo((atual or {}).get("id_segredo_vault")) if atual else None
     id_segredo = await repo.guardar_segredo(f"agentesia_zapsign_{ctx.escritorio()}", dados.token.strip(),
                                             (atual or {}).get("id_segredo_vault"))
     ambiente = "sandbox" if dados.ambiente == "sandbox" else "producao"
+    config: dict[str, Any] = {"ambiente": ambiente}
+    if (token_antes or "").strip() != dados.token.strip():
+        # Token novo = outra conta ZapSign: o aviso de assinatura foi cadastrado na conta antiga e precisa ser criado
+        # de novo nesta (antes o webhook_id antigo ficava e a tela dizia "já criado" sem ter na conta nova).
+        config.update({"webhook_id": None, "webhook_em": None, "webhook_final": None})
     await repo.salvar_integracao(ctx.escritorio(), "zapsign", id_segredo_vault=id_segredo, final_segredo=_final(dados.token),
-                                 situacao="pendente", config={"ambiente": ambiente})
+                                 situacao="pendente", config=config)
     try:
         modelos = await (await _zapsign_do_escritorio(repo, ctx.escritorio())).modelos()
         integracao = await repo.salvar_integracao(ctx.escritorio(), "zapsign", situacao="ok", config={"modelos_na_conta": len(modelos)})
@@ -1459,8 +1465,11 @@ async def conectar_aviso_assinatura(pedido: Request, ctx: Contexto = Depends(GES
     integracao = await repo.integracao(ctx.escritorio(), "zapsign")
     if not integracao:
         raise HTTPException(409, "Cadastre o token da ZapSign antes.")
-    atual = (integracao.get("config") or {}).get("webhook_id")
-    if atual:
+    cfg_atual = integracao.get("config") or {}
+    atual = cfg_atual.get("webhook_id")
+    # Só reaproveita o aviso se foi cadastrado com o token que está salvo agora (o final do token é guardado junto).
+    mesmo_token = not cfg_atual.get("webhook_final") or cfg_atual.get("webhook_final") == integracao.get("final_segredo")
+    if atual and mesmo_token:
         return {"webhook_id": atual, "ja_existia": True}
     url = url_do_escritorio(ctx.escritorio(), "zapsign")
     segredo = segredo_do_escritorio(ctx.escritorio(), "zapsign")
@@ -1474,9 +1483,14 @@ async def conectar_aviso_assinatura(pedido: Request, ctx: Contexto = Depends(GES
     from datetime import datetime, timezone
     marca = ident or "cadastrado"
 
+    final = integracao.get("final_segredo")
+
     def mudar(cfg: dict[str, Any]) -> dict[str, Any]:
-        return {**cfg, "webhook_id": cfg.get("webhook_id") or marca,
-                "webhook_em": cfg.get("webhook_em") or datetime.now(timezone.utc).isoformat()}
+        # Recriado (token trocado): grava o novo; senão mantém o que outro pedido já gravou.
+        trocar = not mesmo_token or not cfg.get("webhook_id")
+        return {**cfg, "webhook_id": marca if trocar else cfg.get("webhook_id"),
+                "webhook_em": datetime.now(timezone.utc).isoformat() if trocar else cfg.get("webhook_em"),
+                "webhook_final": final if trocar else cfg.get("webhook_final") or final}
 
     antes, integracao = await _mudar_config_zapsign(repo, ctx.escritorio(), mudar)
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_integracoes",

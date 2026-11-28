@@ -153,11 +153,12 @@ export function ZapsignDialog({ open, onOpenChange, value, onSave, saving, produ
 
       // Pós-assinatura: registra o webhook da conta 1x (reusa se já existe).
       let webhookId = accountConfig.webhook_id ?? null;
-      if (posAtivo && !webhookId) {
+      // Sempre pergunta ao servidor: ele reaproveita o aviso da conta ou cria de novo (ex.: token da ZapSign trocado).
+      if (posAtivo) {
         const { webhook_id, error } = await registrarWebhook(token, selModel!);
         // Não trava o resto: o contrato salva e o Início avisa até o aviso de assinatura ficar conectado.
         if (error) toast.warning(`Contrato salvo, mas o aviso de assinatura não foi conectado: ${error}`);
-        webhookId = webhook_id ?? null;
+        webhookId = webhook_id ?? (error ? null : webhookId);
         await reloadAccount();
       }
 
