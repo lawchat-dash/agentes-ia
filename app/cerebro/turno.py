@@ -546,6 +546,11 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         if sem_fonte := base_conhecimento.guarda_de_fonte(entrada, textos, sistema, "\n".join(linhas)):
             guardas.append(_Guarda("fato_sem_fonte", sem_fonte))    # valor/prazo fora de toda fonte: refaz uma vez (leve)
         guardas += _guardas_de_midia(entrada, mensagens, permitidas, ja_enviadas)
+        if ja_informados := _pergunta_de_dado_informado([m["texto"] for m in mensagens if m["tipo"] == "texto"],
+                                                        saida.fatos_depois, entrada.novas):
+            guardas.append(_Guarda("pergunta_de_dado_informado",
+                                   "O lead já informou " + ", ".join(ja_informados) + " (veja DADOS JÁ INFORMADOS): não "
+                                   "pergunte de novo. Reconheça em poucas palavras e faça a próxima pergunta do roteiro."))
         if resposta.get("ferramenta") == "zapsign" and "zapsign" in acoes and not confirmou:
             guardas.append(_Guarda("contrato_sem_confirmacao", ORIENTACAO_SEM_CONFIRMACAO))
         if (ferramentas["calculadora"] and etapa == "periododegraca" and resposta.get("notificacao") == "analise_humana"
@@ -691,15 +696,26 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
 
     saida.mensagens = [m if m["tipo"] == "midia" else p for m in mensagens
                        for p in (formatador.formatar([m]) if m["tipo"] == "texto" else [{**m, "espera_s": 2.0}])]
-    if ferramentas["calculadora"]:
-        # Só nos papéis de qualificação (os que têm a calculadora): ali a resposta à pergunta em aberto decide o destino.
-        # Na passagem do Closer para Contratos a pergunta é a primeira do destino ("seu nome completo?") e não se segura.
+    if ferramentas["calculadora"] or _espera_um_sim(mensagens):
+        # Nos papéis de qualificação (os que têm a calculadora) a resposta à pergunta em aberto decide o destino. Nos
+        # outros, só quando a pergunta em aberto espera um "sim" ("Podemos iniciar a coleta dos seus dados?"): 28/11, o
+        # Closer perguntou e passou no mesmo turno, e o Contratos já pediu o nome completo sem o lead responder. A
+        # primeira pergunta do destino escrita pela própria IA ("seu nome completo?") não espera sim e não se segura.
         destino = _segurar_transferencia(entrada, saida, destino, mensagens, papeis, etapa)
     if destino:
         saida.mensagens = _com_frase_de_troca(saida, saida.mensagens, destino, papeis, etapa)
     saida.etapa_depois = destino or etapa
     saida.motivo = f"transferencia:{destino}" if destino else "catalogo"
     ferramenta = resposta.get("ferramenta") or ""
+    if not ferramenta and "zapsign" in acoes and not destino and _correcao_do_contrato_respondida(entrada, saida):
+        # 28/11: o sistema pediu o CPF ("Para finalizar seu contrato, preciso confirmar..."), o lead mandou, e a IA só
+        # respondeu "Recebi seu CPF, está tudo certo" sem pedir o contrato de novo: o lead ficou sem contrato. Com o dado
+        # pedido respondido e os dados agora certos, o motor pede o contrato.
+        ferramenta = "zapsign"
+        saida.mensagens = formatador.formatar([{"tipo": "texto", "texto": AVISO_DE_GERANDO}])
+        saida.eventos.append(_evento("contrato_refeito_pelo_motor", "info", "lawchat",
+                                     "O lead respondeu o dado que o contrato pediu e a IA não pediu o contrato de novo; "
+                                     "o sistema pediu.", etapa=etapa))
     if ferramenta == "zapsign" and "zapsign" in acoes and not confirmou:
         # Cat. 23: a IA recebeu a CORRIJA (mostrar o resumo e perguntar) e mesmo assim acionou o contrato. Uma tentativa
         # só, sem travar o atendimento: o contrato segue como antes e a equipe fica sabendo pelo evento.
@@ -750,6 +766,23 @@ _CONTRATO_PRONTO = re.compile(r"pront[ao]s? para (?:a )?assinatura|link (?:que c
 AVISO_DE_GERANDO = "Perfeito! Estamos gerando o seu contrato."
 
 
+def _correcao_do_contrato_respondida(entrada: Entrada, saida: Saida) -> bool:
+    """A última mensagem nossa antes do lead foi o pedido de correção do contrato, o lead trouxe neste turno um dado do
+    contrato e agora os dados conferem (o contrato sairia)."""
+    from app.cerebro.extrator import normalizar
+    from app.contrato import dados as cdados
+
+    ultima = next((m for m in reversed(entrada.historico) if m.get("autor") != "lead"), None)
+    if not ultima or normalizar("Para finalizar seu contrato, preciso confirmar") not in normalizar(ultima.get("texto") or ""):
+        return False
+    do_contrato = set(cdados.CAMPOS.values()) | {"nome"}
+    if not any(f.get("chave") in do_contrato and f.get("fonte", "extrator") != "sistema" for f in saida.fatos_novos):
+        return False
+    _, erros = cdados.validar_dados(cdados.dados_dos_fatos(saida.fatos_depois), entrada.fatos_sistema.get("telefone"),
+                                    entrada.obrigatorios_contrato or cdados.OBRIGATORIOS_PADRAO)
+    return not erros
+
+
 def _so_o_aviso_de_gerando(saida: Saida, mensagens: list[dict[str, Any]], etapa: str) -> list[dict[str, Any]]:
     """Na resposta que aciona o contrato, só sai o aviso de que está gerando. Áudio, vídeo e "sua documentação está
     pronta" quem manda é o sistema, e só com o contrato gerado (acoes._gerar_contrato). 28/11: o prompt antigo do
@@ -762,6 +795,39 @@ def _so_o_aviso_de_gerando(saida: Saida, mensagens: list[dict[str, Any]], etapa:
                                      "só o aviso de que está gerando saiu (o resto o sistema manda com o contrato pronto).",
                                      etapa=etapa))
     return ficam or [{"tipo": "texto", "texto": AVISO_DE_GERANDO}]
+
+
+# Pergunta da IA que pede um dado do roteiro (texto normalizado da pergunta) e o rótulo dele na CORRIJA.
+_PERGUNTA_DO_DADO: tuple[tuple[str, str, re.Pattern[str]], ...] = (
+    ("acidente_mes", "o mês do acidente", re.compile(r"\b(?:qual|que|em que|em qual) mes\b")),
+    ("acidente_ano", "o ano do acidente", re.compile(r"\b(?:qual|que|em que|em qual) ano\b.*\bacidente\b")),
+    ("nome", "o nome", re.compile(r"\b(?:qual (?:e )?o seu nome|como (?:voce )?se chama)\b(?! completo)(?!.*completo)")),
+    ("auxilio_doenca", "se recebeu auxílio-doença", re.compile(r"\brecebeu (?:o )?auxilio doenca\b")),
+    ("vinculo_na_data", "a carteira assinada na época", re.compile(r"\b(?:carteira assinada|clt|registrad\w*)\b")),
+    ("sequela", "a sequela", re.compile(r"\b(?:ficou com|teve) (?:alguma )?(?:sequela|limitac\w*)\b")),
+)
+
+
+def _pergunta_de_dado_informado(textos: list[str], fatos: dict[str, Any], novas: list[str] = ()) -> list[str]:
+    """Rótulos dos dados que a resposta pergunta de novo, já estando nos fatos (28/11: "Em 2023 em maio" gravou mês e ano,
+    e a IA perguntou "em qual mês de 2023 aconteceu o acidente?"). Só perguntas (com "?"); confirmar com "certo?" um
+    dado não conta como pergunta nova quando o balão cita o valor (ex.: "foi em maio de 2023, certo?")."""
+    from app.cerebro.extrator import normalizar
+
+    achados: list[str] = []
+    if _PEDE_ESCLARECIMENTO.search(normalizar(" ".join(novas))):
+        return achados                        # "não entendi": explicar e perguntar de novo é o certo
+    for pergunta in (normalizar(q) for t in textos for q in _PERGUNTA.findall(t or "")):
+        if re.search(r"\b(?:certo|ne|correto|isso|confere)$", pergunta):
+            continue                          # confirmação do que ele disse, não pergunta nova
+        for chave, rotulo, padrao in _PERGUNTA_DO_DADO:
+            valor = fatos.get(chave)
+            if valor in (None, "", "nao_sabe") or rotulo in achados or not padrao.search(pergunta):
+                continue
+            if chave == "vinculo_na_data" and valor != "clt":
+                continue                      # "estava registrado?" depois de "era MEI" ainda é pergunta do roteiro
+            achados.append(rotulo)
+    return achados
 
 
 _PERGUNTA = re.compile(r"[^?.!\n]*\?")
@@ -1723,6 +1789,19 @@ def _variaveis_sem_valor(entrada: Entrada, saida: Saida, etapa: str, faltam: lis
                                      f"Campo {{{{{nome}}}}} sem valor: a linha que o usa saiu do texto enviado à IA. "
                                      "Preencha em Dados do seu escritório.", variavel=nome, etapa=etapa))
     _gravar_marca(saida, MARCA_VARIAVEIS_SEM_VALOR, vistos, novos)
+
+
+_PERGUNTA_DE_SIM = re.compile(r"^(?:\w+ )?(?:podemos|posso|vamos|pode|quer|gostaria|deseja|tudo bem|faz sentido|"
+                              r"conseguiu|ficou claro|topa|bora|seguimos|vamos seguir)\b|\b(?:tudo bem|pode ser|"
+                              r"podemos seguir|podemos iniciar|podemos comecar|faz sentido)$")
+
+
+def _espera_um_sim(mensagens: list[dict[str, Any]]) -> bool:
+    """A última pergunta da resposta pede um sim ou não para seguir ("Podemos iniciar a coleta dos seus dados?")."""
+    from app.cerebro.extrator import normalizar
+
+    perguntas = [normalizar(q) for m in mensagens if m.get("tipo") == "texto" for q in _PERGUNTA.findall(m.get("texto") or "")]
+    return bool(perguntas) and bool(_PERGUNTA_DE_SIM.search(perguntas[-1]))
 
 
 def _segurar_transferencia(entrada: Entrada, saida: Saida, destino: str, mensagens: list[dict[str, Any]],

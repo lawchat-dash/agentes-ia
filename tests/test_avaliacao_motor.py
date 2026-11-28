@@ -241,7 +241,11 @@ async def test_zapsign_cedo_gera_ferramenta_cedo_e_reprova():
     assert not conversa.aprovada
 
 
-async def test_varias_perguntas_vira_metrica_e_a_trava_sombra_conta():
+async def test_varias_perguntas_vira_metrica_e_a_trava_sombra_conta(monkeypatch):
+    # A carteira assinada já foi dita no cenário: a trava de dado já informado (28/11) refaria a resposta. Aqui o que se
+    # mede é só a métrica de várias perguntas.
+    from app.cerebro import turno
+    monkeypatch.setattr(turno, "_pergunta_de_dado_informado", lambda *a, **k: [])
     conversa = await conversar("01", lambda r: r["sdr"].__setitem__(
         1, passo("Entendi.", "Na época você trabalhava de carteira assinada? E já ficou com sequela?")))
     assert conversa.codigos() == {"varias_perguntas"}
