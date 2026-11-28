@@ -372,11 +372,13 @@ def pela_pergunta(extracao: Extracao, historico: list[dict[str, str]], novas: li
     texto_lead = normalizar(" ".join(novas))
     # Advogado de antes não é advogado de hoje (tickets TK-1557, TK-1589, TK-1361, TK-1552: "a advogada mexeu, foi negado
     # e eu falei pra ela deixar quieto" desqualificava). Só fica "sim" se o lead não disse que acabou.
-    if _ADVOGADO_DE_ANTES.search(texto_lead) and not _ADVOGADO_HOJE.search(texto_lead):
+    motivo_adv = ("advogado_de_antes" if _ADVOGADO_DE_ANTES.search(texto_lead) and not _ADVOGADO_HOJE.search(texto_lead)
+                  else "advogado_de_outro_assunto" if _advogado_de_outro_assunto(texto_lead, produto) else "")
+    if motivo_adv:
         for fato in [f for f in extracao.fatos if f.chave == "tem_advogado_no_caso" and f.valor == "sim"]:
             extracao.fatos.remove(fato)
             extracao.rejeitados.append({"chave": fato.chave, "valor": fato.valor, "trecho": fato.trecho,
-                                        "motivo": "advogado_de_antes"})
+                                        "motivo": motivo_adv})
     # Sequela contada na história ("até hoje com muita dificuldade de andar"): anota sim, para a IA não perguntar de novo
     # (teste do dono, 28/11). Só "sim": sequela não desqualifica ninguém.
     if ("sequela" in aceitas and fatos_conhecidos.get("sequela") in (None, "", "nao_sabe")
@@ -393,6 +395,34 @@ _ADVOGADO_DE_ANTES = re.compile(
     r"\b(?:advogad\w*|adv|doutor\w*|dra)\b.{0,140}\b(?:nao (?:e|esta|ta|cuida|mexe|faz) mais|larg\w*|desist\w*|"
     r"abandon\w*|deixa(?:r)? quiet\w*|parou|saiu do caso|nao quis mais|dispensei|cancelei|perdeu|nao conseguiu)\b|"
     r"\b(?:sem|nao tenho (?:mais )?|nao estou com|nao to com) (?:nenhum |mais )?(?:advogad\w*|adv)\b")
+# Advogado de outro assunto não é advogado deste pedido (pedido do dono, 28/11: "Sim, tenho advogado no meu BPC" num
+# atendimento de Auxílio-Acidente não desqualifica; vale para todos os produtos).
+_ASSUNTOS_DO_ADVOGADO = {
+    "auxilio_acidente": r"auxilio ?acidente|acidente",
+    "bpc": r"bpc|loas|beneficio assistencial",
+    "salario_maternidade": r"salario ?maternidade|maternidade|licenca maternidade",
+}
+_OUTROS_ASSUNTOS = (r"bpc|loas|aposentadoria|aposentar|pensao|trabalhist\w*|rescis\w*|divorcio|guarda|inventario|"
+                    r"consignado|emprestimo|revisao|auxilio ?doenca|salario ?maternidade|maternidade|auxilio ?acidente|"
+                    r"criminal|familia|outro (?:processo|caso|assunto|beneficio)|outra (?:causa|coisa|acao)")
+
+
+def _advogado_de_outro_assunto(texto: str, produto: Any) -> bool:
+    """O lead fala de advogado, mas de outro assunto (outro benefício, trabalhista...) e não deste pedido."""
+    if not re.search(r"\b(?:advogad\w*|adv|doutor\w*|dra)\b", texto):
+        return False
+    from app.cerebro import catalogo
+
+    familia = catalogo.familia_do_produto(getattr(produto, "config", {}) or {})
+    proprio = _ASSUNTOS_DO_ADVOGADO.get("bpc" if familia.startswith("bpc") else familia, "")
+    outros = [m.group(0) for m in re.finditer(rf"\b(?:{_OUTROS_ASSUNTOS})\b", texto)]
+    outros = [o for o in outros if not (proprio and re.fullmatch(rf"(?:{proprio})", o))]
+    if not outros:
+        return False
+    # "advogado do acidente e do BPC": cita também este pedido, fica com o extrator (e a confirmação do motor).
+    return not (proprio and re.search(rf"\b(?:{proprio})\b", texto))
+
+
 _ADVOGADO_HOJE = re.compile(r"\b(?:ainda (?:tenho|esta|ta|cuida)|atualmente|hoje (?:tenho|ela|ele)|esta cuidando|"
                             r"ta cuidando|meu advogado (?:esta|ta|e)|ja tenho advogad\w*|tenho advogad\w*)\b")
 _SEQUELA_CONTADA = re.compile(

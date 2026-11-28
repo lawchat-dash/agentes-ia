@@ -605,6 +605,10 @@ class ProdutoCatalogo:
             return texto[:30] if len(digitos) in (10, 11) or (digitos.startswith("55") and len(digitos) in (12, 13)) else None
         if chave == "uf":
             return cdados.normalizar_uf(texto)
+        if chave in ("nome_completo", "nome_completo_menor", "nome_menor") and texto and texto == texto.lower():
+            # Teste do dono (28/11): "joao vitor duarte teste" foi para o contrato todo em minúsculas.
+            return " ".join(p if p in ("da", "de", "do", "das", "dos", "e") else p[:1].upper() + p[1:]
+                            for p in texto.split(" "))[:300]
         return texto[:300] or None
 
     def o_que_perguntar(self, chave: str) -> str:
@@ -783,8 +787,10 @@ Objeções e situações que se repetem (tickets dos escritórios)
   "não é enquadrado": diga que o direito depende da análise do caso e das dificuldades do dia a dia, e siga.
 - Falta de documento (laudo, CadÚnico, carteira, exame) nunca desqualifica: diga que o escritório orienta como
   conseguir e siga.
-- Advogado: "tive", "tinha" ou "a advogada deixou" não é ter advogado hoje. Só conta advogado cuidando do caso AGORA;
-  na dúvida, pergunte se ele ainda acompanha o caso.
+- Advogado: só conta advogado cuidando DESTE pedido, HOJE. Pergunte assim: "Hoje você tem algum advogado cuidando
+  desse pedido de [benefício deste atendimento]?". "Tive", "tinha" ou "a advogada deixou" não é ter advogado hoje, e
+  advogado de outro assunto (outro benefício, trabalhista, família) também não conta. Se o lead disser "sim" sem dizer
+  de quê, pergunte uma vez se esse advogado cuida deste mesmo pedido antes de decidir.
 - Benefício de outra pessoa da casa (o filho recebe BPC, o marido é aposentado) não é do lead: separe de quem é cada
   coisa antes de decidir.
 - Ao pedir um dado pessoal (CPF, endereço, documento), diga em poucas palavras para que serve (preencher o contrato,
@@ -887,7 +893,7 @@ REGRA_ENCERRAMENTO = """Encerramento
 # Regras de cada papel do funil (além das que valem por ferramenta ou destino).
 REGRAS_DO_PAPEL = {"contratos": REGRA_COLETA, "assinatura": REGRA_ASSINATURA, "desqualificado": REGRA_ENCERRAMENTO}
 
-# Regras de cada família de produto (familia_do_produto). Auxílio-Acidente e previdenciário: nada além das gerais.
+# Regras de cada família de produto (familia_do_produto). Previdenciário: nada além das gerais.
 REGRA_BPC = """BPC/LOAS
 - Nunca diga "per capita" e nunca mostre ao lead conta de renda (somar, dividir pelo número de pessoas, comparar
   com o salário mínimo ou com 1/4 dele). Quem avalia a renda é o escritório.
@@ -901,8 +907,23 @@ REGRA_SALARIO_MATERNIDADE = """Salário-Maternidade
 - Não peça certidão, carteira de trabalho, extrato nem outro documento pelo chat.
 - O benefício é da mãe (ou de quem adotou). Se quem fala é outra pessoa, as perguntas são sobre a mãe: fale assim
   ("o benefício da sua filha", "quando ela teve o bebê")."""
+# Auxílio-Acidente: o que os tickets e as auditorias dos escritórios (jul–nov/2026) mostraram que a IA erra.
+REGRA_AUXILIO_ACIDENTE = """Auxílio-Acidente
+- O benefício é de quem sofreu o acidente. Se o lead fala por outra pessoa (filho, marido, sobrinho), as perguntas
+  são sobre o acidentado. Se a conversa tiver acidentes de pessoas diferentes, pergunte uma vez de qual vamos tratar.
+- Criança ou adolescente que não trabalhava na época do acidente não tinha qualidade de segurado: não siga com o
+  caso dela.
+- Conta acidente de qualquer tipo (trânsito, em casa, na rua, no trabalho), sem prazo, e doença causada ou piorada
+  pelo trabalho. Cirurgia por doença (tumor, por exemplo), AVC, infarto ou depressão sem ligação com o trabalho não
+  são acidente.
+- Não ter recebido auxílio-doença não desqualifica.
+- Quem já recebe auxílio-acidente ou já ganhou esse benefício não segue. Nunca fale em "desaposentar" nem diga que
+  dá para juntar aposentadoria com auxílio-acidente.
+- O auxílio-acidente é pago todo mês, até a aposentadoria. Nunca diga que é pago uma vez só.
+- Peça a data do acidente numa pergunta só (mês e ano; o dia, se lembrar).
+- Quem quer trocar de advogado: não indique advogados parceiros; diga que a equipe vai olhar o caso."""
 REGRAS_DA_FAMILIA = {"bpc_infantil": REGRA_BPC, "bpc_idoso": REGRA_BPC, "bpc_geral": REGRA_BPC,
-                     "salario_maternidade": REGRA_SALARIO_MATERNIDADE}
+                     "salario_maternidade": REGRA_SALARIO_MATERNIDADE, "auxilio_acidente": REGRA_AUXILIO_ACIDENTE}
 # Datas e contas do Salário-Maternidade: entra no lugar do bloco "calculadora" (que fala do acidente) nesta família.
 REGRA_CALCULADORA_MATERNIDADE = """Datas e contas (Salário-Maternidade)
 - As contas de datas são do sistema e vêm prontas nos FATOS DO SISTEMA. Nunca calcule, estime nem mostre conta,
@@ -1038,7 +1059,7 @@ _QUEM_PASSA_PARA = {"sdr": "o Desqualificado (quando o lead diz que algo mudou)"
                     "contratos": "o Closer", "assinatura": "nenhuma etapa (a geração do contrato põe o lead lá)",
                     "desqualificado": "todas as etapas de qualificação e o Contratos"}
 _FAMILIAS_EDITAVEIS = {"bpc_infantil": "BPC infantil", "bpc_idoso": "BPC idoso", "bpc_geral": "BPC (geral)",
-                       "salario_maternidade": "Salário-Maternidade"}
+                       "salario_maternidade": "Salário-Maternidade", "auxilio_acidente": "Auxílio-Acidente"}
 
 
 def _bloco(chave: str, titulo: str, grupo: str, quando_entra: str, padrao: str, obrigatorios: tuple[str, ...] = (),

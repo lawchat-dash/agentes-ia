@@ -485,6 +485,19 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         linhas.append("\n" + linha_portao)
     if saida.contexto.get("barreira") == "fora_do_tema":
         linhas.append("\n" + LINHA_FORA_DO_TEMA)
+    if "zapsign" in acoes and (_sem_email_agora(entrada) or saida.fatos_depois.get(MARCA_SEM_EMAIL)):
+        # Teste do dono (28/11): "não" ao e-mail não vira fato (e-mail só com @) e a IA perguntou de novo.
+        if not saida.fatos_depois.get(MARCA_SEM_EMAIL):
+            _gravar_controle(saida, MARCA_SEM_EMAIL, True)
+        linhas.append("\n(sistema) O lead não tem e-mail: não pergunte de novo; no resumo, \"E-mail: não informado\".")
+    if _familia(produto) == "auxilio_acidente" and (
+            saida.fatos_depois.get(MARCA_ACIDENTE_CRIANCA) or _acidente_de_crianca(entrada.novas)):
+        if not saida.fatos_depois.get(MARCA_ACIDENTE_CRIANCA):
+            _gravar_controle(saida, MARCA_ACIDENTE_CRIANCA, True)
+            saida.eventos.append(_evento("acidente_de_crianca", "info", "lead",
+                                         "O acidente foi com uma criança: o Auxílio-Acidente não segue.",
+                                         trecho=" ".join(entrada.novas)[:200]))
+        linhas.append("\n(sistema) " + ORIENTACAO_CRIANCA)
     desconfia = _lead_desconfia(entrada.novas)
     if desconfia:
         linhas.append("\n" + LINHA_DESCONFIANCA)
@@ -611,6 +624,9 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             guardas.append(_Guarda("fechamento_futuro_desqualificado", ORIENTACAO_FECHAMENTO_FUTURO))
         if destino == "desqualificado" and _gestante_sem_motivo(produto, saida.fatos_depois):
             guardas.append(_Guarda("gestante_desqualificada", ORIENTACAO_GESTANTE))
+        if (saida.fatos_depois.get(MARCA_ACIDENTE_CRIANCA) and destino in ("closer", "contratos", "assinatura")
+                and _familia(produto) == "auxilio_acidente"):
+            guardas.append(_Guarda("crianca_no_auxilio", ORIENTACAO_CRIANCA))
         textos_turno = [m["texto"] for m in mensagens if m["tipo"] == "texto"]
         if desconfia and _faltam_dados_do_escritorio(textos_turno, entrada.conhecimento):
             guardas.append(_Guarda("objecao_sem_dados_do_escritorio",
@@ -1063,7 +1079,7 @@ def _sem_eco_de_confirmacao(saida: Saida, mensagens: list[dict[str, Any]], siste
 # produtos). Tickets TK-1059, TK-1088, TK-1147, TK-1156, TK-1165, TK-1595, TK-1723.
 _DESCONFIANCA = re.compile(
     r"\b(?:golpe\w*|golpista\w*|fraude\w*|picaret\w*|falso|falsa|fake|desconfi\w*|nao confio|confiavel|confiaveis|"
-    r"e verdade (?:isso|mesmo)|isso e real|existe mesmo|voces existem|como (?:eu )?(?:sei|vou saber) que|"
+    r"e verdade (?:isso|mesmo|tudo|o que)|sera que e verdade|isso e real|existe mesmo|voces existem|como (?:eu )?(?:sei|vou saber) que|"
     r"(?:sao|e) advogad\w* mesmo|tem oab|qual (?:e )?(?:a )?oab|numero da oab|cnpj|onde fica\w*|onde (?:e|sao) "
     r"(?:o escritorio|voces)|endereco do escritorio|qual (?:e )?o endereco|de onde (?:e|sao) voces|quem (?:sao|e) voces|"
     r"medo de cair|ja cai em|me enganar|enganad\w*)\b")
@@ -1074,6 +1090,50 @@ _DISSE_QUE_ENVIOU = re.compile(
     r"(?:estou|to|vou) (?:te )?(?:enviando|mandando) (?:agora )?(?:o|a|um|uma)|enviado para o seu e ?mail|"
     r"(?:mandei|enviei) (?:no|para o|pro) (?:seu )?e ?mail)\b.{0,40}\b(?:audio|video|link|contrato|documento|pdf|"
     r"e ?mail|arquivo|mensagem de voz)\b")
+
+
+MARCA_SEM_EMAIL = "_sem_email"
+MARCA_ACIDENTE_CRIANCA = "_acidente_de_crianca"
+# Tickets TK-1116, TK-1432, TK-1111 e o dono (28/11): "meu filho teve o acidente com 7 anos" e a IA seguiu para o
+# Período de Graça e até para o contrato. Criança não trabalhava: não tem qualidade de segurado.
+ORIENTACAO_CRIANCA = ("O acidente foi com uma criança (sem trabalho na época): no Auxílio-Acidente ela não tinha "
+                      "qualidade de segurado. Não siga para o Closer, o Período de Graça nem o contrato. Acolha, explique "
+                      "com cuidado que este benefício exige que a pessoa trabalhasse na época e encerre pelo roteiro de "
+                      "quem não tinha vínculo (transferir_para \"desqualificado\"), sem prometer outro benefício.")
+_CRIANCA = re.compile(
+    r"\b(?:eu|ele|ela|meu filho|minha filha|o menino|a menina|meu neto|minha neta|meu sobrinho|minha sobrinha|"
+    r"o bebe|a crianca)\s+(?:so\s+)?(?:tinha|tava com|estava com|com)\s+(\d{1,2})\s+anos\b|"
+    r"\b(?:meu filho|minha filha|meu neto|minha neta|meu sobrinho|minha sobrinha|menino|menina|crianca)\s+de\s+"
+    r"(\d{1,2})\s+anos\b|"
+    r"\bquando (?:eu |ele |ela )?(?:era|tinha sido) (?:crianca|pequen[oa]|bebe|novinh[oa])\b|"
+    r"\b(?:filho|filha|neto|neta|sobrinho|sobrinha|menino|menina|crianca)\b.{0,60}\bquando tinha (\d{1,2}) anos\b|"
+    r"\b(?:com|aos) (\d{1,2}) anos (?:de idade )?(?:ele|ela|meu filho|minha filha) (?:caiu|se machucou|sofreu|quebrou|foi)")
+
+
+def _acidente_de_crianca(novas: list[str]) -> bool:
+    """O lead conta que quem sofreu o acidente era criança (menos de 14 anos, idade mínima de aprendiz)."""
+    texto = normalizar_texto(" ".join(novas or []))
+    for m in _CRIANCA.finditer(texto):
+        idades = [int(g) for g in m.groups() if g]
+        if not idades or idades[0] < 14:
+            return True
+    return False
+
+
+def _familia(produto: Any) -> str:
+    from app.cerebro import catalogo
+
+    return catalogo.familia_do_produto(getattr(produto, "config", {}) or {})
+
+
+def _sem_email_agora(entrada: Entrada) -> bool:
+    """A última pergunta da IA pediu o e-mail e o lead respondeu que não tem."""
+    from app.cerebro import resposta_curta
+
+    pergunta = normalizar_texto(resposta_curta.ultima_pergunta(entrada.historico))
+    resposta = normalizar_texto(" ".join(entrada.novas))
+    return (bool(re.search(r"\be ?mail\b", pergunta)) and "@" not in " ".join(entrada.novas)
+            and bool(re.match(r"^(?:ja falei )?(?:nao|n|nem|sem|nunca)\b", resposta)) and len(resposta.split()) <= 8)
 
 
 def _lead_desconfia(novas: list[str]) -> bool:
@@ -1246,8 +1306,8 @@ def _desqualificacao_sem_motivo(entrada: Entrada, produto: Any, saida: Saida, de
     from app.cerebro import catalogo
     from app.cerebro.extrator import normalizar
 
-    if destino != "desqualificado":
-        return None
+    if destino != "desqualificado" or saida.fatos_depois.get(MARCA_ACIDENTE_CRIANCA):
+        return None                         # criança no Auxílio: o motivo é a idade (o lead contou), já marcado
     confirmou = any(_CONFIRMACAO_FEITA.search(normalizar(t)) for t in _ultima_resposta_da_ia(entrada.historico))
     if confirmou and not _sim_inequivoco(normalizar(" ".join(entrada.novas))):
         # Lote 2 do teste real (28/11): "Pode", "🤣🤣" e "Sim, moramos em casa própria" foram tomados como confirmação.

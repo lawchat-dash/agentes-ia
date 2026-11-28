@@ -61,3 +61,47 @@ def test_disse_que_enviou_sem_enviar():
     assert turno._DISSE_QUE_ENVIOU.search(n("Enviei o contrato para o seu e-mail"))
     assert turno._DISSE_QUE_ENVIOU.search(n("Já te enviei o áudio explicando, conseguiu ouvir?"))
     assert not turno._DISSE_QUE_ENVIOU.search(n("Você recebeu o áudio?"))
+
+
+def test_lead_sem_email_e_desconfianca_e_verdade_tudo():
+    from app.cerebro.turno import Entrada
+    hist = [{"autor": "você", "texto": "E qual o seu e-mail, João? Se não tiver, sem problema, seguimos sem."}]
+    assert turno._sem_email_agora(Entrada("e", "a", "contratos", ["não"], historico=hist))
+    assert turno._sem_email_agora(Entrada("e", "a", "contratos", ["ja falei não tenho"], historico=hist))
+    assert not turno._sem_email_agora(Entrada("e", "a", "contratos", ["joao@x.com"], historico=hist))
+    assert turno._lead_desconfia(["consegui sim entender,mais e verdade tudo isso que falou?"])
+
+
+def test_nome_completo_minusculo_vira_maiusculo():
+    from tests.test_laco_clt import _produto
+    prod = _produto()
+    assert prod.validar_valor("nome_completo", "joao vitor da silva teste") == "Joao Vitor da Silva Teste"
+    assert prod.validar_valor("nome_completo", "João McDonald") == "João McDonald"
+
+
+def test_advogado_de_outro_assunto_nao_conta():
+    from tests.test_laco_clt import _produto
+    n = extrator.normalizar
+    aux = _produto()
+    assert extrator._advogado_de_outro_assunto(n("Sim, tenho advogado, mas é do meu BPC"), aux)
+    assert extrator._advogado_de_outro_assunto(n("tenho advogada no processo trabalhista"), aux)
+    assert not extrator._advogado_de_outro_assunto(n("tenho advogado sim"), aux)
+    assert not extrator._advogado_de_outro_assunto(n("tenho advogado cuidando do auxílio acidente"), aux)
+
+
+def test_advogado_do_bpc_conta_no_produto_bpc():
+    from app.cerebro import catalogo
+    bpc = catalogo.ProdutoCatalogo(papeis=["sdr", "closer", "contratos", "assinatura", "desqualificado"],
+                                   config={"catalogo": {"slug": "bpc-loas-geral-v2"}}).para_o_papel("sdr")
+    n = extrator.normalizar
+    assert not extrator._advogado_de_outro_assunto(n("tenho advogado no meu BPC"), bpc)
+    assert extrator._advogado_de_outro_assunto(n("tenho advogado na aposentadoria do meu marido"), bpc)
+
+
+def test_acidente_de_crianca():
+    assert turno._acidente_de_crianca(["meu filho teve o acidente quando tinha 7 anos"])
+    assert turno._acidente_de_crianca(["minha filha de 11 anos quebrou o braço"])
+    assert turno._acidente_de_crianca(["quando eu era criança caí da laje"])
+    assert not turno._acidente_de_crianca(["eu tinha 25 anos quando bati de moto"])
+    assert not turno._acidente_de_crianca(["faz 7 anos que aconteceu"])
+    assert not turno._acidente_de_crianca(["eu tinha 15 anos e trabalhava de aprendiz"])

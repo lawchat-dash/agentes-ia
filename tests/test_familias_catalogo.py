@@ -264,8 +264,10 @@ def test_bloco_do_bpc_nas_regras_do_motor_e_nada_novo_no_auxilio_acidente():
     for familia in ("bpc_infantil", "bpc_idoso", "bpc_geral"):
         regras = catalogo.regras_do_motor("sdr", {}, ["closer"], familia=familia)
         assert "per capita" in regras and "relatório médico pelo chat" in regras and "não de quem cuida" in regras
-    assert catalogo.regras_do_motor("sdr", {}, ["closer"], familia="auxilio_acidente") == \
-        catalogo.regras_do_motor("sdr", {}, ["closer"])
+    # Desde 28/11 o Auxílio-Acidente tem bloco próprio (lições dos tickets): só ele muda, sem o bloco do BPC.
+    aux = catalogo.regras_do_motor("sdr", {}, ["closer"], familia="auxilio_acidente")
+    assert "Auxílio-Acidente\n- O benefício é de quem sofreu o acidente" in aux and "per capita" not in aux
+    assert aux.replace("\n\n" + catalogo.REGRA_AUXILIO_ACIDENTE, "") == catalogo.regras_do_motor("sdr", {}, ["closer"])
 
 
 async def test_turno_do_bpc_leva_o_bloco_no_sistema():
