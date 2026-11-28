@@ -36,7 +36,9 @@ _SO_NAO = re.compile(rf"^(?:{_NAO})(?:\s+(?:{_NAO}))*{_COMPLEMENTO}$")
 _SO_NAO_SEI = re.compile(rf"^(?:{_NAO_SEI}){_COMPLEMENTO}$")
 # Começo da mensagem, separado do resto por pontuação ("Não, nunca tive advogado", "Sim! Fiquei mancando"). Sem a
 # pontuação ("não entendi a pergunta", "sim eu acho que...") fica para o extrator de IA.
-_COMECA_SIM = re.compile(r"^\s*(?:sim+|isso|claro|com certeza|exato)\s*[,.!;:\-–—]", re.I)
+_COMECA_SIM = re.compile(r"^\s*(?:sim+|isso|claro|com certeza|exato)\s*(?:[,.!;:\-–—]|\s(?=(?:eu\s+)?(?:j[aá]\s+)?"
+                         r"(?:te\s+)?(?:falei|disse|respondi|informei|expliquei|acabei|como)\b))", re.I)
+# "Sim falei acima", "sim acabei de falar", "sim já disse": o sim reclamando da repetição, mesmo sem pontuação.
 _COMECA_NAO = re.compile(r"^\s*(?:n[aã]o+|nunca)\s*[,.!;:\-–—]", re.I)
 
 

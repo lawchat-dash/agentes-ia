@@ -209,7 +209,10 @@ _PREFIXOS_DA_FAMILIA = (("auxilio_acidente", "auxilio_acidente"), ("bpc_loas_aut
 # desligado: nada segura a passagem por eles). Com o portão desligado o esquema só tinha o contrato, e o lead que dizia
 # "sou aposentado" ou "já tenho advogado nesse caso" no Closer passava por sorte.
 FATOS_DA_FAMILIA: dict[str, tuple[str, ...]] = {
-    "auxilio_acidente": ("aposentado", "tem_advogado_no_caso"),
+    # As respostas do roteiro do SDR também (28/11: "Pedreiro clt" sem vinculo_na_data no esquema virou
+    # demissao_ha_muitos_anos=nao, a CLT não aparecia em DADOS JÁ INFORMADOS e a IA perguntou de novo duas vezes).
+    "auxilio_acidente": ("aposentado", "tem_advogado_no_caso", "vinculo_na_data", "ja_foi_clt", "auxilio_doenca",
+                         "sequela"),
     "bpc_infantil": tuple(FATOS_BPC),
     "bpc_idoso": tuple(FATOS_BPC),
     "bpc_geral": tuple(FATOS_BPC),

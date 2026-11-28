@@ -210,19 +210,29 @@ class HelenaConta:
         texto = unicodedata.normalize("NFKD", str(nome or "").casefold())
         return "".join(c for c in texto if c.isalnum() and not unicodedata.combining(c))
 
-    async def ids_das_etiquetas(self, nomes: list[str]) -> tuple[list[str], list[str]]:
+    async def ids_das_etiquetas(self, nomes: list[str], *, todas: bool = False) -> tuple[list[str], list[str]]:
         """(ids das etiquetas que já existem na conta com nome parecido, nomes que não existem). Sem isto, o nome com
-        emoji diferente do da conta criava uma etiqueta repetida (26/11: "Contrato em Elaboração" duas vezes)."""
+        emoji diferente do da conta criava uma etiqueta repetida (26/11: "Contrato em Elaboração" duas vezes).
+
+        A conta pode ter várias etiquetas com o mesmo nome (28/11: oito "🛒 Comercial" na conta da LawChat, criadas
+        repetidas antes). Pôr usa sempre a mesma (a última da lista, como antes e como sincronizar_conta.ids_das_etiquetas_padrao); `todas=True` (remover) devolve todas as cópias:
+        remover só uma deixava no lead a "Comercial" de outra cópia depois de ele passar para Contratos."""
         if not hasattr(self, "_etiquetas_da_conta"):
+            mapa: dict[str, list[str]] = {}
             try:
-                self._etiquetas_da_conta = {self.chave_da_etiqueta(t["nome"]): t["id"] for t in await self.etiquetas()
-                                            if t.get("id") and t.get("nome")}
+                for t in await self.etiquetas():
+                    if t.get("id") and t.get("nome"):
+                        mapa.setdefault(self.chave_da_etiqueta(t["nome"]), []).append(t["id"])
             except ErroHelenaApi:
-                self._etiquetas_da_conta = {}
+                mapa = {}
+            self._etiquetas_da_conta = mapa
         ids, faltam = [], []
         for nome in nomes:
-            achado = self._etiquetas_da_conta.get(self.chave_da_etiqueta(nome))
-            (ids.append(achado) if achado else faltam.append(nome))
+            achados = self._etiquetas_da_conta.get(self.chave_da_etiqueta(nome)) or []
+            if not achados:
+                faltam.append(nome)
+            else:
+                ids += achados if todas else achados[-1:]
         return list(dict.fromkeys(ids)), faltam
 
     async def etiquetar(self, id_contato: str, nomes: list[str], *, remover: bool = False) -> None:
@@ -230,7 +240,7 @@ class HelenaConta:
         if not nomes:
             return
         operacao = "DeleteIfExists" if remover else "InsertIfNotExists"
-        ids, faltam = await self.ids_das_etiquetas(nomes)
+        ids, faltam = await self.ids_das_etiquetas(nomes, todas=remover)
         if ids:
             await self._pedir("POST", f"core/v1/contact/{id_contato}/tags", json={"tagIds": ids, "operation": operacao})
         if faltam:                                   # remover pelo nome nunca cria; pôr pelo nome só a que a conta não tem

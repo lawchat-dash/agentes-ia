@@ -709,6 +709,7 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     repetida = _correcao_repetida(entrada, saida) if ferramenta == "zapsign" and ferramenta in acoes else None
     if ferramenta == "zapsign" and ferramenta in acoes and not repetida:
         saida.motivo = "dados_confirmados"            # o pipeline confere os dados e gera o contrato pela fila
+        saida.mensagens = _so_o_aviso_de_gerando(saida, saida.mensagens, etapa)
     if saida.intencoes.get("diz_que_assinou") and etapa == "assinatura":
         saida.motivo = "diz_que_assinou"
     notificacao = resposta.get("notificacao") or ""
@@ -741,6 +742,26 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         # O papel novo só fala na próxima mensagem do lead: a marca faz a primeira resposta dele usar as boas-vindas.
         _gravar_controle(saida, MARCA_BOAS_VINDAS, saida.etapa_depois)
     return saida
+
+
+# Texto da IA que anuncia o contrato pronto ou o link: quem diz isso é o sistema, depois que a ZapSign gera.
+_CONTRATO_PRONTO = re.compile(r"pront[ao]s? para (?:a )?assinatura|link (?:que chega|abaixo|de assinatura|do contrato)|"
+                              r"assist\w* (?:o|ao) v[ií]deo|clicar no link|segue o link|LINK_DOCUMENTOS", re.I)
+AVISO_DE_GERANDO = "Perfeito! Estamos gerando o seu contrato."
+
+
+def _so_o_aviso_de_gerando(saida: Saida, mensagens: list[dict[str, Any]], etapa: str) -> list[dict[str, Any]]:
+    """Na resposta que aciona o contrato, só sai o aviso de que está gerando. Áudio, vídeo e "sua documentação está
+    pronta" quem manda é o sistema, e só com o contrato gerado (acoes._gerar_contrato). 28/11: o prompt antigo do
+    Contratos mandava a IA enviar as mídias e o texto junto; a ZapSign recusou (plano pendente) e o lead recebeu
+    "documentação pronta, o link chega abaixo" seguido de "a equipe vai finalizar o seu contrato"."""
+    ficam = [m for m in mensagens if m.get("tipo") == "texto" and not _CONTRATO_PRONTO.search(m.get("texto") or "")]
+    if len(ficam) != len(mensagens):
+        saida.eventos.append(_evento("contrato_aviso_antecipado", "info", "lawchat",
+                                     "A IA ia mandar mídia ou o texto de contrato pronto antes de o contrato ser gerado; "
+                                     "só o aviso de que está gerando saiu (o resto o sistema manda com o contrato pronto).",
+                                     etapa=etapa))
+    return ficam or [{"tipo": "texto", "texto": AVISO_DE_GERANDO}]
 
 
 _PERGUNTA = re.compile(r"[^?.!\n]*\?")
@@ -1346,7 +1367,9 @@ def _ultima_resposta_da_ia(historico: list[dict[str, str]]) -> list[str]:
 
 
 _REPETICAO_DO_LEAD = re.compile(r"\b(?:como (?:eu )?(?:te )?(?:falei|disse|mandei|passei)|ja (?:te )?(?:falei|disse|mandei|"
-                                r"passei|enviei|informei|respondi))\b")
+                                r"passei|enviei|informei|respondi)|(?:falei|disse|respondi|informei|escrevi|mandei) "
+                                r"(?:ali )?(?:acima|antes|agora|ai em cima|la em cima)|acabei de (?:te )?(?:falar|dizer|"
+                                r"responder|informar|mandar|escrever)|eu (?:te )?(?:falei|disse|respondi))\b")
 # Fala só de conversa (cumprimento, cortesia, "ok"): repetida, não é um dado repetido.
 _SO_CONVERSA = re.compile(r"\b(?:oi+|ola|alo|bom dia|boa tarde|boa noite|tudo bem|tudo bom|td bem|ok|okay|certo|sim|nao|"
                           r"entendi|blz|beleza|obrigad\w*|brigad\w*|valeu|e|ai|que|o|a|eu|ta|tá|bem|isso)\b")
