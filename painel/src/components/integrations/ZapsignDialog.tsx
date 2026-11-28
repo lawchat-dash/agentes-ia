@@ -93,7 +93,9 @@ export function ZapsignDialog({ open, onOpenChange, value, onSave, saving, produ
     const q = busca.trim().toLowerCase();
     if (!q) return modelos;
     return modelos.filter(
-      (m) => m.name.toLowerCase().includes(q) || m.variables.some((v) => v.toLowerCase().includes(q)),
+      // Nome, ID do modelo (o token da ZapSign, copiado pelo ícone) ou variável.
+      (m) => m.name.toLowerCase().includes(q) || String(m.id ?? "").toLowerCase().includes(q)
+        || m.variables.some((v) => v.toLowerCase().includes(q)),
     );
   }, [modelos, busca]);
 
@@ -258,7 +260,7 @@ export function ZapsignDialog({ open, onOpenChange, value, onSave, saving, produ
 
                   <div className="relative mb-2">
                     <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar modelo…" className="pl-9 h-9" />
+                    <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, ID do modelo ou variável…" className="pl-9 h-9" />
                   </div>
 
                   {modelos.length === 0 ? (
