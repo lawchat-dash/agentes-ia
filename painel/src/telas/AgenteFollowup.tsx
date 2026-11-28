@@ -559,7 +559,7 @@ export function AbaFollowup({ agente }: { agente: Agente }) {
             )}
             <span className="fu2-ajuda">Encerramento e contrato assinado nunca recebem follow-up.</span>
 
-            <div className="fu2-regra" style={{ marginTop: 12 }}>
+            <div className="fu2-regra">
               <span className="fu2-chip vermelho"><Ban size={16} /></span>
               <div className="fu2-regra-corpo"><b>Desistir do lead</b>
                 <span className="aj">Depois da última tentativa sem resposta, a IA encerra a conversa e dispara a automação “O lead não respondeu a nenhum follow-up”.</span>

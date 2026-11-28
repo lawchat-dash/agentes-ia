@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, Check, MessageSquare, Globe, Send, Plus, Chevron
 import { useTemplate } from "@/hooks/useTemplates";
 import { ActivationSummary } from "@/components/agent/ActivationSummary";
 import { TerminalAtivacao } from "@/components/agent/TerminalAtivacao";
-import { resolveGradient } from "@/data/categories";
+import { emojiDoProduto, getCategoryIcon, resolveGradient } from "@/data/categories";
 import { extractFields, extractAudios, fillField, sanitizeFieldValue, HighlightedTextarea } from "@/components/agent/HighlightedTextarea";
 import { RespostaComMidia } from "@/components/agent/RespostaComMidia";
 import { RevisarAtualizacao, AtualizacaoAplicada } from "@/components/agent/RevisarAtualizacao";
@@ -1481,7 +1481,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
       <AnimatePresence>
         {(submitting || buildError) && !isEdit && (
           <BuildingOverlay
-            c1={catC1} c2={catC2} stage={buildStage}
+            c1={catC1} c2={catC2} stage={buildStage} emoji={emojiDoProduto(template.icon)} categoria={template.category ?? undefined}
             productName={name || template.name} agentCount={pipelineAgents.length}
             error={buildError}
             onGoProducts={() => { setBuildError(null); navigate(`/meus-produtos`); }}
@@ -3019,8 +3019,8 @@ const fmtElapsed = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padSta
 
 /** Tela cheia de construção do agente — mostra o progresso real enquanto aguarda o
  *  servidor; se a ativação falhar/expirar, vira tela de ERRO (não volta pro wizard). */
-const BuildingOverlay = ({ c1, c2, stage, productName, agentCount, error, onGoProducts, onClose }: {
-  c1: string; c2: string; stage: number; productName: string; agentCount: number;
+const BuildingOverlay = ({ c1, c2, stage, productName, agentCount, error, onGoProducts, onClose, emoji, categoria }: {
+  c1: string; c2: string; stage: number; productName: string; agentCount: number; emoji?: string | null; categoria?: string;
   error?: string | null; onGoProducts: () => void; onClose: () => void;
 }) => {
   const [elapsed, setElapsed] = useState(0);
@@ -3073,21 +3073,29 @@ const BuildingOverlay = ({ c1, c2, stage, productName, agentCount, error, onGoPr
           </>
         ) : (
           <>
-            {/* Núcleo: o ícone da LawChat com anéis e um ponto orbitando */}
+            {/* Núcleo: o ícone do PRODUTO (emoji e cores do cartão do produto) com anéis e um ponto orbitando */}
             <div className="relative mx-auto size-24 mb-5">
-              <motion.div className="absolute inset-0 rounded-[28px]" style={{ backgroundImage: "linear-gradient(135deg, #3BE062, #00BC33 55%, #00852A)", boxShadow: "0 18px 40px -14px rgba(0,188,51,.65)" }}
+              <motion.div className="absolute inset-0 rounded-[28px] ring-1 ring-inset ring-white/20"
+                style={{ backgroundImage: `radial-gradient(130% 90% at 25% 0%, rgba(255,255,255,0.42), rgba(255,255,255,0) 58%), linear-gradient(135deg, ${c1} 0%, ${c2} 100%)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -4px 10px ${c2}66, 0 18px 40px -14px ${c1}cc` }}
                 animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }} />
-              <div className="absolute inset-0 grid place-items-center"><img src={iconeLawChat} alt="" className="size-14 drop-shadow" /></div>
+              <div className="absolute inset-0 grid place-items-center">
+                {emoji
+                  ? <span className="text-[44px] leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.25)]" aria-hidden>{emoji}</span>
+                  : (() => { const CatIcon = categoria ? getCategoryIcon(categoria) : null;
+                      return CatIcon ? <CatIcon className="size-11 text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.25)]" strokeWidth={2} />
+                        : <img src={iconeLawChat} alt="" className="size-14 drop-shadow" />; })()}
+              </div>
               {[0, 1].map((k) => (
-                <motion.div key={k} className="absolute -inset-2 rounded-[34px] border-2" style={{ borderColor: "rgba(0,188,51,.35)" }}
+                <motion.div key={k} className="absolute -inset-2 rounded-[34px] border-2" style={{ borderColor: `${c1}59` }}
                   animate={{ scale: [1, 1.28], opacity: [0.6, 0] }} transition={{ duration: 1.9, repeat: Infinity, ease: "easeOut", delay: k * 0.95 }} />
               ))}
               <motion.div className="absolute -inset-3" animate={{ rotate: 360 }} transition={{ duration: 3.4, repeat: Infinity, ease: "linear" }}>
-                <div className="absolute -top-0.5 left-1/2 -ml-1.5 size-3 rounded-full bg-[#3BE062]" style={{ boxShadow: "0 0 12px #3BE062" }} />
+                <div className="absolute -top-0.5 left-1/2 -ml-1.5 size-3 rounded-full" style={{ background: c1, boxShadow: `0 0 12px ${c1}` }} />
               </motion.div>
             </div>
 
-            <div className="text-[11px] font-bold uppercase tracking-[.14em] text-[#00a32c]">Construindo seu agente</div>
+            <div className="text-[11px] font-bold uppercase tracking-[.14em]" style={{ color: c2 }}>Construindo seu agente</div>
             <h2 className="text-2xl font-bold tracking-tight text-[#101828] mt-1 truncate">{productName}</h2>
             <p className="text-[13px] text-[#667085] mt-1">
               {waiting ? "Quase lá: aguardando a confirmação do servidor" : "Preparando tudo"} · não feche esta janela

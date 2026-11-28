@@ -391,6 +391,19 @@
 .fu2-etapa.on { border-color: #7DDC97; background: linear-gradient(180deg, #fff, #F5FCF7); }
 .fu2-etapa.on .fu2-chip { background: var(--mint); color: var(--brand); }
 .fu2-etapa.on .ck { background: var(--brand); border-color: var(--brand); color: #fff; transform: scale(1.05); }
+/* Etapas compactas: as 5 cabem numa linha no painel (de 5 a 2 por linha conforme a largura). */
+.fu2-etapas { grid-template-columns: repeat(auto-fit, minmax(98px, 1fr)); gap: 8px; }
+.fu2-etapa { padding: 11px 10px; min-height: 0; gap: 8px; border-radius: 14px; }
+.fu2-etapa .fu2-chip { width: 30px; height: 30px; border-radius: 9px; }
+.fu2-etapa .fu2-chip svg { width: 15px; height: 15px; }
+.fu2-etapa > div { padding-right: 0; }
+.fu2-etapa b { font-size: 12.5px; line-height: 1.25; overflow-wrap: normal; word-break: normal; hyphens: auto; }
+.fu2-etapa small { font-size: 10.5px; }
+.fu2-etapa .ck { top: 9px; right: 9px; width: 18px; height: 18px; }
+.fu2-etapa .ck svg { width: 11px; height: 11px; }
+.fu2-painel > .fu2-ajuda { position: relative; margin: 10px 0 14px; }
+/* Coluna flexível: sem isto os blocos encolhiam e o texto de ajuda ficava por baixo do "Desistir do lead". */
+.fu2-painel > * { flex-shrink: 0; }
 
 /* ── Mensagens: lista de etapas, editor e celular ── */
 .fu2-msg { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; align-items: start; }
