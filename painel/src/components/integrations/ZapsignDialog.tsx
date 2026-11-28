@@ -469,6 +469,9 @@ function Aba2Variaveis({ modelo, excluidas, onToggleExcluir, onAtualizarModelo }
 
 /* ---------- Linha da tabela de modelos ---------- */
 function ModelRow({ model, isDefault, onSetDefault }: { model: ZapsignModel; isDefault: boolean; onSetDefault: () => void }) {
+  // O selecionado mostra todas as variáveis; nos outros, "+N" abre o resto sem selecionar o modelo.
+  const [abertas, setAbertas] = useState(false);
+  const todas = isDefault || abertas;
   const copiarId = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard?.writeText(model.id);
@@ -501,12 +504,18 @@ function ModelRow({ model, isDefault, onSetDefault }: { model: ZapsignModel; isD
           <span className="text-[11px] text-[#cbd5e1]">— sem variáveis —</span>
         ) : (
           <>
-            {model.variables.slice(0, 4).map((v) => (
-              <code key={v} className="text-[10px] font-medium text-[#7c3aed] bg-[#ede9fe] rounded px-1.5 py-0.5 truncate max-w-[120px]" title={`{{${v}}}`}>{`{{${v}}}`}</code>
+            {(todas ? model.variables : model.variables.slice(0, 4)).map((v) => (
+              <code key={v} className={`text-[10px] font-medium text-[#7c3aed] bg-[#ede9fe] rounded px-1.5 py-0.5 ${todas ? "break-all" : "truncate max-w-[120px]"}`} title={`{{${v}}}`}>{`{{${v}}}`}</code>
             ))}
-            {model.variables.length > 4 && (
-              <span className="text-[10px] font-bold text-[#7c3aed] bg-[#ede9fe] rounded px-1.5 py-0.5">+{model.variables.length - 4}</span>
+            {!todas && model.variables.length > 4 && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); setAbertas(true); }} title="Ver todas as variáveis"
+                className="text-[10px] font-bold text-[#7c3aed] bg-[#ede9fe] hover:bg-[#ddd6fe] rounded px-1.5 py-0.5">+{model.variables.length - 4} ver todas</button>
             )}
+            {abertas && !isDefault && model.variables.length > 4 && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); setAbertas(false); }}
+                className="text-[10px] font-semibold text-[#667085] underline px-1">mostrar menos</button>
+            )}
+            {isDefault && <span className="basis-full text-[10.5px] text-[#667085] mt-0.5">{model.variables.length} variáve{model.variables.length === 1 ? "l" : "is"} neste modelo: confira todas em “Configurar Agentes”.</span>}
           </>
         )}
       </div>
