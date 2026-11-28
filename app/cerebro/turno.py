@@ -617,6 +617,16 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                                    "O lead desconfia (golpe, se o escritório é real). Mande, num balão, os DADOS DO "
                                    "ESCRITÓRIO (nome, endereço, OAB, CNPJ, site ou Instagram: o que houver), copiados "
                                    "exatamente, depois de acolher em 1 frase; e siga a etapa."))
+        if (not any(m["tipo"] == "midia" for m in mensagens) and resposta.get("ferramenta") != "zapsign"
+                and any(_DISSE_QUE_ENVIOU.search(n := normalizar_texto(t))
+                        # "o áudio que te mandei" com áudio já no histórico é lembrança, não promessa
+                        and not (ja_enviadas and re.search(r"\b(?:audio|video)\b", n)) for t in textos_turno)):
+            # Tickets (≈18): "falou que mandou o áudio e ficou perguntando se ele entendeu", "informou que enviou o
+            # contrato sem criá-lo", "enviei para o seu e-mail".
+            guardas.append(_Guarda("disse_que_enviou",
+                                   "Você disse que enviou (ou está enviando) um áudio, vídeo, link, contrato ou e-mail, mas "
+                                   "nada foi enviado nesta resposta. Ou mande a mídia do roteiro agora (o link exato), ou "
+                                   "tire essa frase. Nunca diga que mandou algo por e-mail."))
         if (juntas := _perguntas_juntas(textos_turno, sistema, "zapsign" in acoes)) > 1:
             guardas.append(_Guarda("duas_perguntas",
                                    f"Sua resposta tem {juntas} perguntas. Faça UMA pergunta só, no fim (a mais importante "
@@ -1057,6 +1067,13 @@ _DESCONFIANCA = re.compile(
     r"(?:sao|e) advogad\w* mesmo|tem oab|qual (?:e )?(?:a )?oab|numero da oab|cnpj|onde fica\w*|onde (?:e|sao) "
     r"(?:o escritorio|voces)|endereco do escritorio|qual (?:e )?o endereco|de onde (?:e|sao) voces|quem (?:sao|e) voces|"
     r"medo de cair|ja cai em|me enganar|enganad\w*)\b")
+
+
+_DISSE_QUE_ENVIOU = re.compile(
+    r"\b(?:(?:ja )?(?:te )?(?:enviei|mandei)|acabei de (?:te )?(?:enviar|mandar)|segue (?:o|a|abaixo)|"
+    r"(?:estou|to|vou) (?:te )?(?:enviando|mandando) (?:agora )?(?:o|a|um|uma)|enviado para o seu e ?mail|"
+    r"(?:mandei|enviei) (?:no|para o|pro) (?:seu )?e ?mail)\b.{0,40}\b(?:audio|video|link|contrato|documento|pdf|"
+    r"e ?mail|arquivo|mensagem de voz)\b")
 
 
 def _lead_desconfia(novas: list[str]) -> bool:

@@ -54,3 +54,10 @@ def test_sequela_contada_e_advogado_de_antes():
     antes = n("a advogada tinha mexido pra mim, mas foi negada, eu falei que ela pode deixar quieta")
     assert extrator._ADVOGADO_DE_ANTES.search(antes) and not extrator._ADVOGADO_HOJE.search(antes)
     assert not extrator._ADVOGADO_DE_ANTES.search(n("tenho advogado sim"))
+
+
+def test_disse_que_enviou_sem_enviar():
+    n = turno.normalizar_texto
+    assert turno._DISSE_QUE_ENVIOU.search(n("Enviei o contrato para o seu e-mail"))
+    assert turno._DISSE_QUE_ENVIOU.search(n("Já te enviei o áudio explicando, conseguiu ouvir?"))
+    assert not turno._DISSE_QUE_ENVIOU.search(n("Você recebeu o áudio?"))

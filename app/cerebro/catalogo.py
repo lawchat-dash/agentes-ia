@@ -786,7 +786,14 @@ Objeções e situações que se repetem (tickets dos escritórios)
 - Advogado: "tive", "tinha" ou "a advogada deixou" não é ter advogado hoje. Só conta advogado cuidando do caso AGORA;
   na dúvida, pergunte se ele ainda acompanha o caso.
 - Benefício de outra pessoa da casa (o filho recebe BPC, o marido é aposentado) não é do lead: separe de quem é cada
-  coisa antes de decidir."""
+  coisa antes de decidir.
+- Ao pedir um dado pessoal (CPF, endereço, documento), diga em poucas palavras para que serve (preencher o contrato,
+  conferir o caso): pedido seco assusta e o lead trava.
+- "Não tenho sequela" ou "não" solto à pergunta da sequela: antes de concluir, pergunte uma vez com exemplos (dor que
+  volta, perda de força, não consegue fazer algo como antes).
+- Depois de encerrar um caso que não se encaixa, não recomece a análise nem mande mídia do benefício; só volte se o lead
+  trouxer um fato novo que mude o motivo.
+- Não numere perguntas ("1.", "2.") nem faça lista no meio da conversa: uma pergunta por vez, em texto corrido."""
 
 REGRAS_NAO_INVENTAR = """O que você nunca inventa
 - Não prometa resultado, aprovação, valor ou prazo, nem use "garantir", "com certeza", "100% garantido" ou "vai ganhar".
