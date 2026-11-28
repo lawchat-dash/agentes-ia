@@ -654,9 +654,12 @@ async def _passo_produto(p_produto: Passo, repo: Any, id_escritorio: str, helena
 
 
 async def guardar_painel(repo: Any, id_escritorio: str, painel: dict[str, Any], mapa: dict[str, str],
-                         titulo: str | None = None) -> dict[str, Any]:
-    """Painel escolhido: na integração crm (que o motor lê: id_painel) e em dados_helena.ids (painel e etapas por tipo)."""
-    config = {"id_painel": painel["id"], "titulo_painel": titulo or painel["titulo"], "etapas_por_tipo": mapa}
+                         titulo: str | None = None, sem_uso: list[str] | None = None) -> dict[str, Any]:
+    """Painel escolhido: na integração crm (que o motor lê: id_painel) e em dados_helena.ids (painel e etapas por tipo).
+    sem_uso: etapas que o escritório não tem no CRM (a IA não move o card nesses momentos)."""
+    config: dict[str, Any] = {"id_painel": painel["id"], "titulo_painel": titulo or painel["titulo"], "etapas_por_tipo": mapa}
+    if sem_uso:
+        config["etapas_sem_uso"] = list(sem_uso)
     await repo.salvar_integracao(id_escritorio, "crm", situacao="ok", config=config)
     await sincronizar_conta.salvar_dados_helena(repo.pool, id_escritorio,
                                                 ids={"id_painel": painel["id"], "etapas_por_tipo": mapa})

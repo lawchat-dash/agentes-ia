@@ -153,10 +153,13 @@ async def calcular(pool: Any, id_escritorio: str) -> dict[str, Any]:
     # 3. CRM com as etapas da IA marcadas
     crm = (integracoes.get("crm") or {}).get("config") or {}
     por_tipo = crm.get("etapas_por_tipo") if isinstance(crm.get("etapas_por_tipo"), dict) else {}
-    marcadas = [t for t in TIPOS_CRM if por_tipo.get(t)]
-    if crm.get("id_painel") and len(marcadas) == len(TIPOS_CRM):
-        passo("crm", "feito", f"painel {crm.get('titulo_painel') or 'escolhido'} com as {len(TIPOS_CRM)} etapas marcadas",
-              "/crm", "Ver o CRM")
+    sem_uso = {t for t in (crm.get("etapas_sem_uso") or []) if t in TIPOS_CRM and t != "SDR"}
+    marcadas = [t for t in TIPOS_CRM if por_tipo.get(t) or t in sem_uso]
+    if crm.get("id_painel") and por_tipo.get("SDR") and len(marcadas) == len(TIPOS_CRM):
+        resumo = f"painel {crm.get('titulo_painel') or 'escolhido'} com as {len(TIPOS_CRM) - len(sem_uso)} etapas marcadas"
+        if sem_uso:
+            resumo += f" ({len(sem_uso)} sem uso)"
+        passo("crm", "feito", resumo, "/crm", "Ver o CRM")
     elif crm.get("id_painel"):
         passo("crm", "pendente", f"faltam {len(TIPOS_CRM) - len(marcadas)} etapa(s) para marcar no painel", "/crm", "Marcar etapas")
     else:

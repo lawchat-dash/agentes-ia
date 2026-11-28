@@ -2234,6 +2234,7 @@ export const ProductConfigurator = ({ mode = "create", editData, onUpdate }: Pro
                       onRemove={excludeAudioMarker}
                       sugestoes={sugestoesRoteiro}
                       onGravarRoteiro={roteiro?.total ? gravarRoteiro : undefined}
+                      opcionais={marcadoresDeObjecao}
                     />
                   )}
                   {step3Tab === "campos" && (

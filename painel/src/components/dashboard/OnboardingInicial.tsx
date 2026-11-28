@@ -132,7 +132,13 @@ export function OnboardingInicial({ dados, aoMudar }: { dados: PrimeirosPassosDa
                   </div>
                   <div className="lc-ob-passo__acao">
                     {feito ? (p.codigo === "dados" || p.codigo === "crm"
-                      ? <button type="button" className="lc-ob-btn lc-ob-btn--pequeno" onClick={() => resolver(p)}>{p.codigo === "dados" ? "Editar" : "Rever etapas"}</button>
+                      ? <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                          <span className="lc-ob-selo is-ok">Pronto</span>
+                          <button type="button" onClick={() => resolver(p)}
+                            style={{ background: "none", border: 0, padding: 0, font: "inherit", fontSize: 12, fontWeight: 600,
+                              color: "#475467", textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}>
+                            {p.codigo === "dados" ? "Editar" : "Alterar"}</button>
+                        </span>
                       : <span className="lc-ob-selo is-ok">{p.situacao === "nao_se_aplica" ? "Não se aplica" : "Pronto"}</span>)
                       : comEquipe ? <span className="lc-ob-selo">Com a equipe</span>
                         : destino ? (

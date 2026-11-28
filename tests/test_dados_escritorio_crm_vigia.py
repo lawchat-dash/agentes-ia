@@ -115,6 +115,18 @@ async def test_etapas_do_crm_marcadas_pelo_cliente(ambiente, monkeypatch):  # no
     passo = _passos((await cliente.get("/api/inicio/primeiros-passos", headers=h)).json())["crm"]
     assert passo["situacao"] == "feito" and "6 etapas" in passo["detalhe"]
 
+    # Escritório sem a coluna "Desqualificado": marca "não uso" e o passo fica pronto; a SDR nunca pode ficar sem coluna.
+    sem_desq = {t: c for t, c in MAPA.items() if t != "DESQUALIFICADO"}
+    assert (await cliente.put(url, headers=h, json={"id_painel": "painel-ia", "etapas_por_tipo": {t: c for t, c in MAPA.items() if t != "SDR"},
+                                                    "etapas_sem_uso": ["SDR"]})).status_code == 400
+    assert (await cliente.put(url, headers=h, json={"id_painel": "painel-ia", "etapas_por_tipo": sem_desq})).status_code == 400
+    r = await cliente.put(url, headers=h, json={"id_painel": "painel-ia", "etapas_por_tipo": sem_desq, "etapas_sem_uso": ["DESQUALIFICADO"]})
+    assert r.status_code == 200, r.text
+    crm = (await cliente.get("/api/integracoes", headers=h)).json()["integracoes"]["crm"]
+    assert crm["config"]["etapas_por_tipo"] == sem_desq and crm["config"]["etapas_sem_uso"] == ["DESQUALIFICADO"]
+    passo = _passos((await cliente.get("/api/inicio/primeiros-passos", headers=h)).json())["crm"]
+    assert passo["situacao"] == "feito" and "5 etapas" in passo["detalhe"] and "1 sem uso" in passo["detalhe"]
+
 
 @pg
 async def test_roteiro_so_no_plano_com_midia(ambiente):  # noqa: F811

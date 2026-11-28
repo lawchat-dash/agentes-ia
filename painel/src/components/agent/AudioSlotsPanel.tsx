@@ -29,6 +29,8 @@ interface Props {
   sugestoes?: Record<string, SugestaoDeMidia>;
   /** Abre o roteiro de gravação (salva o rascunho e vai para Roteiros). */
   onGravarRoteiro?: () => void;
+  /** Marcadores que NÃO são obrigatórios (áudios de objeção): sem áudio, o agente responde a objeção em texto. */
+  opcionais?: Set<string>;
 }
 
 /**
@@ -36,7 +38,12 @@ interface Props {
  * de mídia, TROCA o marcador pelo LINK direto no prompt (o bot envia o link, igual o @). Espelha a
  * "Edição rápida de Prompt" ({{ }} → valor).
  */
-export const AudioSlotsPanel = ({ markers, onFill, onFillMany, onRemove, sugestoes = {}, onGravarRoteiro }: Props) => {
+export const AudioSlotsPanel = ({ markers: todos, onFill, onFillMany, onRemove, sugestoes = {}, onGravarRoteiro, opcionais }: Props) => {
+  const ehOpcional = (mk: string) => !!opcionais?.has(mk);
+  // Obrigatórios primeiro; os opcionais (objeções) depois, com o selo "Não obrigatório".
+  const markers = [...todos.filter((m) => !ehOpcional(m)), ...todos.filter(ehOpcional)];
+  const nOpcionais = markers.filter(ehOpcional).length;
+  const nObrigatorios = markers.length - nOpcionais;
   const confirmarTodas = () => {
     const lista = Object.values(sugestoes).map((s) => ({ marcador: s.marcador, url: s.gravacao.url }));
     if (onFillMany) onFillMany(lista);
@@ -61,7 +68,12 @@ export const AudioSlotsPanel = ({ markers, onFill, onFillMany, onRemove, sugesto
             </p>
           </div>
         </div>
-        {markers.length > 0 && <Badge variant="outline" className="text-[11px]">{markers.length} pendente{markers.length > 1 ? "s" : ""}</Badge>}
+        {markers.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {nObrigatorios > 0 && <Badge variant="outline" className="text-[11px] border-amber-500/40 text-amber-700 bg-amber-500/10">{nObrigatorios} obrigatório{nObrigatorios > 1 ? "s" : ""}</Badge>}
+            {nOpcionais > 0 && <Badge variant="outline" className="text-[11px] text-muted-foreground">{nOpcionais} não obrigatório{nOpcionais > 1 ? "s" : ""}</Badge>}
+          </div>
+        )}
       </div>
 
       {Object.keys(sugestoes).length > 0 && (
@@ -76,6 +88,14 @@ export const AudioSlotsPanel = ({ markers, onFill, onFillMany, onRemove, sugesto
             onClick={confirmarTodas}>
             <CheckCircle2 className="size-3.5" />Confirmar todas
           </Button>
+        </div>
+      )}
+
+      {nOpcionais > 0 && (
+        <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/5 px-3 py-2.5 text-[12.5px] text-[#155e75] leading-relaxed">
+          <strong>Os áudios de objeção não são obrigatórios.</strong> Sem o áudio, o agente responde a objeção com o texto que já
+          está no roteiro, e você pode continuar normalmente. Com o áudio gravado, a resposta fica mais pessoal e o agente
+          converte melhor. Ao continuar sem eles, vamos perguntar se as objeções seguem em texto.
         </div>
       )}
 
@@ -97,6 +117,9 @@ export const AudioSlotsPanel = ({ markers, onFill, onFillMany, onRemove, sugesto
               <div className="flex items-center gap-2 min-w-0">
                 <div className="size-7 rounded-lg grid place-items-center shrink-0 bg-cyan-500/10 text-cyan-600"><Headphones className="size-3.5" /></div>
                 <code className="text-[13px] font-semibold text-foreground truncate">{`[[${mk}]]`}</code>
+                {ehOpcional(mk)
+                  ? <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border">Não obrigatório</span>
+                  : <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 border border-amber-500/30">Obrigatório</span>}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <button

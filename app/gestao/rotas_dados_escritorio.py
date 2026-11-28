@@ -107,20 +107,27 @@ class EtapasCrm(BaseModel):
     id_painel: str = Field(min_length=1, max_length=100)
     titulo_painel: str = Field(default="", max_length=200)
     etapas_por_tipo: dict[str, str]
+    etapas_sem_uso: list[str] = Field(default_factory=list, max_length=10)
 
 
 @api.put("/integracoes/crm/etapas")
 async def salvar_etapas_crm(dados: EtapasCrm, pedido: Request, ctx: Contexto = Depends(GESTAO)) -> dict[str, Any]:
     """O cliente marcou qual coluna do painel é cada etapa da IA. As colunas têm de ser do painel escolhido (lido de
-    novo na plataforma) e todas as 6 etapas precisam de coluna."""
+    novo na plataforma). Cada etapa tem coluna ou fica marcada como "não uso" (o escritório não tem essa coluna);
+    a SDR é obrigatória, porque é nela que o card do lead nasce."""
     from app.gestao import onboarding, painel_crm_padrao
     from app.gestao.rotas import paineis_crm
     tipos = set(painel_crm_padrao.TIPOS_NA_ORDEM)
-    mapa = {t: str(c) for t, c in dados.etapas_por_tipo.items() if t in tipos and c}
-    if set(dados.etapas_por_tipo) - tipos:
+    if (set(dados.etapas_por_tipo) | set(dados.etapas_sem_uso)) - tipos:
         raise HTTPException(400, "Etapa da IA desconhecida.")
-    if len(mapa) != len(tipos):
-        raise HTTPException(400, "Marque uma coluna do painel para cada etapa.")
+    sem_uso = [t for t in painel_crm_padrao.TIPOS_NA_ORDEM if t in set(dados.etapas_sem_uso)]
+    mapa = {t: str(c) for t, c in dados.etapas_por_tipo.items() if t in tipos and c and t not in sem_uso}
+    if "SDR" in sem_uso or "SDR" not in mapa:
+        raise HTTPException(400, "A etapa SDR precisa de uma coluna: é nela que o card do lead novo é criado.")
+    if set(mapa) | set(sem_uso) != tipos:
+        raise HTTPException(400, "Marque uma coluna do painel (ou \"Não uso esta etapa\") para cada etapa.")
+    if len(set(mapa.values())) != len(mapa):
+        raise HTTPException(400, "Cada etapa precisa de uma coluna diferente.")
     paineis = (await paineis_crm(pedido, ctx)).get("paineis") or []
     painel = next((p for p in paineis if str(p.get("id")) == dados.id_painel), None)
     if not painel:
@@ -131,7 +138,7 @@ async def salvar_etapas_crm(dados: EtapasCrm, pedido: Request, ctx: Contexto = D
     repo = _repo(pedido)
     antes = (await repo.integracao(ctx.escritorio(), "crm") or {}).get("config")
     config = await onboarding.guardar_painel(repo, ctx.escritorio(), {"id": str(painel["id"]), "titulo": painel.get("titulo") or ""},
-                                             mapa, titulo=dados.titulo_painel or painel.get("titulo"))
+                                             mapa, titulo=dados.titulo_painel or painel.get("titulo"), sem_uso=sem_uso)
     await repo.registrar_alteracao(id_usuario=ctx.id_usuario, id_escritorio=ctx.escritorio(), tabela="agentesia_integracoes",
                                    id_registro=None, acao="alterou", resumo="Etapas do CRM marcadas nos Primeiros passos",
                                    antes=antes, depois=config)
