@@ -129,7 +129,10 @@ REGRAS: tuple[_Regra, ...] = (
     # BPC: "Hoje ele recebe algum benefício, como aposentadoria ou pensão?" + "Não" = nenhum. "Sim" não diz qual
     # (fica para o extrator de IA). Antes da regra do aposentado: a pergunta do BPC cita aposentadoria como exemplo.
     # Só vale onde recebe_beneficio está no esquema (famílias BPC); no Auxílio-Acidente cai na regra seguinte.
-    _Regra("recebe_beneficio", _re(r"\b(?:beneficio\w*|bpc|loas|pensao|bolsa familia)\b"), valores={"nao": "nenhum"}),
+    # "Você já tem advogado cuidando desse pedido do BPC?" cita o BPC mas é a pergunta do advogado (28/11: o "não" virava
+    # recebe_beneficio=nenhum e o advogado nunca era gravado).
+    _Regra("recebe_beneficio", _re(r"\b(?:beneficio\w*|bpc|loas|pensao|bolsa familia)\b"), valores={"nao": "nenhum"},
+           nao_se=_re(r"\badvogad\w*")),
     _Regra("aposentado", _re(r"\baposentad\w*|\baposentadoria\w*")),
     _Regra("tem_advogado_no_caso", _re(r"\badvogad\w*|\bescritorio\w* (?:cuidando|olhando)|\bprocesso\b.*\bcaso\b")),
     _Regra("seguro_desemprego", _re(r"\bseguro desemprego\b")),

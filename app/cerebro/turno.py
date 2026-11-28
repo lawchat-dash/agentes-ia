@@ -472,6 +472,9 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     linhas += [f"- {t}" for t in entrada.novas]
     if dados := _dados_informados(saida):
         linhas.append("\nDADOS JÁ INFORMADOS PELO LEAD (não pergunte de novo): " + dados)
+    if primeiro := _primeiro_nome(saida.fatos_depois):
+        linhas.append(f"\nChame o lead só pelo primeiro nome: {primeiro} (nunca pelo nome completo, fora o resumo dos "
+                      "dados do contrato).")
     if conferencias:
         linhas += [""] + conferencias
     if linha_portao := _linha_do_portao(entrada, produto, papeis):
@@ -551,6 +554,11 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             guardas.append(_Guarda("pergunta_de_dado_informado",
                                    "O lead já informou " + ", ".join(ja_informados) + " (veja DADOS JÁ INFORMADOS): não "
                                    "pergunte de novo. Reconheça em poucas palavras e faça a próxima pergunta do roteiro."))
+        if repetidos := _baloes_ja_enviados(entrada, [m["texto"] for m in mensagens if m["tipo"] == "texto"], papeis):
+            guardas.append(_Guarda("balao_ja_enviado",
+                                   "Você já mandou estas mensagens antes nesta conversa: " + " | ".join(
+                                       r[:80] for r in repetidos[:3]) + ". Não mande de novo: responda ao que o lead "
+                                   "escreveu agora e siga o próximo passo do roteiro."))
         if resposta.get("ferramenta") == "zapsign" and "zapsign" in acoes and not confirmou:
             guardas.append(_Guarda("contrato_sem_confirmacao", ORIENTACAO_SEM_CONFIRMACAO))
         if (ferramentas["calculadora"] and etapa == "periododegraca" and resposta.get("notificacao") == "analise_humana"
@@ -694,6 +702,9 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     saida.contexto["etapa"] = escolhida.contexto
     base_conhecimento.registrar(saida, entrada, resposta.get("base"), etapa)
 
+    mensagens = _so_o_primeiro_nome(mensagens, saida.fatos_depois)
+    mensagens = _sem_baloes_ja_enviados(entrada, saida, mensagens, papeis, etapa)
+    mensagens = _para_na_pergunta_de_permissao(saida, mensagens, etapa)
     saida.mensagens = [m if m["tipo"] == "midia" else p for m in mensagens
                        for p in (formatador.formatar([m]) if m["tipo"] == "texto" else [{**m, "espera_s": 2.0}])]
     if ferramentas["calculadora"] or _espera_um_sim(mensagens):
@@ -726,6 +737,10 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     if ferramenta == "zapsign" and ferramenta in acoes and not repetida:
         saida.motivo = "dados_confirmados"            # o pipeline confere os dados e gera o contrato pela fila
         saida.mensagens = _so_o_aviso_de_gerando(saida, saida.mensagens, etapa)
+    if etapa == "assinatura" and not saida.intencoes.get("diz_que_assinou") and _DIZ_QUE_ASSINOU.search(
+            _fala_de_quem_assinou(" ".join(entrada.novas))):
+        # Reserva para o extrator de IA (revisão de 28/11: "Sim assinei" passava sem a conferência da assinatura).
+        saida.intencoes["diz_que_assinou"] = True
     if saida.intencoes.get("diz_que_assinou") and etapa == "assinatura":
         saida.motivo = "diz_que_assinou"
     notificacao = resposta.get("notificacao") or ""
@@ -752,6 +767,12 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
         saida.estado_lead, saida.motivo_estado = "pausado", "sinal:" + notificacao
         saida.motivo = saida.motivo_estado
         saida.eventos.append(_evento("sinal_" + notificacao, "aviso", "lead", f"Agente pediu: {notificacao}"))
+        # A IA para aqui e a equipe assume: uma pergunta no mesmo turno ficaria sem resposta (revisão de 28/11, BPC:
+        # pausou e pediu a data de nascimento).
+        sem_pergunta = [m for m in saida.mensagens if m.get("tipo") != "texto" or "?" not in str(m.get("texto") or "")]
+        if len(sem_pergunta) != len(saida.mensagens):
+            saida.mensagens = sem_pergunta if any(m.get("tipo") == "texto" for m in sem_pergunta) \
+                else _fixa(entrada, "sinal")
     if etapa == "desqualificado" and saida.etapa_depois == "sdr":
         _gravar_controle(saida, MARCA_VOLTOU_AO_SDR, True)    # a volta à qualificação vale uma vez por conversa
     if saida.etapa_depois != etapa and (papeis.get(saida.etapa_depois) or {}).get("boas_vindas"):
@@ -760,10 +781,127 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
     return saida
 
 
+_DIZ_QUE_ASSINOU = re.compile(r"\b(?:ja )?assinei\b|\b(?:ta|esta|ja esta|foi) assinad[oa]\b|\bconsegui assinar\b")
+_NAO_ASSINOU = re.compile(r"\b(?:nao|ainda nao|nem) (?:\w+ )?assinei\b")
+
+
+def _fala_de_quem_assinou(texto: str) -> str:
+    from app.cerebro.extrator import normalizar
+
+    texto = normalizar(texto)
+    return "" if _NAO_ASSINOU.search(texto) else texto
+
+
 # Texto da IA que anuncia o contrato pronto ou o link: quem diz isso é o sistema, depois que a ZapSign gera.
 _CONTRATO_PRONTO = re.compile(r"pront[ao]s? para (?:a )?assinatura|link (?:que chega|abaixo|de assinatura|do contrato)|"
                               r"assist\w* (?:o|ao) v[ií]deo|clicar no link|segue o link|LINK_DOCUMENTOS", re.I)
 AVISO_DE_GERANDO = "Perfeito! Estamos gerando o seu contrato."
+
+
+def _baloes_ja_enviados(entrada: Entrada, textos: list[str], papeis: dict[str, Any]) -> list[str]:
+    """Balões da resposta (40+ letras) quase iguais (> 0,9) a um balão que a IA já mandou em QUALQUER ponto da conversa
+    (revisão de 28/11: bloco de vantagens, "Conseguiu acessar o contrato?", despedida e resumo do desqualificado
+    reenviados, em 7 de 16 conversas do Auxílio e no BPC). Ficam de fora: frase de troca, aviso de contrato gerando e o
+    lead pedindo para repetir ou explicar."""
+    from app.cerebro.extrator import normalizar
+
+    if _PEDE_ESCLARECIMENTO.search(normalizar(" ".join(entrada.novas))) or \
+            _PEDE_REENVIO.search(normalizar(" ".join(entrada.novas))):
+        return []
+    ja = [normalizar(m.get("texto") or "") for m in entrada.historico if m.get("autor") in ("você", "ia")]
+    ja = [t for t in ja if len(t) >= 40]
+    if not ja:
+        return []
+    livres = {normalizar(AVISO_DE_GERANDO)} | {normalizar(str((c or {}).get("mensagem_troca") or ""))
+                                               for c in papeis.values() if isinstance(c, dict)}
+    # Retomar a pergunta que ficou pendente na última resposta ("bom dia" de novo, RG que ainda falta) é o certo: as
+    # travas de laço próprias (resposta_repetida, cpf_ja_conferido) cuidam desse caso.
+    ultimas = [normalizar(t) for t in _ultima_resposta_da_ia(entrada.historico)]
+    repetidos = []
+    for texto in textos:
+        atual = normalizar(texto)
+        if len(atual) < 40 or atual in livres:
+            continue
+        if any(difflib.SequenceMatcher(None, atual, u).ratio() > 0.9 for u in ultimas):
+            continue                    # repete a última resposta: é caso das travas de laço (resposta_repetida)
+        if any(difflib.SequenceMatcher(None, atual, antigo).ratio() > 0.9 for antigo in ja):
+            repetidos.append(texto)
+    return repetidos
+
+
+def _sem_baloes_ja_enviados(entrada: Entrada, saida: Saida, mensagens: list[dict[str, Any]], papeis: dict[str, Any],
+                            etapa: str) -> list[dict[str, Any]]:
+    """Depois da CORRIJA, o balão repetido que ainda veio sai da resposta, se sobrar outro balão de texto."""
+    repetidos = set(_baloes_ja_enviados(entrada, [m["texto"] for m in mensagens if m["tipo"] == "texto"], papeis))
+    if not repetidos:
+        return mensagens
+    restantes = [m for m in mensagens if not (m["tipo"] == "texto" and m["texto"] in repetidos)]
+    if not any(m["tipo"] == "texto" for m in restantes):
+        return mensagens
+    saida.eventos.append(_evento("balao_repetido_retirado", "info", "lawchat",
+                                 "A IA ia mandar de novo um texto que já tinha mandado; o balão não foi enviado.",
+                                 etapa=etapa, textos=[t[:200] for t in list(repetidos)[:3]]))
+    return restantes
+
+
+# Pergunta de licença para seguir: depois dela a IA espera o lead (28/11: "Posso te explicar como funciona o Auxílio
+# Acidente?" + áudio + "Conseguiu entender?" sem o lead responder).
+_PERGUNTA_DE_PERMISSAO = re.compile(r"\b(?:posso (?:te |lhe )?(?:explicar|mostrar|enviar|mandar|contar)|"
+                                    r"podemos (?:iniciar|seguir|comecar|continuar|prosseguir)|"
+                                    r"vamos (?:iniciar|seguir|comecar|continuar|prosseguir)|"
+                                    r"quer que eu (?:te )?(?:explique|mostre|envie|mande))\b")
+
+
+def _para_na_pergunta_de_permissao(saida: Saida, mensagens: list[dict[str, Any]], etapa: str) -> list[dict[str, Any]]:
+    """O que vem DEPOIS do balão que pede licença ("Posso te explicar...?") sai da resposta: o lead responde primeiro."""
+    from app.cerebro.extrator import normalizar
+
+    for i, m in enumerate(mensagens[:-1]):
+        if m["tipo"] != "texto":
+            continue
+        perguntas = [normalizar(q) for q in _PERGUNTA.findall(m.get("texto") or "")]
+        if perguntas and _PERGUNTA_DE_PERMISSAO.search(perguntas[-1]):
+            cortadas = mensagens[i + 1:]
+            saida.eventos.append(_evento("parou_na_pergunta_de_permissao", "info", "lawchat",
+                                         "A IA pediu licença para seguir e mandou mais coisa sem esperar a resposta; "
+                                         "o resto da resposta não foi enviado.", etapa=etapa,
+                                         cortadas=[str(c.get("texto") or c.get("url") or "")[:120] for c in cortadas][:4]))
+            return mensagens[:i + 1]
+    return mensagens
+
+
+_LINHA_DE_NOME = re.compile(r"(?i)\bnome(?: completo)?(?: d[oa] [\w()]+)?\s*:")
+
+
+def _primeiro_nome(fatos: dict[str, Any]) -> str:
+    """Primeiro nome de quem conversa (nome, ou o nome completo do contrato), com a primeira letra maiúscula."""
+    for chave in ("nome", "nome_completo"):
+        partes = str(fatos.get(chave) or "").split()
+        if partes and partes[0].isalpha() and len(partes[0]) >= 2:
+            return partes[0][:1].upper() + partes[0][1:].lower() if partes[0].isupper() or partes[0].islower() else partes[0]
+    return ""
+
+
+def _so_o_primeiro_nome(mensagens: list[dict[str, Any]], fatos: dict[str, Any]) -> list[dict[str, Any]]:
+    """O lead é chamado só pelo primeiro nome (pedido do dono, 28/11: "Certo, Pedro Paulão", "Ótimo, João Vitor Duarte
+    Souza"). Troca o nome com 2+ palavras (nome ou nome_completo) pelo primeiro nome, menos nas linhas de rótulo do
+    resumo do contrato ("Nome completo: ..."), onde o nome inteiro é o dado a conferir."""
+    nomes = sorted({str(fatos.get(c) or "").strip() for c in ("nome_completo", "nome")
+                    if len(str(fatos.get(c) or "").split()) >= 2}, key=len, reverse=True)
+    primeiro = _primeiro_nome(fatos)
+    if not nomes or not primeiro:
+        return mensagens
+    padrao = re.compile("|".join(r"\b" + r"\s+".join(map(re.escape, n.split())) + r"\b" for n in nomes), re.I)
+    saida = []
+    for m in mensagens:
+        if (m.get("tipo") != "texto" or not padrao.search(m.get("texto") or "")
+                or re.search(r"\d{3}\.?\d{3}\.?\d{3}-?\d{2}", m.get("texto") or "")):
+            saida.append(m)                         # sem o nome, ou é o resumo do contrato (tem o CPF): fica como está
+            continue
+        linhas = [linha if _LINHA_DE_NOME.search(linha) else padrao.sub(primeiro, linha)
+                  for linha in str(m["texto"]).split("\n")]
+        saida.append({**m, "texto": "\n".join(linhas)})
+    return saida
 
 
 def _correcao_do_contrato_respondida(entrada: Entrada, saida: Saida) -> bool:
@@ -805,7 +943,25 @@ _PERGUNTA_DO_DADO: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     ("auxilio_doenca", "se recebeu auxílio-doença", re.compile(r"\brecebeu (?:o )?auxilio doenca\b")),
     ("vinculo_na_data", "a carteira assinada na época", re.compile(r"\b(?:carteira assinada|clt|registrad\w*)\b")),
     ("sequela", "a sequela", re.compile(r"\b(?:ficou com|teve) (?:alguma )?(?:sequela|limitac\w*)\b")),
+    # Todos os produtos
+    ("tem_advogado_no_caso", "se tem advogado no caso", re.compile(r"\b(?:tem|possui|ja tem|esta com) (?:algum )?advogad")),
+    # Salário-Maternidade (revisão de 28/11: "Você está grávida?" para quem abriu com "Estou gestante", em 29 de 30)
+    ("situacao", "se está grávida ou se o bebê já nasceu",
+     re.compile(r"\b(?:voce )?(?:esta|ta) gravida\b|\bo bebe (?:ja )?nasceu\b|\bja teve o bebe\b")),
+    ("evento_mes_ano", "a data do parto", re.compile(r"\b(?:quando|em que mes|qual (?:o )?mes)\b.*\b(?:nasceu|parto)\b")),
+    ("ultima_contribuicao_mes_ano", "a última contribuição",
+     re.compile(r"\b(?:ultima contribuicao|ultimo emprego|quando (?:voce )?saiu)\b")),
+    ("seguro_desemprego", "o seguro-desemprego", re.compile(r"\bseguro desemprego\b")),
+    ("dez_anos_contribuicao", "os 10 anos de contribuição", re.compile(r"\b(?:10|dez) anos\b.*\bcontribu")),
+    ("ja_recebeu_por_esse_filho", "se já recebeu por esse filho", re.compile(r"\bja recebeu\b.*\b(?:filho|bebe|crianca)\b")),
+    # BPC
+    ("beneficiario_idade", "a idade", re.compile(r"\b(?:qual (?:e )?a idade|quantos anos)\b")),
+    ("recebe_beneficio", "se recebe algum benefício",
+     re.compile(r"\brecebe (?:algum |hoje algum )?(?:beneficio|aposentadoria|pensao)\b")),
+    ("pessoas_na_casa", "quantas pessoas moram na casa", re.compile(r"\bquantas pessoas\b")),
 )
+# Para estas, "não sei" já é resposta: perguntar de novo é laço (Período de Graça da maternidade, revisão de 28/11).
+_NAO_SABE_RESPONDE = {"seguro_desemprego", "dez_anos_contribuicao"}
 
 
 def _pergunta_de_dado_informado(textos: list[str], fatos: dict[str, Any], novas: list[str] = ()) -> list[str]:
@@ -822,7 +978,8 @@ def _pergunta_de_dado_informado(textos: list[str], fatos: dict[str, Any], novas:
             continue                          # confirmação do que ele disse, não pergunta nova
         for chave, rotulo, padrao in _PERGUNTA_DO_DADO:
             valor = fatos.get(chave)
-            if valor in (None, "", "nao_sabe") or rotulo in achados or not padrao.search(pergunta):
+            if (valor in (None, "") or (valor == "nao_sabe" and chave not in _NAO_SABE_RESPONDE)
+                    or rotulo in achados or not padrao.search(pergunta)):
                 continue
             if chave == "vinculo_na_data" and valor != "clt":
                 continue                      # "estava registrado?" depois de "era MEI" ainda é pergunta do roteiro
@@ -1756,6 +1913,14 @@ def _com_frase_de_troca(saida: Saida, mensagens: list[dict[str, Any]], destino: 
     if not frase or cfg.get("inserir_frase_de_troca") is False:
         return mensagens
     if catalogo.tem_frase([m.get("texto", "") for m in mensagens if m.get("tipo") == "texto"], frase):
+        return mensagens
+    from app.cerebro.extrator import normalizar
+
+    # A IA já fez a mesma pergunta da frase com outras palavras (revisão de 28/11: "me informe seu nome completo" duas
+    # vezes): pôr a frase também pediria o mesmo dado duas vezes.
+    perguntas_frase = [normalizar(q) for q in _PERGUNTA.findall(frase)] or [normalizar(frase)]
+    perguntas_ia = [normalizar(q) for m in mensagens if m.get("tipo") == "texto" for q in _PERGUNTA.findall(m.get("texto") or "")]
+    if perguntas_ia and any(difflib.SequenceMatcher(None, perguntas_ia[-1], p).ratio() > 0.75 for p in perguntas_frase):
         return mensagens
     saida.eventos.append(_evento("frase_de_troca_inserida", "info", "lawchat",
                                  f"A IA passou para {destino} sem a frase de troca; o sistema incluiu a frase.",

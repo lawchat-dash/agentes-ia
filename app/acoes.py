@@ -813,6 +813,49 @@ class Executor:
                                    {"ids": pendentes, "id_turno": dados.get("id_turno"), "reconferencia": True}, minutos=5)
         return {"falhas": len(falhas), "na_fila": len(pendentes)}
 
+    # ------------------------------------------------------------------ resposta cortada por reinício
+    async def _retomar_envio(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
+        """Agendada pelo envio do turno (pipeline._enviar) antes da 1ª parte. Se o servidor reiniciou no meio do envio
+        (turno 'turno_interrompido'), manda as partes que faltaram, na ordem. Turno terminado normal: nada a fazer.
+        28/11: saiu só o vídeo inicial; a apresentação e a pergunta se perderam e o lead ficou esperando."""
+        id_turno = str(dados.get("id_turno") or "")
+        partes = [p for p in dados.get("partes") or [] if isinstance(p, dict)]
+        turno = await self._pool.fetchrow(
+            "select situacao, motivo, iniciado_em, id_lead from agentesia_turnos where id = $1::uuid and id_escritorio = $2::uuid",
+            id_turno, contexto["id_escritorio"])
+        if not turno or not partes:
+            return {"acao": "nada", "motivo": "turno não encontrado"}
+        if turno["situacao"] == "processando":
+            voltas = int(dados.get("volta") or 0)
+            if voltas < 5:                              # o turno ainda corre (ou o servidor novo não varreu): confere depois
+                await self._enfileirar(contexto, "retomar_envio", f"{id_turno}:retomar:{voltas + 1}",
+                                       {**{k: v for k, v in dados.items() if k != "_id_acao"}, "volta": voltas + 1},
+                                       minutos=1)
+            return {"acao": "aguardando", "volta": voltas}
+        if turno["motivo"] != "turno_interrompido":
+            return {"acao": "nada", "motivo": "o envio terminou normal"}
+        # O lead já falou de novo e outro turno respondeu: a resposta antiga ficou para trás.
+        if await self._pool.fetchval("select exists(select 1 from agentesia_turnos where id_lead = $1 and iniciado_em > $2)",
+                                     turno["id_lead"], turno["iniciado_em"]):
+            return {"acao": "nada", "motivo": "a conversa já seguiu"}
+        lead = await self._lead_completo(contexto["lead"]["id"])
+        if (lead.get("estado") or "ativo") != "ativo":
+            return {"acao": "nada", "motivo": "o lead saiu da IA"}
+        enviadas = int(await self._pool.fetchval(
+            "select count(*) from agentesia_mensagens where id_turno = $1::uuid and autor = 'ia'", id_turno) or 0)
+        faltam = partes[enviadas:]
+        for i, parte in enumerate(faltam):
+            corpo = {"texto": parte["texto"]} if parte.get("texto") else {"url_arquivo": parte.get("url")}
+            if not corpo.get("texto") and not corpo.get("url_arquivo"):
+                continue
+            await self._enfileirar(contexto, "enviar_mensagem", f"{id_turno}:retomar:parte:{enviadas + i}", corpo,
+                                   minutos=i * 0.1)
+        if faltam:
+            await self._registrar_evento(contexto, "envio_retomado", "info", "lawchat",
+                                         f"O servidor reiniciou no meio da resposta da IA; as {len(faltam)} parte(s) que "
+                                         "faltavam foram enviadas.")
+        return {"acao": "retomou", "partes": len(faltam)}
+
     # ------------------------------------------------------------------ mensagem ao lead
     async def _enviar_mensagem(self, contexto: dict[str, Any], dados: dict[str, Any]) -> dict[str, Any]:
         lead = await self._lead_completo(contexto["lead"]["id"])
@@ -1543,4 +1586,5 @@ DESCRICOES = {"mover_card": "mover o card do CRM", "etiquetar": "trocar as etiqu
               "conferir_entrega": "conferir a entrega das mensagens da IA",
               "cancelar_contrato": "cancelar a versão antiga do contrato na ZapSign",
               "guardar_pdf_assinado": "guardar o PDF do contrato assinado",
-              "descrever_card": "pôr o resumo do contrato no card do CRM"}
+              "descrever_card": "pôr o resumo do contrato no card do CRM",
+              "retomar_envio": "mandar o resto da resposta cortada por um reinício"}

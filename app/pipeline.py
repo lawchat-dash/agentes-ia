@@ -2122,6 +2122,18 @@ class Atendimento:
         entregues = 0
         partes = list(saida.mensagens)
         interrompido = False
+        if de_verdade and token and lead.id_sessao_helena and len(partes) > 1:
+            # Rede para o reinício no meio do envio (deploy): a fila, que fica no banco, confere daqui a 90 s e manda o
+            # que faltou se o turno tiver sido cortado (acoes._retomar_envio). Envio completo: ela não faz nada.
+            try:
+                await self.repo.enfileirar_acoes(id_escritorio=escritorio.id, id_lead=lead.id, id_turno=id_turno, acoes=[{
+                    "tipo": "retomar_envio", "chave_unica": f"{id_turno}:retomar", "atraso_s": self.ESPERA_RETOMAR_ENVIO_S,
+                    "dados": {"id_turno": id_turno, "partes": [
+                        {"texto": p.get("texto")} if p["tipo"] == "texto" else
+                        {"url": p.get("url") or agente.config.get("midias", {}).get(p.get("chave", ""), {}).get("url")}
+                        for p in partes]}}])
+            except Exception:                                # a rede é um extra: nunca derruba o envio
+                log.exception("falha ao agendar a retomada do envio do turno %s", id_turno)
         for posicao, parte in enumerate(partes):
             texto = parte.get("texto") if parte["tipo"] == "texto" else None
             url = (parte.get("url") or agente.config.get("midias", {}).get(parte.get("chave", ""), {}).get("url")) if parte["tipo"] == "midia" else None
@@ -2337,6 +2349,7 @@ class Atendimento:
             log.exception("falha ao gravar a parte enviada no turno %s", campos.get("id_turno"))
 
     ATRASO_CONFERIR_ENTREGA_S = 60
+    ESPERA_RETOMAR_ENVIO_S = 90
     JANELA_DO_ECO_MIN = 15                                # eco de parte sem confirmação: até 15 min depois
 
     async def _eco_ja_chegou(self, lead: Lead, texto: str | None, url: str | None) -> str | None:

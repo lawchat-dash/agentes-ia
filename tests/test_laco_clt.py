@@ -150,3 +150,58 @@ async def test_cpf_respondido_ao_pedido_de_correcao_refaz_o_contrato_mesmo_sem_a
     saida = await turno.processar(modelo, entrada([CPF_VALIDO], etapa="contratos", fatos=dict(CONTRATO_SEM_CPF),
                                                   historico=[{"autor": "você", "texto": "Qual o seu CPF?"}]))
     assert saida.motivo != "dados_confirmados"
+
+
+def test_lead_e_chamado_so_pelo_primeiro_nome():
+    fatos = {"nome": "Pedro Paulão", "nome_completo": "João Vitor Duarte Souza"}
+    m = lambda t: {"tipo": "texto", "texto": t}
+    saida = turno._so_o_primeiro_nome([m("Certo, Pedro Paulão. Qual era a sua profissão?"),
+                                       m("Ótimo, João Vitor Duarte Souza. Agora me informe seu CPF."),
+                                       m("Vamos conferir:\nNome completo: João Vitor Duarte Souza\nEstá tudo certo?"),
+                                       m("Confira: João Vitor Duarte Souza, CPF 529.982.247-25. Está certo?")], fatos)
+    assert [x["texto"] for x in saida] == [
+        "Certo, Pedro. Qual era a sua profissão?", "Ótimo, Pedro. Agora me informe seu CPF.",
+        "Vamos conferir:\nNome completo: João Vitor Duarte Souza\nEstá tudo certo?",
+        "Confira: João Vitor Duarte Souza, CPF 529.982.247-25. Está certo?"]
+    assert turno._primeiro_nome({"nome": "MARIA DAS DORES"}) == "Maria"
+    assert turno._so_o_primeiro_nome([m("Oi, Ana!")], {"nome": "Ana"}) == [m("Oi, Ana!")]
+
+
+# ----------------------------------------------------------------------------- revisão de todos os produtos (28/11)
+def test_pergunta_de_dado_informado_nos_outros_produtos():
+    assert turno._pergunta_de_dado_informado(["Para começar, você está grávida?"], {"situacao": "gestante"})
+    assert turno._pergunta_de_dado_informado(["Você já tem advogado cuidando desse pedido do BPC?"],
+                                             {"tem_advogado_no_caso": "nao"})
+    assert turno._pergunta_de_dado_informado(["Você recebeu seguro-desemprego?"], {"seguro_desemprego": "nao_sabe"})
+    assert not turno._pergunta_de_dado_informado(["Você está grávida?"], {})
+
+
+def test_nao_ao_advogado_do_bpc_grava_o_advogado():
+    hist = [{"autor": "você", "texto": "Você já tem advogado cuidando desse pedido do BPC?"}]
+    achados = resposta_curta.resolver(hist, ["Não"], {"tem_advogado_no_caso", "recebe_beneficio"}, normalizar)
+    assert [(a.chave, a.valor) for a in achados] == [("tem_advogado_no_caso", "nao")]
+
+
+def test_balao_ja_enviado_e_pergunta_de_permissao():
+    from tests.test_catalogo_weaver import entrada
+
+    bloco = "✅ Renda extra mensal até a aposentadoria. ✅ Você continua trabalhando normalmente."
+    antes = [{"autor": "você", "texto": bloco}, {"autor": "lead", "texto": "sim"},
+             {"autor": "você", "texto": "Antes de falar em valor, quero te mostrar por que vale a pena."}]
+    e = entrada(["Como faço pra dar andamento?"], historico=antes)
+    # Repetir a ÚLTIMA resposta fica com as travas de laço próprias:
+    assert turno._baloes_ja_enviados(entrada(["ok"], historico=[{"autor": "você", "texto": bloco}]), [bloco], {}) == []
+    assert turno._baloes_ja_enviados(e, [bloco, "Vamos seguir?"], {}) == [bloco]
+    e2 = entrada(["Não entendi"], historico=antes)
+    assert turno._baloes_ja_enviados(e2, [bloco], {}) == []
+    saida = turno.Saida()
+    msgs = [{"tipo": "texto", "texto": "Maravilha!"}, {"tipo": "texto", "texto": "Posso te explicar como funciona?"},
+            {"tipo": "midia", "url": "https://x/a.ogg"}, {"tipo": "texto", "texto": "Conseguiu entender?"}]
+    assert [m.get("texto") for m in turno._para_na_pergunta_de_permissao(saida, msgs, "sdr")] == [
+        "Maravilha!", "Posso te explicar como funciona?"]
+    assert turno._para_na_pergunta_de_permissao(saida, msgs[2:], "closer") == msgs[2:]
+
+
+def test_diz_que_assinou_pela_frase():
+    assert turno._DIZ_QUE_ASSINOU.search(turno._fala_de_quem_assinou("Sim assinei"))
+    assert not turno._DIZ_QUE_ASSINOU.search(turno._fala_de_quem_assinou("ainda não assinei"))
