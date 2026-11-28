@@ -104,6 +104,10 @@ GUIA_DA_QUALIFICACAO = {
                         "da casa não conta)",
     "pessoas_na_casa": "quantas pessoas moram na casa, contando quem vai receber (número inteiro)",
     "renda_casa": "renda da casa como o lead disse (\"um salário mínimo\", \"uns 1.500\"), sem fazer conta",
+    "renda_total_reais": "soma em reais, por mês, do que TODAS as pessoas da casa recebem (salário, bico, aposentadoria, "
+                         "pensão, aluguel), SEM Bolsa Família e sem o BPC de outra pessoa com deficiência da casa. Só com "
+                         "os valores que o lead disse (\"um salário mínimo\" = 1621). Quando ele contar mais uma renda, "
+                         "devolva a soma nova; \"ninguém trabalha\", \"não tenho renda\" = 0",
 }
 # Valores aceitos dos fatos do BPC (mesmo formato de aa.FATOS: None = texto livre, "int:a-b" = inteiro no intervalo).
 FATOS_BPC: dict[str, tuple[str, ...] | str | None] = {
@@ -113,6 +117,7 @@ FATOS_BPC: dict[str, tuple[str, ...] | str | None] = {
     "recebe_beneficio": ("nenhum", "bpc", "aposentadoria", "pensao_morte", "auxilio_doenca", "bolsa_familia", "outro"),
     "pessoas_na_casa": "int:1-30",
     "renda_casa": None,
+    "renda_total_reais": "int:0-200000",
     "tem_advogado_no_caso": ("sim", "nao"),
 }
 

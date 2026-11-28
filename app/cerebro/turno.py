@@ -477,6 +477,8 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
                       "dados do contrato).")
     if conferencias:
         linhas += [""] + conferencias
+    if linha_renda := _linha_da_renda_bpc(produto, saida.fatos_depois):
+        linhas.append("\n" + linha_renda)
     if linha_portao := _linha_do_portao(entrada, produto, papeis):
         linhas.append("\n" + linha_portao)
     if saida.contexto.get("barreira") == "fora_do_tema":
@@ -554,6 +556,14 @@ async def _turno_catalogo(modelo: Modelo, entrada: Entrada, produto: Any, saida:
             guardas.append(_Guarda("pergunta_de_dado_informado",
                                    "O lead já informou " + ", ".join(ja_informados) + " (veja DADOS JÁ INFORMADOS): não "
                                    "pergunte de novo. Reconheça em poucas palavras e faça a próxima pergunta do roteiro."))
+        if (_faixa_da_renda_bpc(produto, saida.fatos_depois) == "qualifica"
+                and (resposta.get("notificacao") == "analise_humana" or destino == "desqualificado")
+                and str(saida.fatos_depois.get("tem_advogado_no_caso") or "") != "sim"
+                and str(saida.fatos_depois.get("recebe_beneficio") or "nenhum") in ("nenhum", "bolsa_familia")):
+            guardas.append(_Guarda("renda_bpc_qualifica",
+                                   "Pela conta do sistema, a renda por pessoa da casa está na faixa que qualifica. Não mande "
+                                   "para a equipe nem desqualifique por renda ou gastos: siga o roteiro (advogado e, sem "
+                                   "advogado, passe para o Closer). Deixe notificacao vazia."))
         if etapa != "periododegraca" and (sem_motivo := _desqualificacao_sem_motivo(entrada, produto, saida, destino)):
             # No Período de Graça quem decide é a conta das datas (linhas do sistema), não um fato de desqualificar.
             guardas.append(_Guarda("desqualificacao_sem_motivo", sem_motivo))
@@ -926,6 +936,43 @@ def _so_o_primeiro_nome(mensagens: list[dict[str, Any]], fatos: dict[str, Any]) 
                   for linha in str(m["texto"]).split("\n")]
         saida.append({**m, "texto": "\n".join(linhas)})
     return saida
+
+
+# Salário mínimo de referência das faixas do BPC (roteiros: até R$ 810,50 por pessoa qualifica; até R$ 1.000 depende
+# dos gastos). Lote 1 do teste real (28/11): 3 de 6 conversas do BPC Autismo foram para a equipe com renda que qualificava.
+BPC_FAIXA_QUALIFICA = 810.50
+BPC_FAIXA_GASTOS = 1000.00
+
+
+def _renda_por_pessoa_bpc(produto: Any, fatos: dict[str, Any]) -> float | None:
+    from app.cerebro import catalogo
+
+    if not catalogo.familia_do_produto(getattr(produto, "config", {}) or {}).startswith("bpc"):
+        return None
+    try:
+        renda, pessoas = float(fatos.get("renda_total_reais")), int(fatos.get("pessoas_na_casa"))
+    except (TypeError, ValueError):
+        return None
+    return renda / pessoas if pessoas > 0 else None
+
+
+def _faixa_da_renda_bpc(produto: Any, fatos: dict[str, Any]) -> str | None:
+    por_pessoa = _renda_por_pessoa_bpc(produto, fatos)
+    if por_pessoa is None:
+        return None
+    return "qualifica" if por_pessoa <= BPC_FAIXA_QUALIFICA else "gastos" if por_pessoa <= BPC_FAIXA_GASTOS else "acima"
+
+
+def _linha_da_renda_bpc(produto: Any, fatos: dict[str, Any]) -> str | None:
+    faixa = _faixa_da_renda_bpc(produto, fatos)
+    if faixa is None:
+        return None
+    por_pessoa = _renda_por_pessoa_bpc(produto, fatos)
+    texto = {"qualifica": "está na faixa que QUALIFICA pela renda: não pergunte gastos, siga para o advogado",
+             "gastos": "está na faixa intermediária: pergunte os gastos com a condição (seção de gastos do roteiro)",
+             "acima": "está acima das faixas: siga o roteiro para renda alta (gastos e, se não baixar, a regra do roteiro)"}
+    return (f"(sistema) Renda por pessoa da casa: R$ {por_pessoa:,.2f} ({fatos.get('renda_total_reais')} / "
+            f"{fatos.get('pessoas_na_casa')} pessoas). Conta interna, nunca mostre ao lead. {texto[faixa]}.")
 
 
 def normalizar_texto(texto: str) -> str:

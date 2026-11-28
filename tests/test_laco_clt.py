@@ -233,3 +233,17 @@ def test_resumo_aceito_com_tudo_bem():
     assert turno._resumo_aceito(e, s)
     e2 = entrada(["não, o CPF está errado"], etapa="contratos", historico=[{"autor": "você", "texto": resumo}])
     assert not turno._resumo_aceito(e2, s)
+
+
+def test_renda_por_pessoa_do_bpc():
+    prod = catalogo.carregar({"catalogo": {"slug": "bpc-loas-autismo-v2", "papeis": {"sdr": {}, "closer": {}}}})
+    assert prod.familia.startswith("bpc")
+    assert "renda_total_reais" in prod.esquema_extrator()["properties"]["fatos"]["items"]["properties"]["chave"]["enum"]
+    fatos = {"renda_total_reais": 2100, "pessoas_na_casa": 4}
+    assert turno._faixa_da_renda_bpc(prod, fatos) == "qualifica"
+    assert "R$ 525,00" in turno._linha_da_renda_bpc(prod, fatos).replace(",", "X").replace(".", ",").replace("X", ".") \
+        or "525.00" in turno._linha_da_renda_bpc(prod, fatos)
+    assert turno._faixa_da_renda_bpc(prod, {"renda_total_reais": 3800, "pessoas_na_casa": 4}) == "gastos"
+    assert turno._faixa_da_renda_bpc(prod, {"renda_total_reais": 2100}) is None
+    aux = catalogo.carregar({"catalogo": {"slug": "auxilio-acidente-v2", "papeis": {"sdr": {}}}})
+    assert turno._faixa_da_renda_bpc(aux, fatos) is None
